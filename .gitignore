@@ -1,0 +1,29 @@
+node_modules
+dist
+out
+.DS_Store
+.eslintcache
+*.log*
+
+# OpenCode
+.opencode/
+.openwork/
+.shared/
+*.omo
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+~$*
+.DS_Store
+
+# Config (user-specific)
+config/config.json
+config/*.json.backup
+*.local.json

@@ -1,0 +1,60 @@
+appId: com.kuruharu.app
+productName: KuruHaru
+directories:
+  output: dist
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - 'out/**/*'
+  - '!out/**/*.map'
+extraResources:
+  - from: config
+    to: config
+  - from: resources/default-avatar.png
+    to: default-avatar.png
+asarUnpack:
+  - resources/**
+win:
+  executableName: KuruHaru
+  icon: build/icon.ico
+  target: nsis
+mac:
+  icon: build/icon.icns
+  target: dmg
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    - NSCameraUsageDescription: Application requests access to the device's camera.
+    - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
+    - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
+    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+  notarize: false
+linux:
+  icon: build/icon.png
+  target:
+    - AppImage
+    - snap
+    - deb
+  maintainer: electronjs.org
+  category: Utility
+nsis:
+  artifactName: ${productName}-${version}-setup.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+dmg:
+  artifactName: ${productName}-${version}.${ext}
+appImage:
+  artifactName: ${productName}-${version}.${ext}
+compression: store
+npmRebuild: false
+buildDependenciesFromSource: false
+nodeGypRebuild: false
+publish:
+  provider: generic
+  url: https://example.com/auto-updates
+electronDownload:
+  mirror: https://npmmirror.com/mirrors/electron/

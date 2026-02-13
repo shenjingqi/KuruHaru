@@ -1,0 +1,56 @@
+{
+  "profile": {
+    "username": "User",
+    "avatar": null,
+    "status": "online",
+    "lastActive": null
+  },
+  "tg": {
+    "apiId": "",
+    "apiHash": "",
+    "phone": "",
+    "session": "",
+    "discussion": "",
+    "channel": ""
+  },
+  "asmr": {
+    "username": "",
+    "password": "",
+    "token": "",
+    "playlistId": "",
+    "rememberMe": false
+  },
+  "paths": {
+    "configDir": "",
+    "sourceDir": "",
+    "toolOutputDir": "",
+    "whisperTargetPath": "",
+    "dataDir": "",
+    "logsDir": "",
+    "chineseListPath": "",
+    "tgDownloadDir": "",
+    "configFilePath": "",
+    "tagsDir": "",
+    "historyDir": "",
+    "uploadHistoryDir": ""
+  },
+  "upload": {
+    "channelId": ""
+  },
+  "whisper": {
+    "exePath": "",
+    "targetPath": "",
+    "subFormats": ["lrc"]
+  },
+  "logging": {
+    "level": "info",
+    "enableFileLog": true
+  },
+  "system": {
+    "theme": "auto",
+    "language": "zh",
+    "autoStart": false,
+    "minimizeToTray": true,
+    "saveCustomPaths": true
+  }
+}
