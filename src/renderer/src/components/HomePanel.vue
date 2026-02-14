@@ -6,8 +6,12 @@
         <h2 class="page-title">仪表盘</h2>
       </div>
       <div class="header-actions">
-        <button class="btn-primary" :disabled="isLoading" @click="handleManualScan">
-          {{ isLoading ? '扫描中...' : '扫描讨论组' }}
+        <button
+          class="btn-primary"
+          :disabled="isLoading"
+          @click="handleManualScan"
+        >
+          {{ isLoading ? "扫描中..." : "扫描讨论组" }}
         </button>
       </div>
     </div>
@@ -47,12 +51,16 @@
 
       <div class="history-list">
         <div v-if="recentHistory.length > 0">
-          <div v-for="item in recentHistory" :key="item.id" class="history-item">
+          <div
+            v-for="item in recentHistory"
+            :key="item.id"
+            class="history-item"
+          >
             <div class="item-left">
               <span class="code-badge">{{ item.id }}</span>
               <span v-if="item.name" class="file-name">{{ item.name }}</span>
             </div>
-            <span class="time">{{ item.date || '未知时间' }}</span>
+            <span class="time">{{ item.date || "未知时间" }}</span>
           </div>
         </div>
         <div v-else class="empty-state">
@@ -65,131 +73,199 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted } from "vue";
+import { useMessage, useDialog } from "naive-ui";
 
-const historyList = ref([])
-const daysSinceUpdate = ref('未知')
-const isLoading = ref(false)
+const message = useMessage();
+const dialog = useDialog();
+
+const historyList = ref([]);
+const daysSinceUpdate = ref("未知");
+const isLoading = ref(false);
+
+// 防抖相关
+const lastScanTime = ref(0);
+const SCAN_DEBOUNCE_MS = 3000; // 3秒防抖
 
 const recentHistory = computed(() => {
   return historyList.value
     .filter((item) => item.rawDate) // 只保留有日期的文件
     .sort((a, b) => new Date(b.rawDate) - new Date(a.rawDate)) // 按上传时间降序排序（最新的在前）
-    .slice(0, 10) // 取前10条
-})
+    .slice(0, 10); // 取前10条
+});
 
 const totalUploads = computed(() => {
-  return historyList.value.length
-})
+  return historyList.value.length;
+});
 
 const todayUploads = computed(() => {
-  const today = new Date().toDateString()
+  const today = new Date().toDateString();
   return historyList.value.filter((item) => {
-    if (!item.rawDate) return false
-    return new Date(item.rawDate).toDateString() === today
-  }).length
-})
+    if (!item.rawDate) return false;
+    return new Date(item.rawDate).toDateString() === today;
+  }).length;
+});
 
 const getDaysSince = (dateString) => {
-  if (!dateString) return '未知'
-  const date = new Date(dateString)
-  const now = new Date()
-  const diffTime = Math.abs(now - date)
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-  return diffDays === 0 ? '今天' : `${diffDays} 天前`
-}
+  if (!dateString) return "未知";
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffTime = Math.abs(now - date);
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return diffDays === 0 ? "今天" : `${diffDays} 天前`;
+};
 
 const refreshData = async () => {
-  isLoading.value = true
+  isLoading.value = true;
   try {
-    const recentActivity = await window.api.tgReadRecentActivity()
+    const recentActivity = await window.api.tgReadRecentActivity();
     if (recentActivity && recentActivity.success && recentActivity.data) {
       if (recentActivity.data.files) {
         // 映射并去重（按 ID 去重，保留最新的）
-        const fileMap = new Map()
+        const fileMap = new Map();
         recentActivity.data.files.forEach((file) => {
-          const id = file.rjCode || file.id
-          const existing = fileMap.get(id)
+          const id = file.rjCode || file.id;
+          const existing = fileMap.get(id);
 
           // 确保有必要的属性
           if (!file.name && file.fileName) {
-            file.name = file.fileName
+            file.name = file.fileName;
           }
 
           // 如果已存在，保留日期较新的
           if (existing) {
-            const existingDate = new Date(existing.rawDate).getTime()
-            const newDate = new Date(file.date).getTime()
+            const existingDate = new Date(existing.rawDate).getTime();
+            const newDate = new Date(file.date).getTime();
             if (newDate > existingDate) {
               fileMap.set(id, {
                 id: id,
-                date: file.date ? new Date(file.date).toLocaleString('zh-CN') : '未知时间',
+                date: file.date
+                  ? new Date(file.date).toLocaleString("zh-CN")
+                  : "未知时间",
                 rawDate: file.date,
-                name: file.name || file.fileName || 'unknown'
-              })
+                name: file.name || file.fileName || "unknown",
+              });
             }
           } else {
             fileMap.set(id, {
               id: id,
-              date: file.date ? new Date(file.date).toLocaleString('zh-CN') : '未知时间',
+              date: file.date
+                ? new Date(file.date).toLocaleString("zh-CN")
+                : "未知时间",
               rawDate: file.date,
-              name: file.name || file.fileName || 'unknown'
-            })
+              name: file.name || file.fileName || "unknown",
+            });
           }
-        })
-        historyList.value = Array.from(fileMap.values())
+        });
+        historyList.value = Array.from(fileMap.values());
       }
 
       // 优先使用新的 anchor 日期，向后兼容 currentAnchor 和 referenceFile
-      const metadata = recentActivity.data?.metadata
+      const metadata = recentActivity.data?.metadata;
       if (metadata?.anchor) {
-        const refDate = metadata.anchor.date
-        daysSinceUpdate.value = getDaysSince(refDate)
+        const refDate = metadata.anchor.date;
+        daysSinceUpdate.value = getDaysSince(refDate);
       } else if (metadata?.currentAnchor) {
-        const refDate = metadata.currentAnchor.date
-        daysSinceUpdate.value = getDaysSince(refDate)
+        const refDate = metadata.currentAnchor.date;
+        daysSinceUpdate.value = getDaysSince(refDate);
       } else if (metadata?.referenceFile) {
-        const refDate = metadata.referenceFile.date
-        daysSinceUpdate.value = getDaysSince(refDate)
+        const refDate = metadata.referenceFile.date;
+        daysSinceUpdate.value = getDaysSince(refDate);
       }
     }
   } catch (e) {
-    console.error('刷新数据失败:', e)
+    console.error("刷新数据失败:", e);
   } finally {
-    isLoading.value = false
+    isLoading.value = false;
   }
-}
+};
 
 const scanInBackground = async () => {
   try {
-    await window.api.tgScanRecentActivity()
-    await refreshData()
+    await window.api.tgScanRecentActivity();
+    await refreshData();
   } catch (e) {
-    console.error('后台扫描失败:', e)
+    console.error("后台扫描失败:", e);
   }
-}
+};
 
 const handleManualScan = async () => {
-  console.log('🔥 HOME PANEL BUTTON CLICKED')
-  isLoading.value = true
+  console.log("🔥 HOME PANEL BUTTON CLICKED");
+
+  // 防抖检查：如果正在扫描中，直接返回
+  if (isLoading.value) {
+    message.warning("扫描正在进行中，请稍候...");
+    return;
+  }
+
+  // 防抖检查：检查时间间隔
+  const now = Date.now();
+  const timeSinceLastScan = now - lastScanTime.value;
+  if (timeSinceLastScan < SCAN_DEBOUNCE_MS) {
+    const remainingSeconds = Math.ceil(
+      (SCAN_DEBOUNCE_MS - timeSinceLastScan) / 1000,
+    );
+    message.warning(`请等待 ${remainingSeconds} 秒后再试`);
+    return;
+  }
+
+  // 更新最后扫描时间
+  lastScanTime.value = now;
+  isLoading.value = true;
+
+  // 显示加载提示
+  const loadingMessage = message.loading("正在连接 Telegram 扫描文件...", {
+    duration: 0,
+  });
+
   try {
     // FIX: Show cached data immediately first (like startup behavior)
-    console.log('🔥 SHOWING CACHED DATA FIRST')
-    await refreshData()
+    console.log("🔥 SHOWING CACHED DATA FIRST");
+    await refreshData();
 
     // FIX: Run scan in background, don't block UI
-    console.log('🔥 RUNNING SCAN IN BACKGROUND')
-    scanInBackground()
+    console.log("🔥 RUNNING SCAN IN BACKGROUND");
+    const result = await window.api.tgScanRecentActivity();
+    await refreshData();
+
+    // 关闭加载提示
+    loadingMessage.destroy();
+
+    if (result && result.success) {
+      // 显示成功提示
+      const fileCount = historyList.value.length;
+      dialog.success({
+        title: "扫描完成",
+        content: `成功获取到 ${fileCount} 个文件`,
+        positiveText: "确定",
+      });
+    } else {
+      // 显示失败弹窗
+      dialog.error({
+        title: "扫描失败",
+        content: result?.error || "未知错误，请检查网络连接或配置",
+        positiveText: "确定",
+      });
+    }
   } catch (e) {
-    console.error('手动扫描失败:', e)
-    isLoading.value = false
+    // 关闭加载提示
+    loadingMessage.destroy();
+
+    console.error("手动扫描失败:", e);
+    dialog.error({
+      title: "扫描出错",
+      content: e?.message || "扫描过程出错，请检查网络或控制台日志",
+      positiveText: "确定",
+    });
+  } finally {
+    isLoading.value = false;
   }
-}
+};
 
 onMounted(async () => {
-  await refreshData()
-  scanInBackground()
-})
+  await refreshData();
+  scanInBackground();
+});
 </script>
 
 <style scoped>

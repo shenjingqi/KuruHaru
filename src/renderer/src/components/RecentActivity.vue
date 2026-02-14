@@ -3,15 +3,19 @@
     <div class="page-header">
       <h2 class="page-title">TG打包下载</h2>
       <div class="header-actions">
-        <button class="btn-secondary" :disabled="isScanning" @click="scanRecentActivity">
-          {{ isScanning ? '扫描中...' : '扫描讨论组' }}
+        <button
+          class="btn-secondary"
+          :disabled="isScanning"
+          @click="scanRecentActivity"
+        >
+          {{ isScanning ? "扫描中..." : "扫描讨论组" }}
         </button>
         <button
           class="btn-primary"
           :disabled="selectedFiles.length === 0 || isDownloading"
           @click="startDownload"
         >
-          {{ isDownloading ? '下载中...' : `下载 (${selectedFiles.length})` }}
+          {{ isDownloading ? "下载中..." : `下载 (${selectedFiles.length})` }}
         </button>
       </div>
     </div>
@@ -66,7 +70,9 @@
       <div v-else-if="allFiles.length === 0" class="empty-activity">
         <span class="empty-icon">📁</span>
         <p>暂无文件，点击扫描讨论组获取</p>
-        <button class="btn-primary" @click="scanRecentActivity">扫描讨论组</button>
+        <button class="btn-primary" @click="scanRecentActivity">
+          扫描讨论组
+        </button>
       </div>
 
       <div v-else class="files-list">
@@ -76,7 +82,7 @@
           class="file-item"
           :class="{
             selected: selectedFileIds.has(file.id),
-            skipped: skipFiles.some((f) => f.id === file.id)
+            skipped: skipFiles.some((f) => f.id === file.id),
           }"
           @click="toggleSelect(file.id)"
         >
@@ -91,17 +97,29 @@
           <span class="file-name">{{ file.name }}</span>
           <span class="file-date">{{ formatDate(file.date) }}</span>
           <span class="file-size">{{ formatSize(file.size) }}</span>
-          <span v-if="skipFiles.some((f) => f.id === file.id)" class="skip-badge">跳过</span>
+          <span
+            v-if="skipFiles.some((f) => f.id === file.id)"
+            class="skip-badge"
+            >跳过</span
+          >
         </div>
       </div>
 
       <!-- 分页 -->
       <div v-if="totalPages > 1" class="pagination">
-        <button class="page-btn" :disabled="currentPage === 1" @click="currentPage--">
+        <button
+          class="page-btn"
+          :disabled="currentPage === 1"
+          @click="currentPage--"
+        >
           上一页
         </button>
         <span class="page-info">{{ currentPage }} / {{ totalPages }}</span>
-        <button class="page-btn" :disabled="currentPage === totalPages" @click="currentPage++">
+        <button
+          class="page-btn"
+          :disabled="currentPage === totalPages"
+          @click="currentPage++"
+        >
           下一页
         </button>
         <!-- 并发数设置 -->
@@ -125,18 +143,25 @@
         <span>{{ downloadProgress }}%</span>
       </div>
       <div class="progress-bar">
-        <div class="progress-fill" :style="{ width: downloadProgress + '%' }"></div>
+        <div
+          class="progress-fill"
+          :style="{ width: downloadProgress + '%' }"
+        ></div>
       </div>
       <div class="progress-info">
         <span
           >{{ downloadedCount + skippedCount + failedFiles.length }} /
           {{ selectedFiles.length }}</span
         >
-        <span class="current-file">{{ currentFile || '准备中...' }}</span>
+        <span class="current-file">{{ currentFile || "准备中..." }}</span>
       </div>
       <div class="progress-details">
-        <span v-if="downloadedCount > 0" class="detail-success">新下载 {{ downloadedCount }}</span>
-        <span v-if="skippedCount > 0" class="detail-skipped">已存在 {{ skippedCount }}</span>
+        <span v-if="downloadedCount > 0" class="detail-success"
+          >新下载 {{ downloadedCount }}</span
+        >
+        <span v-if="skippedCount > 0" class="detail-skipped"
+          >已存在 {{ skippedCount }}</span
+        >
         <span v-if="failedFiles.length > 0" class="detail-failed"
           >失败 {{ failedFiles.length }}</span
         >
@@ -147,335 +172,408 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted } from "vue";
+import { useMessage, useDialog } from "naive-ui";
+
+// Naive UI 组件 - 必须在顶层调用
+const message = useMessage();
+const dialog = useDialog();
+
+// 防抖相关
+const lastScanTime = ref(0);
+const SCAN_DEBOUNCE_MS = 3000; // 3秒防抖
 
 // 数据
-const allFiles = ref([])
-const selectedFileIds = ref(new Set())
-const skipFiles = ref([])
+const allFiles = ref([]);
+const selectedFileIds = ref(new Set());
+const skipFiles = ref([]);
 
-const excludeFilePath = ref('')
-const excludeRJSet = ref(new Set())
+const excludeFilePath = ref("");
+const excludeRJSet = ref(new Set());
 
 // 状态
-const isScanning = ref(false)
-const isDownloading = ref(false)
-const isCancelled = ref(false) // 取消标志
-const downloadedCount = ref(0)
-const skippedCount = ref(0) // 已存在的文件数
-const downloadProgress = ref(0)
-const currentFile = ref('')
-const failedFiles = ref([]) // 记录失败的文件
-const concurrentCount = ref(3) // 并发数
+const isScanning = ref(false);
+const isDownloading = ref(false);
+const isCancelled = ref(false); // 取消标志
+const downloadedCount = ref(0);
+const skippedCount = ref(0); // 已存在的文件数
+const downloadProgress = ref(0);
+const currentFile = ref("");
+const failedFiles = ref([]); // 记录失败的文件
+const concurrentCount = ref(3); // 并发数
 
 // 分页
-const currentPage = ref(1)
-const pageSize = 30
+const currentPage = ref(1);
+const pageSize = 30;
 
 // 计算属性
 const paginatedFiles = computed(() => {
-  const start = (currentPage.value - 1) * pageSize
-  return allFiles.value.slice(start, start + pageSize)
-})
+  const start = (currentPage.value - 1) * pageSize;
+  return allFiles.value.slice(start, start + pageSize);
+});
 
-const totalPages = computed(() => Math.ceil(allFiles.value.length / pageSize))
+const totalPages = computed(() => Math.ceil(allFiles.value.length / pageSize));
 
 const selectedFiles = computed(() => {
-  return allFiles.value.filter((f) => selectedFileIds.value.has(f.id))
-})
+  return allFiles.value.filter((f) => selectedFileIds.value.has(f.id));
+});
 
 // 加载文件列表
 const loadRecentActivity = async () => {
   try {
-    const result = await window.api?.tgReadRecentActivity?.()
-    if (result && result.success && result.data && Array.isArray(result.data.files)) {
+    const result = await window.api?.tgReadRecentActivity?.();
+    if (
+      result &&
+      result.success &&
+      result.data &&
+      Array.isArray(result.data.files)
+    ) {
       // 1. 过滤掉大于等于2MB的文件
-      const MAX_FILE_SIZE = 2 * 1024 * 1024 // 2MB
+      const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
       const filteredFiles = result.data.files.filter((file) => {
-        const fileSize = file.fileSize || file.size || 0
-        return fileSize < MAX_FILE_SIZE
-      })
+        const fileSize = file.fileSize || file.size || 0;
+        return fileSize < MAX_FILE_SIZE;
+      });
 
       // 2. 去重（按 ID 去重，保留最新的）
-      const fileMap = new Map()
+      const fileMap = new Map();
       filteredFiles.forEach((file) => {
-        const id = file.rjCode || file.id
-        const existing = fileMap.get(id)
+        const id = file.rjCode || file.id;
+        const existing = fileMap.get(id);
         if (existing) {
           // 如果已存在，保留日期较新的
-          const existingDate = new Date(existing.date).getTime()
-          const newDate = new Date(file.date).getTime()
+          const existingDate = new Date(existing.date).getTime();
+          const newDate = new Date(file.date).getTime();
           if (newDate > existingDate) {
-            fileMap.set(id, file)
+            fileMap.set(id, file);
           }
         } else {
-          fileMap.set(id, file)
+          fileMap.set(id, file);
         }
-      })
+      });
 
       // 2. 按时间降序排序
       allFiles.value = Array.from(fileMap.values()).sort((a, b) => {
-        const dateA = new Date(a.date).getTime()
-        const dateB = new Date(b.date).getTime()
-        return dateB - dateA
-      })
+        const dateA = new Date(a.date).getTime();
+        const dateB = new Date(b.date).getTime();
+        return dateB - dateA;
+      });
 
       // 3. 确保每个文件都有必要的属性
       allFiles.value.forEach((file) => {
         if (!file.name) {
-          file.name = file.fileName || 'unknown'
+          file.name = file.fileName || "unknown";
           console.warn(
-            `[loadRecentActivity] File missing 'name', id=${file.id}, using fallback: ${file.name}`
-          )
+            `[loadRecentActivity] File missing 'name', id=${file.id}, using fallback: ${file.name}`,
+          );
         }
         if (!file.id) {
-          file.id = file.rjCode || Date.now().toString()
-          console.warn(`[loadRecentActivity] File missing 'id', using fallback: ${file.id}`)
+          file.id = file.rjCode || Date.now().toString();
+          console.warn(
+            `[loadRecentActivity] File missing 'id', using fallback: ${file.id}`,
+          );
         }
-      })
+      });
 
       // 4. 默认全选
-      selectedFileIds.value = new Set(allFiles.value.map((f) => f.id))
+      selectedFileIds.value = new Set(allFiles.value.map((f) => f.id));
       // 5. 重新计算跳过列表
-      updateSkipFiles()
+      updateSkipFiles();
     }
   } catch (e) {
-    console.error('Failed to load files:', e)
+    console.error("Failed to load files:", e);
   }
-}
+};
 
-// 扫描讨论组
+// 扫描讨论组（带防抖）
 const scanRecentActivity = async () => {
-  console.log('🔥 RECENT ACTIVITY BUTTON CLICKED')
-  if (isScanning.value) return
-  isScanning.value = true
+  console.log("🔥 RECENT ACTIVITY BUTTON CLICKED");
+
+  // 防抖检查：如果正在扫描中，直接返回
+  if (isScanning.value) {
+    console.log("正在扫描中");
+    message.warning("扫描正在进行中，请稍候...");
+    return;
+  }
+
+  // 防抖检查：检查时间间隔
+  const now = Date.now();
+  const timeSinceLastScan = now - lastScanTime.value;
+  if (timeSinceLastScan < SCAN_DEBOUNCE_MS) {
+    const remainingSeconds = Math.ceil(
+      (SCAN_DEBOUNCE_MS - timeSinceLastScan) / 1000,
+    );
+    console.log(`防抖触发，剩余 ${remainingSeconds} 秒`);
+    message.warning(`请等待 ${remainingSeconds} 秒后再试`);
+    return;
+  }
+
+  // 更新最后扫描时间
+  lastScanTime.value = now;
+  isScanning.value = true;
+
+  // 显示加载提示
+  console.log("显示加载提示");
+  const loadingMessage = message.loading("正在连接 Telegram 扫描文件...", {
+    duration: 0,
+  });
 
   try {
-    console.log('🔥 CALLING tgScanRecentActivity FROM RECENT ACTIVITY')
-    const result = await window.api?.tgScanRecentActivity?.()
-    console.log('🔥 RECENT ACTIVITY RESULT:', result)
+    console.log("🔥 CALLING tgScanRecentActivity FROM RECENT ACTIVITY");
+    const result = await window.api?.tgScanRecentActivity?.();
+    console.log("🔥 RECENT ACTIVITY RESULT:", result);
+
+    // 关闭加载提示
+    loadingMessage.destroy();
 
     if (result && result.success) {
-      await loadRecentActivity()
+      await loadRecentActivity();
+
+      // 显示成功提示
+      const fileCount = allFiles.value.length;
+      console.log("显示成功弹窗，文件数:", fileCount);
+      dialog.success({
+        title: "扫描完成",
+        content: `成功获取到 ${fileCount} 个文件`,
+        positiveText: "确定",
+      });
     } else {
-      alert(`扫描失败: ${result?.error || '未知错误'}`)
+      // 显示失败弹窗
+      console.log("显示失败弹窗");
+      dialog.error({
+        title: "扫描失败",
+        content: result?.error || "未知错误，请检查网络连接或配置",
+        positiveText: "确定",
+      });
     }
-  } catch {
-    alert('扫描过程出错，请检查网络或控制台日志')
+  } catch (error) {
+    // 关闭加载提示
+    loadingMessage.destroy();
+
+    // 显示错误弹窗
+    console.log("显示错误弹窗:", error);
+    dialog.error({
+      title: "扫描出错",
+      content: error?.message || "扫描过程出错，请检查网络或控制台日志",
+      positiveText: "确定",
+    });
   } finally {
-    isScanning.value = false
+    isScanning.value = false;
   }
-}
+};
 
 // 浏览选择文件
 const browseFile = async () => {
   try {
     const res = await window.api.dialogOpenFile({
-      filters: [{ name: 'Text Files', extensions: ['txt'] }]
-    })
+      filters: [{ name: "Text Files", extensions: ["txt"] }],
+    });
     if (res && res.filePath) {
-      excludeFilePath.value = res.filePath
-      await loadExcludeFile()
+      excludeFilePath.value = res.filePath;
+      await loadExcludeFile();
     }
   } catch (e) {
-    console.error('选择文件失败:', e)
+    console.error("选择文件失败:", e);
   }
-}
+};
 
 // 加载排除文件
 const loadExcludeFile = async () => {
-  if (!excludeFilePath.value) return
+  if (!excludeFilePath.value) return;
 
   try {
-    const result = await window.api.invoke('read-rj-list', {
-      path: excludeFilePath.value
-    })
+    const result = await window.api.invoke("read-rj-list", {
+      path: excludeFilePath.value,
+    });
 
     if (result.success) {
       excludeRJSet.value = new Set(
         result.data.map((rj) => {
           // 统一格式为纯数字
-          const match = rj.match(/RJ?(\d+)/i)
-          return match ? match[1] : rj
-        })
-      )
-      updateSkipFiles()
+          const match = rj.match(/RJ?(\d+)/i);
+          return match ? match[1] : rj;
+        }),
+      );
+      updateSkipFiles();
     }
   } catch (e) {
-    console.error('读取排除文件失败:', e)
+    console.error("读取排除文件失败:", e);
   }
-}
+};
 
 // 更新跳过列表
 const updateSkipFiles = () => {
   skipFiles.value = allFiles.value.filter((file) => {
-    if (!file.rjCode) return false
+    if (!file.rjCode) return false;
     // 提取纯数字部分（支持 RJ/VJ/BJ）
-    const rjMatch = file.rjCode.match(/(RJ|VJ|BJ)?(\d+)/i)
-    const numOnly = rjMatch ? rjMatch[2] : file.rjCode
-    return excludeRJSet.value.has(numOnly)
-  })
+    const rjMatch = file.rjCode.match(/(RJ|VJ|BJ)?(\d+)/i);
+    const numOnly = rjMatch ? rjMatch[2] : file.rjCode;
+    return excludeRJSet.value.has(numOnly);
+  });
 
   // 从已选列表中移除跳过的文件
   skipFiles.value.forEach((file) => {
-    selectedFileIds.value.delete(file.id)
-  })
-}
+    selectedFileIds.value.delete(file.id);
+  });
+};
 
 // 选择操作
 const toggleSelect = (fileId) => {
-  if (skipFiles.value.some((f) => f.id === fileId)) return
+  if (skipFiles.value.some((f) => f.id === fileId)) return;
 
   if (selectedFileIds.value.has(fileId)) {
-    selectedFileIds.value.delete(fileId)
+    selectedFileIds.value.delete(fileId);
   } else {
-    selectedFileIds.value.add(fileId)
+    selectedFileIds.value.add(fileId);
   }
-}
+};
 
 const selectAll = () => {
   allFiles.value.forEach((file) => {
     if (!skipFiles.value.some((f) => f.id === file.id)) {
-      selectedFileIds.value.add(file.id)
+      selectedFileIds.value.add(file.id);
     }
-  })
-}
+  });
+};
 
 const deselectAll = () => {
-  selectedFileIds.value.clear()
-}
+  selectedFileIds.value.clear();
+};
 
 const invertSelect = () => {
   allFiles.value.forEach((file) => {
-    if (skipFiles.value.some((f) => f.id === file.id)) return
+    if (skipFiles.value.some((f) => f.id === file.id)) return;
 
     if (selectedFileIds.value.has(file.id)) {
-      selectedFileIds.value.delete(file.id)
+      selectedFileIds.value.delete(file.id);
     } else {
-      selectedFileIds.value.add(file.id)
+      selectedFileIds.value.add(file.id);
     }
-  })
-}
+  });
+};
 
 // 开始下载（并发）
 const startDownload = async () => {
-  if (selectedFiles.value.length === 0 || isDownloading.value) return
+  if (selectedFiles.value.length === 0 || isDownloading.value) return;
 
-  isDownloading.value = true
-  downloadedCount.value = 0
-  skippedCount.value = 0
-  downloadProgress.value = 0
-  failedFiles.value = []
-  currentFile.value = ''
-  isCancelled.value = false
+  isDownloading.value = true;
+  downloadedCount.value = 0;
+  skippedCount.value = 0;
+  downloadProgress.value = 0;
+  failedFiles.value = [];
+  currentFile.value = "";
+  isCancelled.value = false;
 
-  const filesToDownload = [...selectedFiles.value] // 复制数组
-  const total = filesToDownload.length
-  const maxConcurrent = concurrentCount.value // 最大并发数
+  const filesToDownload = [...selectedFiles.value]; // 复制数组
+  const total = filesToDownload.length;
+  const maxConcurrent = concurrentCount.value; // 最大并发数
 
   // 并发下载worker
   const downloadWorker = async (file) => {
-    if (isCancelled.value) return { success: false, file }
+    if (isCancelled.value) return { success: false, file };
 
     // 防御性检查：确保有必要的属性
     if (!file.name) {
-      console.warn(`[downloadWorker] File missing 'name', id=${file.id}`)
-      return { success: false, file, error: '文件缺少名称' }
+      console.warn(`[downloadWorker] File missing 'name', id=${file.id}`);
+      return { success: false, file, error: "文件缺少名称" };
     }
 
     try {
-      const result = await window.api.invoke('download-tg-file', {
+      const result = await window.api.invoke("download-tg-file", {
         fileId: file.id,
         fileName: file.name,
-        tgMessageId: file.tgMessageId
-      })
+        tgMessageId: file.tgMessageId,
+      });
       return {
         success: result.success,
         skipped: result.skipped,
         file,
-        error: result.error || result.msg
-      }
+        error: result.error || result.msg,
+      };
     } catch (e) {
-      return { success: false, file, error: e.message }
+      return { success: false, file, error: e.message };
     }
-  }
+  };
 
   try {
     // 分批并发执行
     for (let i = 0; i < total; i += maxConcurrent) {
-      if (isCancelled.value) break
+      if (isCancelled.value) break;
 
-      const batch = filesToDownload.slice(i, i + maxConcurrent)
-      const results = await Promise.all(batch.map(downloadWorker))
+      const batch = filesToDownload.slice(i, i + maxConcurrent);
+      const results = await Promise.all(batch.map(downloadWorker));
 
       // 处理结果
       for (const result of results) {
         if (result.skipped) {
-          skippedCount.value++ // 文件已存在，跳过
+          skippedCount.value++; // 文件已存在，跳过
         } else if (result.success) {
-          downloadedCount.value++ // 新下载成功
+          downloadedCount.value++; // 新下载成功
         } else {
           failedFiles.value.push({
             name: result.file.name,
-            error: result.error || '下载失败'
-          })
+            error: result.error || "下载失败",
+          });
         }
       }
 
       // 更新进度（只计算实际下载的）
-      const processed = downloadedCount.value + skippedCount.value + failedFiles.value.length
-      downloadProgress.value = Math.round((processed / total) * 100)
+      const processed =
+        downloadedCount.value + skippedCount.value + failedFiles.value.length;
+      downloadProgress.value = Math.round((processed / total) * 100);
     }
 
     // 显示结果
-    const successCount = downloadedCount.value
-    const skipCount = skippedCount.value
-    const failCount = failedFiles.value.length
+    const successCount = downloadedCount.value;
+    const skipCount = skippedCount.value;
+    const failCount = failedFiles.value.length;
 
-    let message = `下载完成！`
-    if (successCount > 0) message += `新下载 ${successCount} 个`
-    if (skipCount > 0) message += `，已存在跳过 ${skipCount} 个`
-    if (failCount > 0) message += `，失败 ${failCount} 个`
+    let message = `下载完成！`;
+    if (successCount > 0) message += `新下载 ${successCount} 个`;
+    if (skipCount > 0) message += `，已存在跳过 ${skipCount} 个`;
+    if (failCount > 0) message += `，失败 ${failCount} 个`;
 
     if (failCount > 0) {
-      const failMsg = failedFiles.value.map((f) => `${f.name}: ${f.error}`).join('\n')
-      alert(`${message}\n\n${failMsg}`)
+      const failMsg = failedFiles.value
+        .map((f) => `${f.name}: ${f.error}`)
+        .join("\n");
+      alert(`${message}\n\n${failMsg}`);
     } else {
-      alert(message)
+      alert(message);
     }
   } catch (e) {
-    alert(`下载失败: ${e.message}`)
+    alert(`下载失败: ${e.message}`);
   } finally {
-    isDownloading.value = false
-    currentFile.value = ''
+    isDownloading.value = false;
+    currentFile.value = "";
   }
-}
+};
 
 // 取消下载
 const cancelDownload = () => {
-  isCancelled.value = true
-  isDownloading.value = false
-  currentFile.value = ''
-}
+  isCancelled.value = true;
+  isDownloading.value = false;
+  currentFile.value = "";
+};
 
 // 格式化
 const formatDate = (dateStr) => {
-  if (!dateStr) return '-'
-  const date = new Date(dateStr)
-  return `${(date.getMonth() + 1).toString().padStart(2, '0')}/${date.getDate().toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`
-}
+  if (!dateStr) return "-";
+  const date = new Date(dateStr);
+  return `${(date.getMonth() + 1).toString().padStart(2, "0")}/${date.getDate().toString().padStart(2, "0")} ${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}`;
+};
 
 const formatSize = (size) => {
-  if (!size) return '-'
-  const num = parseInt(size)
-  if (num < 1024) return `${num} B`
-  if (num < 1024 * 1024) return `${(num / 1024).toFixed(1)} KB`
-  return `${(num / 1024 / 1024).toFixed(1)} MB`
-}
+  if (!size) return "-";
+  const num = parseInt(size);
+  if (num < 1024) return `${num} B`;
+  if (num < 1024 * 1024) return `${(num / 1024).toFixed(1)} KB`;
+  return `${(num / 1024 / 1024).toFixed(1)} MB`;
+};
 
 onMounted(() => {
-  loadRecentActivity()
-})
+  loadRecentActivity();
+});
 </script>
 
 <style scoped>
