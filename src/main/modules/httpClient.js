@@ -27,7 +27,7 @@ export function getAsmrClient() {
 
   try {
     const agent = new HttpsProxyAgent(proxyUrl)
-    logger.info('[HTTP] 创建 ASMR 客户端，使用代理:', proxyUrl)
+    logger.info(`[HTTP] 创建 ASMR 客户端，使用代理: ${proxyUrl}`)
     asmrClient = axios.create({
       timeout: 30000,
       httpsAgent: agent,

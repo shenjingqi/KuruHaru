@@ -47,7 +47,7 @@ const api = {
   getSystemInfo: () => ipcRenderer.invoke("get-system-info"),
   getStatistics: () => ipcRenderer.invoke("get-statistics"),
   openLogsDir: () => ipcRenderer.invoke("open-logs-dir"),
-  clearCache: () => ipcRenderer.invoke("clear-cache"),
+  clearCache: (cacheFile = 'recent_activity.json') => ipcRenderer.invoke('clear-cache', { cacheFile }),
   exportData: () => ipcRenderer.invoke("export-data"),
   importData: () => ipcRenderer.invoke("import-data"),
   clearAllData: () => ipcRenderer.invoke("clear-all-data"),

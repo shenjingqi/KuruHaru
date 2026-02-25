@@ -1236,8 +1236,8 @@ ipcMain.handle(
 
       if (isSearchApi || isListApi) {
         // 直接用 axios 获取（不使用代理）
-        logger.info(`使用 axios 直接获取数据`)
-        works = await fetchSearchFromPage(asmrHttpClient, url)
+        logger.info(`使用 HTTP 客户端（带代理）获取数据`)
+        works = await fetchSearchFromPage(asmrHttpClient, url, beforeDate)
         logger.info(`获取到 ${works.length} 个作品`)
       } else {
         // 默认尝试搜索API格式
@@ -1245,7 +1245,7 @@ ipcMain.handle(
           ? url
           : `https://api.asmr-200.com/api/search/${encodeURIComponent(url)}`
         logger.info(`默认搜索URL: ${searchUrl}`)
-        works = await fetchSearchFromPage(asmrHttpClient, searchUrl)
+        works = await fetchSearchFromPage(asmrHttpClient, searchUrl, beforeDate)
       }
 
       logger.info(`总共获取到 ${works.length} 个作品`)
@@ -1339,10 +1339,10 @@ ipcMain.handle(
   }
 )
 
-// 备用方法：直接用 axios 获取搜索结果（绕过代理问题）
-async function fetchSearchFromPage(_client, url) {
+// 直接请求搜索API（使用代理）
+async function fetchSearchFromPage(_client, url, beforeDate) {
   try {
-    logger.info(`备用方法: 直接请求搜索API`)
+    logger.info(`请求搜索API（使用代理）`)
     logger.info(`原始URL: ${url}`)
 
     // 提取查询参数
@@ -1379,7 +1379,7 @@ async function fetchSearchFromPage(_client, url) {
     logger.info(`第一页URL: ${firstUrl}`)
 
     // 模拟浏览器请求头 - 更完整
-    const axios = (await import('axios')).default
+    if (!asmrHttpClient) asmrHttpClient = getAsmrClient()
     const browserHeaders = {
       'User-Agent':
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -1393,7 +1393,7 @@ async function fetchSearchFromPage(_client, url) {
 
     let firstRes
     try {
-      firstRes = await axios.get(firstUrl, {
+      firstRes = await asmrHttpClient.get(firstUrl, {
         timeout: 30000,
         headers: browserHeaders
       })
@@ -1403,7 +1403,7 @@ async function fetchSearchFromPage(_client, url) {
       await new Promise((resolve) => setTimeout(resolve, 2000))
       logger.info(`尝试不使用代理...`)
       try {
-        firstRes = await axios.get(firstUrl, {
+        firstRes = await asmrHttpClient.get(firstUrl, {
           timeout: 30000,
           headers: browserHeaders,
           proxy: false
@@ -1498,7 +1498,7 @@ async function fetchSearchFromPage(_client, url) {
 
       for (let retry = 0; retry < maxRetries; retry++) {
         try {
-          const res = await axios.get(pageUrl, {
+          const res = await asmrHttpClient.get(pageUrl, {
             timeout: 30000,
             headers: {
               'User-Agent':
@@ -1537,21 +1537,82 @@ async function fetchSearchFromPage(_client, url) {
             return []
           }
         }
+    }}
+
+    // ========== 并行二分查找优化 ==========
+    let maxPageToFetch = totalPages
+
+    if (beforeDate && totalPages > 1) {
+      const targetDate = new Date(beforeDate)
+      logger.info(`并行二分查找: 目标日期 = ${targetDate.toISOString()}, 总页数 = ${totalPages}`)
+
+      const getOldestDateInPage = async (pageNum) => {
+        const items = await fetchPageWithRetry(pageNum)
+        if (!items || items.length === 0) return null
+        const lastItem = items[items.length - 1]
+        const dateStr = lastItem.date || lastItem.release_date || lastItem.release
+        if (!dateStr) return null
+        return new Date(dateStr)
       }
-      return []
+
+      logger.info(`并行查找 第1轮: 并行检查第 1, ${Math.floor(totalPages/2)}, ${totalPages} 页`)
+      
+      const [date1, dateMid, dateEnd] = await Promise.all([
+        getOldestDateInPage(1),
+        getOldestDateInPage(Math.floor(totalPages / 2)),
+        getOldestDateInPage(totalPages)
+      ])
+
+      logger.info(`第1页最旧日期: ${date1 ? date1.toISOString() : 'N/A'}`)
+      logger.info(`第${Math.floor(totalPages/2)}页最旧日期: ${dateMid ? dateMid.toISOString() : 'N/A'}`)
+      logger.info(`第${totalPages}页最旧日期: ${dateEnd ? dateEnd.toISOString() : 'N/A'}`)
+
+
+      let left = 1, right = totalPages
+
+      if (dateEnd && dateEnd > targetDate) {
+        maxPageToFetch = totalPages
+        logger.info(`→ 最后一页符合条件，全部获取`)
+      } else if (date1 && date1 <= targetDate) {
+        maxPageToFetch = 0
+        logger.info(`→ 第一页已不符合，无需获取`)
+      } else {
+        if (dateMid && dateMid > targetDate) {
+          left = Math.floor(totalPages / 2)
+          logger.info(`→ 中点符合，搜索范围: ${left}-${totalPages}`)
+        } else {
+          right = Math.floor(totalPages / 2)
+          logger.info(`→ 中点不符合，搜索范围: 1-${right}`)
+        }
+
+        let boundaryPage = right
+        let round = 1
+        while (left <= right) {
+          round++
+          const mid = Math.floor((left + right) / 2)
+          logger.info(`并行查找 第${round}轮: 检查 ${mid} 页`)
+
+          const oldestDate = await getOldestDateInPage(mid)
+          if (!oldestDate || isNaN(oldestDate.getTime())) { right = mid - 1; continue }
+          logger.info(`第 ${mid} 页最旧日期: ${oldestDate.toISOString()}`)
+          if (oldestDate > targetDate) { boundaryPage = mid; left = mid + 1 }
+          else { right = mid - 1 }
+        }
+        maxPageToFetch = boundaryPage
+      }
+      logger.info(`并行二分查找完成: 只需获取前 ${maxPageToFetch} 页 (总共 ${totalPages} 页)`)
     }
+    // ========== 二分查找结束 ==========
 
     // 并发获取其余页面（带重试和限流）
     const pagePromises = []
-    const maxConcurrent = 5 // 最多同时2个请求
-    const requestInterval = 300 // 请求间隔300ms
+    const maxConcurrent = 5
+    const requestInterval = 300
 
-    for (let page = 2; page <= totalPages; page++) {
+    logger.info(`将获取第 2-${maxPageToFetch} 页 (跳过 ${maxPageToFetch + 1}-${totalPages} 页)`)
+
+    for (let page = 2; page <= maxPageToFetch; page++) {
       pagePromises.push(fetchPageWithRetry(page))
-      // 如果达到并发限制，等待一下再发送下一个请求
-      if (page % maxConcurrent === 0) {
-        await new Promise((resolve) => setTimeout(resolve, requestInterval))
-      }
     }
 
     const results = await Promise.all(pagePromises)

@@ -410,6 +410,26 @@ export function setupTelegramIPC() {
         } catch (e) {
           if (e.message === 'TIMEOUT') {
             sendLog(`⏰ 步骤1超时 (${step1Attempts}/${MAX_RETRIES})`)
+            // 超时后验证消息是否已发送
+            sendLog(`🔍 验证索引消息是否已发送...`)
+            await new Promise((r) => setTimeout(r, 2000))
+
+            try {
+              const recentMessages = await withTimeout(
+                telegramClient.getMessages(peerId, { limit: 5 }),
+                10000
+              )
+              const existingMsg = recentMessages.find((msg) => msg.message === filenameNoExt)
+
+              if (existingMsg) {
+                sendLog(`✅ 索引消息已存在，ID: ${existingMsg.id}`)
+                txtMsg = existingMsg
+                step1Success = true
+                continue
+              }
+            } catch (verifyErr) {
+              sendLog(`⚠️ 验证失败: ${verifyErr.message}`)
+            }
           } else if (e.seconds) {
             sendLog(`⏳ 流控 ${e.seconds}s...`)
             await new Promise((r) => setTimeout(r, e.seconds * 1000))
@@ -417,7 +437,7 @@ export function setupTelegramIPC() {
             sendLog(`❌ 步骤1失败: ${e.message} (${step1Attempts}/${MAX_RETRIES})`)
           }
 
-          if (step1Attempts < MAX_RETRIES) {
+          if (!step1Success && step1Attempts < MAX_RETRIES) {
             sendLog(`💤 ${RETRY_DELAY / 1000}s 后重试...`)
             await new Promise((r) => setTimeout(r, RETRY_DELAY))
           }
@@ -447,12 +467,21 @@ export function setupTelegramIPC() {
 
           sendLog(`⬆️ 步骤2/2: 上传文件: ${fileName}`)
 
+          let uploadResult = null
+          let progressReached100 = false
+
           await new Promise((resolve, reject) => {
             let isCompleted = false
             const timeoutId = setTimeout(() => {
               if (!isCompleted) {
-                isCompleted = true // 防止超时后又成功
-                reject(new Error('TIMEOUT'))
+                isCompleted = true
+                // 如果进度已到100%，可能是网络延迟，不直接reject
+                if (progressReached100) {
+                  sendLog(`⏳ 进度100%但等待响应超时，稍后验证...`)
+                  resolve({ status: 'VERIFY_NEEDED' })
+                } else {
+                  reject(new Error('TIMEOUT'))
+                }
               }
             }, STEP2_TIMEOUT)
 
@@ -465,21 +494,17 @@ export function setupTelegramIPC() {
                   const pct = Math.round(progress * 100)
                   if (pct % 20 === 0 || pct === 100) {
                     sendLog(`[${filenameNoExt}] ${pct}%`)
-                    // 100% 视为完成，清理定时器
-                    if (pct === 100 && !isCompleted) {
-                      isCompleted = true
-                      clearTimeout(timeoutId)
-                      resolve()
-                    }
+                  }
+                  if (pct === 100) {
+                    progressReached100 = true
                   }
                 }
               })
-              .then(() => {
-                // API 正常返回
+              .then((result) => {
                 if (!isCompleted) {
                   isCompleted = true
                   clearTimeout(timeoutId)
-                  resolve()
+                  resolve({ status: 'SUCCESS', result })
                 }
               })
               .catch((err) => {
@@ -489,7 +514,51 @@ export function setupTelegramIPC() {
                   reject(err)
                 }
               })
+          }).then((res) => {
+            uploadResult = res
           })
+
+          // 如果需要验证（超时但进度100%），检查消息是否已发送
+          if (uploadResult?.status === 'VERIFY_NEEDED') {
+            sendLog(`🔍 验证文件是否已上传...`)
+            const VERIFY_TIMEOUT = 10000
+
+            try {
+              // 等待2秒让服务器处理
+              await new Promise((r) => setTimeout(r, 2000))
+
+              // 直接用peerId查消息，不需要getEntity（更高效）
+              const recentMessages = await withTimeout(
+                telegramClient.getMessages(peerId, { limit: 10 }),
+                VERIFY_TIMEOUT
+              )
+
+              const fileAlreadySent = recentMessages.some((msg) => {
+                if (msg.document) {
+                  const docName = msg.document.attributes?.find(
+                    (attr) => attr.className === 'DocumentAttributeFilename'
+                  )?.fileName
+                  return docName === fileName
+                }
+                return false
+              })
+
+              if (fileAlreadySent) {
+                sendLog(`✅ 验证成功: 文件已在聊天中，跳过重试`)
+                uploadResult = { status: 'SUCCESS' }
+              } else {
+                throw new Error('VERIFY_FAILED')
+              }
+            } catch (verifyErr) {
+              if (verifyErr.message === 'TIMEOUT') {
+                sendLog(`⏰ 验证超时，假设上传成功，跳过重试`)
+                uploadResult = { status: 'SUCCESS' }
+              } else {
+                sendLog(`⚠️ 验证失败: ${verifyErr.message}，将重试`)
+                throw new Error('TIMEOUT')
+              }
+            }
+          }
 
           sendLog(`✅ 完成: ${filenameNoExt}`)
           step2Success = true

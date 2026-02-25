@@ -7,6 +7,13 @@
       </div>
       <div class="header-actions">
         <button
+          class="btn-secondary"
+          :disabled="isLoading"
+          @click="handleClearCache"
+        >
+          删除缓存
+        </button>
+        <button
           class="btn-primary"
           :disabled="isLoading"
           @click="handleManualScan"
@@ -262,6 +269,40 @@ const handleManualScan = async () => {
   }
 };
 
+// 删除缓存
+const handleClearCache = async () => {
+  dialog.warning({
+    title: "确认删除缓存",
+    content: "确定要删除最近上传的缓存数据吗？删除后将重新扫描。",
+    positiveText: "确定删除",
+    negativeText: "取消",
+    onPositiveClick: async () => {
+      try {
+        isLoading.value = true;
+        message.info("正在删除缓存...");
+
+        // 清除本地缓存文件
+        const clearResult = await window.api.invoke('clear-cache', {
+          cacheFile: 'recent_activity.json'
+        });
+
+        if (clearResult.success) {
+          message.success("缓存已删除");
+          // 重新加载数据
+          await refreshData();
+        } else {
+          message.error("删除缓存失败: " + (clearResult.error || "未知错误"));
+        }
+      } catch (e) {
+        console.error("删除缓存失败:", e);
+        message.error("删除缓存失败: " + e.message);
+      } finally {
+        isLoading.value = false;
+      }
+    }
+  });
+};
+
 onMounted(async () => {
   await refreshData();
   scanInBackground();
@@ -313,6 +354,28 @@ onMounted(async () => {
 
 .btn-primary:disabled {
   background: #d4d4d4;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: 1px solid #d4d4d4;
+  background: #fff;
+  color: #525252;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  border-color: #ff4d4f;
+  color: #ff4d4f;
+}
+
+.btn-secondary:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
 }
 

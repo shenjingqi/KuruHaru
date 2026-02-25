@@ -671,14 +671,18 @@ export function setupTgHistoryIPC() {
   // 4. 清除缓存
   ipcMain.handle("clear-cache", async (event, { cacheFile }) => {
     const config = getConfig();
-    const targetPath = path.join(
-      config.paths?.dataDir || getDataDir(),
-      cacheFile,
-    );
+    // recent_activity.json 存储在 uploadHistoryDir，不是 dataDir
+    const targetDir = config.paths?.uploadHistoryDir || getDataDir();
+    const targetPath = path.join(targetDir, cacheFile);
+    
+    console.log("[clear-cache] 尝试删除:", targetPath);
+    
     if (fs.existsSync(targetPath)) {
       fs.unlinkSync(targetPath);
+      console.log("[clear-cache] 删除成功:", targetPath);
       return { success: true };
     }
+    console.log("[clear-cache] 文件不存在:", targetPath);
     return { success: false, error: "File not found" };
   });
 
