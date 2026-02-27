@@ -5,18 +5,34 @@
     </div>
 
     <div class="action-bar">
-      <button class="btn-secondary" :disabled="isBusy" @click="scanFolder">扫描文件夹</button>
-      <button class="btn-secondary" :disabled="isBusy" @click="loadFromTxt">从TXT导入</button>
-      <button v-if="txtRJCodes.length > 0" class="btn-secondary" @click="clearTxt">清空</button>
+      <button class="btn-secondary" :disabled="isBusy" @click="scanFolder">
+        扫描文件夹
+      </button>
+      <button class="btn-secondary" :disabled="isBusy" @click="loadFromTxt">
+        从TXT导入
+      </button>
+      <button
+        v-if="txtRJCodes.length > 0"
+        class="btn-secondary"
+        @click="clearTxt"
+      >
+        清空
+      </button>
 
       <!-- 扫描后的云端删除 -->
       <template v-if="localItems.length > 0">
-        <button class="btn-primary" :disabled="selectedPaths.length === 0" @click="executeDelete">
+        <button
+          class="btn-primary"
+          :disabled="selectedPaths.length === 0"
+          @click="executeDelete"
+        >
           云端删除 ({{ selectedPaths.length }})
         </button>
         <div class="select-actions">
           <button class="btn-secondary small" @click="selectAll">全选</button>
-          <button class="btn-secondary small" @click="clearSelection">取消</button>
+          <button class="btn-secondary small" @click="clearSelection">
+            取消
+          </button>
         </div>
       </template>
     </div>
@@ -24,16 +40,24 @@
     <!-- TXT导入的云端删除列表 -->
     <div v-if="txtRJCodes.length > 0" class="txt-panel card">
       <div class="txt-header">
-        <span class="txt-title">📄 TXT导入 - 云端删除 ({{ txtRJCodes.length }})</span>
+        <span class="txt-title"
+          >📄 TXT导入 - 云端删除 ({{ txtRJCodes.length }})</span
+        >
         <div class="txt-actions">
           <button class="btn-secondary small" @click="copyRJCodes">复制</button>
-          <button class="btn-primary small" :disabled="isBusy" @click="executeCloudDelete">
+          <button
+            class="btn-primary small"
+            :disabled="isBusy"
+            @click="executeCloudDelete"
+          >
             删除云端
           </button>
         </div>
       </div>
       <div class="txt-list">
-        <span v-for="code in txtRJCodes" :key="code" class="rj-tag">{{ code }}</span>
+        <span v-for="code in txtRJCodes" :key="code" class="rj-tag">{{
+          code
+        }}</span>
       </div>
     </div>
 
@@ -46,8 +70,12 @@
         :class="{ selected: selectedPaths.includes(item.path) }"
         @click="toggleSelect(item.path)"
       >
-        <input type="checkbox" :checked="selectedPaths.includes(item.path)" readonly />
-        <span class="code">{{ item.code || '?' }}</span>
+        <input
+          type="checkbox"
+          :checked="selectedPaths.includes(item.path)"
+          readonly
+        />
+        <span class="code">{{ item.code || "?" }}</span>
         <span class="name">{{ item.name }}</span>
         <span class="size">{{ formatSize(item.size) }}</span>
       </div>
@@ -59,123 +87,132 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref } from "vue";
 
-const localItems = ref([])
-const selectedPaths = ref([])
-const isBusy = ref(false)
-const txtRJCodes = ref([])
+const localItems = ref([]);
+const selectedPaths = ref([]);
+const isBusy = ref(false);
+const txtRJCodes = ref([]);
 
 const scanFolder = async () => {
-  const res = await window.api.dialogOpenDirectory()
+  const res = await window.api.dialogOpenDirectory();
   if (res && res.filePath) {
-    isBusy.value = true
+    isBusy.value = true;
     try {
-      const scanRes = await window.api.invoke('scan-local-archives', res.filePath)
-      localItems.value = scanRes || []
-      selectedPaths.value = []
+      const scanRes = await window.api.invoke(
+        "scan-local-archives",
+        res.filePath,
+      );
+      localItems.value = scanRes || [];
+      selectedPaths.value = [];
     } catch (e) {
-      alert('扫描出错: ' + e.message)
+      alert("扫描出错: " + e.message);
     }
-    isBusy.value = false
+    isBusy.value = false;
   }
-}
+};
 
 const loadFromTxt = async () => {
   const res = await window.api.dialogOpenFile({
-    type: 'file',
-    filters: [{ name: 'TXT', extensions: ['txt'] }]
-  })
+    type: "file",
+    filters: [{ name: "TXT", extensions: ["txt"] }],
+  });
   if (res && res.filePath) {
     try {
-      const content = await window.api.invoke('fs-read-file', res.filePath)
+      const content = await window.api.invoke("fs-read-file", res.filePath);
       if (content) {
         // 支持 RJ/VJ/BJ 号
-        const codes = content.match(/(RJ|VJ|BJ)\d+/gi)
-        txtRJCodes.value = codes ? [...new Set(codes.map((c) => c.toUpperCase()))] : []
-        alert(`导入 ${txtRJCodes.value.length} 个RJ/VJ/BJ号`)
+        const codes = content.match(/(RJ|VJ|BJ)\d+/gi);
+        txtRJCodes.value = codes
+          ? [...new Set(codes.map((c) => c.toUpperCase()))]
+          : [];
+        alert(`导入 ${txtRJCodes.value.length} 个RJ/VJ/BJ号`);
       }
     } catch (e) {
-      alert('读取文件失败: ' + e.message)
+      alert("读取文件失败: " + e.message);
     }
   }
-}
+};
 
 const clearTxt = () => {
-  txtRJCodes.value = []
-}
+  txtRJCodes.value = [];
+};
 
 const copyRJCodes = () => {
-  const text = txtRJCodes.value.join('\n')
+  const text = txtRJCodes.value.join("\n");
   navigator.clipboard.writeText(text).then(() => {
-    alert('已复制到剪贴板')
-  })
-}
+    alert("已复制到剪贴板");
+  });
+};
 
 const selectAll = () => {
-  selectedPaths.value = localItems.value.map((item) => item.path)
-}
+  selectedPaths.value = localItems.value.map((item) => item.path);
+};
 
 const clearSelection = () => {
-  selectedPaths.value = []
-}
+  selectedPaths.value = [];
+};
 
 const toggleSelect = (path) => {
-  const idx = selectedPaths.value.indexOf(path)
-  if (idx > -1) selectedPaths.value.splice(idx, 1)
-  else selectedPaths.value.push(path)
-}
+  const idx = selectedPaths.value.indexOf(path);
+  if (idx > -1) selectedPaths.value.splice(idx, 1);
+  else selectedPaths.value.push(path);
+};
 
 const formatSize = (bytes) => {
-  if (!bytes) return '-'
-  const gb = bytes / (1024 * 1024 * 1024)
-  if (gb >= 1) return `${gb.toFixed(1)}GB`
-  const mb = bytes / (1024 * 1024)
-  if (mb >= 1) return `${mb.toFixed(1)}MB`
-  return `${(bytes / 1024).toFixed(0)}KB`
-}
+  if (!bytes) return "-";
+  const gb = bytes / (1024 * 1024 * 1024);
+  if (gb >= 1) return `${gb.toFixed(1)}GB`;
+  const mb = bytes / (1024 * 1024);
+  if (mb >= 1) return `${mb.toFixed(1)}MB`;
+  return `${(bytes / 1024).toFixed(0)}KB`;
+};
 
 // 扫描文件夹后的云端删除
 const executeDelete = async () => {
-  if (!confirm(`确认云端删除 ${selectedPaths.value.length} 个？`)) return
+  if (!confirm(`确认云端删除 ${selectedPaths.value.length} 个？`)) return;
 
-  isBusy.value = true
+  isBusy.value = true;
   try {
-    const selectedItems = localItems.value.filter((i) => selectedPaths.value.includes(i.path))
-    const rjCodes = selectedItems.map((i) => i.code).filter(Boolean)
+    const selectedItems = localItems.value.filter((i) =>
+      selectedPaths.value.includes(i.path),
+    );
+    const rjCodes = selectedItems.map((i) => i.code).filter(Boolean);
 
     if (rjCodes.length > 0) {
-      const cloudRes = await window.api.asmrDeleteByRJ(rjCodes)
+      const cloudRes = await window.api.asmrDeleteByRJ(rjCodes);
       if (cloudRes.success) {
-        alert(`云端删除 ${cloudRes.deletedCount || 0} 个作品`)
+        alert(`云端删除 ${cloudRes.deletedCount || 0} 个作品`);
       } else {
-        alert('删除失败: ' + (cloudRes.error || '未知错误'))
+        alert("删除失败: " + (cloudRes.error || "未知错误"));
       }
     }
 
-    localItems.value = localItems.value.filter((i) => !selectedPaths.value.includes(i.path))
-    selectedPaths.value = []
+    localItems.value = localItems.value.filter(
+      (i) => !selectedPaths.value.includes(i.path),
+    );
+    selectedPaths.value = [];
   } finally {
-    isBusy.value = false
+    isBusy.value = false;
   }
-}
+};
 
 // TXT导入后的云端删除
 const executeCloudDelete = async () => {
-  if (!confirm(`确认删除云端 ${txtRJCodes.value.length} 个作品？`)) return
+  if (!confirm(`确认删除云端 ${txtRJCodes.value.length} 个作品？`)) return;
 
-  isBusy.value = true
+  isBusy.value = true;
   try {
-    const rjList = JSON.parse(JSON.stringify(txtRJCodes.value))
-    const result = await window.api.asmrDeleteByRJ(rjList)
+    const rjList = JSON.parse(JSON.stringify(txtRJCodes.value));
+    const result = await window.api.asmrDeleteByRJ(rjList);
     if (result.success) {
-      alert(`云端删除 ${result.deletedCount} 个作品`)
-      txtRJCodes.value = []
+      alert(`云端删除 ${result.deletedCount} 个作品`);
+      txtRJCodes.value = [];
     }
   } finally {
-    isBusy.value = false
+    isBusy.value = false;
   }
-}
+};
 </script>
 
 <style scoped>
@@ -377,7 +414,7 @@ const executeCloudDelete = async () => {
   background: #f0ebfc;
 }
 
-.file-row input[type='checkbox'] {
+.file-row input[type="checkbox"] {
   width: 18px;
   height: 18px;
   accent-color: #8b5cf6;

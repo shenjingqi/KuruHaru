@@ -7,7 +7,9 @@
     <div class="search-box">
       <span class="search-icon">🔍</span>
       <input v-model="searchText" type="text" placeholder="搜索标签..." />
-      <button v-if="searchText" class="clear-btn" @click="searchText = ''">✕</button>
+      <button v-if="searchText" class="clear-btn" @click="searchText = ''">
+        ✕
+      </button>
     </div>
     <div v-if="allTags.length > 0" class="tags-container">
       <div class="tags-grid">
@@ -17,7 +19,7 @@
           class="tag-item"
           :class="{
             selected: selectedTags.includes(tag.name),
-            excluded: excludedTags.includes(tag.name)
+            excluded: excludedTags.includes(tag.name),
           }"
         >
           <input
@@ -30,7 +32,10 @@
         </label>
       </div>
     </div>
-    <div v-if="selectedTags.length > 0 || excludedTags.length > 0" class="selected-tags">
+    <div
+      v-if="selectedTags.length > 0 || excludedTags.length > 0"
+      class="selected-tags"
+    >
       <div class="selected-header">
         <span class="header-text">📋 已选:</span>
         <button class="clear-all-btn" @click="clearAllTags">清除</button>
@@ -38,33 +43,45 @@
       <div class="tag-badges">
         <span v-for="tag in selectedTags" :key="tag" class="tag-badge include"
           >{{ tag
-          }}<button @click="selectedTags = selectedTags.filter((t) => t !== tag)">✕</button></span
+          }}<button
+            @click="selectedTags = selectedTags.filter((t) => t !== tag)"
+          >
+            ✕
+          </button></span
         >
         <span v-for="tag in excludedTags" :key="tag" class="tag-badge exclude"
           >{{ tag
-          }}<button @click="excludedTags = excludedTags.filter((t) => t !== tag)">✕</button></span
+          }}<button
+            @click="excludedTags = excludedTags.filter((t) => t !== tag)"
+          >
+            ✕
+          </button></span
         >
       </div>
     </div>
     <div class="exclude-toggle">
       <span class="toggle-label">模式:</span>
-      <label><input v-model="excludeMode" type="radio" :value="false" /> 包含</label>
-      <label><input v-model="excludeMode" type="radio" :value="true" /> 排除</label>
+      <label
+        ><input v-model="excludeMode" type="radio" :value="false" /> 包含</label
+      >
+      <label
+        ><input v-model="excludeMode" type="radio" :value="true" /> 排除</label
+      >
     </div>
   </div>
 </template>
 <script setup>
-import { ref, onMounted, computed } from 'vue'
-import tagsData from '../../../../config/tags.json'
+import { ref, onMounted, computed } from "vue";
+import tagsData from "../../../../config/tags.json";
 
 const props = defineProps({
-  modelValue: { type: Object, default: () => ({ include: [], exclude: [] }) }
-})
-const emit = defineEmits(['update:modelValue'])
-const searchText = ref('')
-const excludeMode = ref(false)
-const selectedTags = ref([])
-const excludedTags = ref([])
+  modelValue: { type: Object, default: () => ({ include: [], exclude: [] }) },
+});
+const emit = defineEmits(["update:modelValue"]);
+const searchText = ref("");
+const excludeMode = ref(false);
+const selectedTags = ref([]);
+const excludedTags = ref([]);
 
 // 从 tags.json 导入标签数据
 const allTags = computed(() => {
@@ -72,52 +89,57 @@ const allTags = computed(() => {
     .map((tag) => ({
       id: tag.id,
       name: tag.name,
-      count: tag.count
+      count: tag.count,
     }))
-    .sort((a, b) => b.count - a.count)
-})
+    .sort((a, b) => b.count - a.count);
+});
 
 // 过滤后的标签
 const filteredTags = computed(() => {
-  if (!searchText.value) return allTags.value.slice(0, 50)
-  const query = searchText.value.toLowerCase()
-  return allTags.value.filter((tag) => tag.name.toLowerCase().includes(query)).slice(0, 50)
-})
+  if (!searchText.value) return allTags.value.slice(0, 50);
+  const query = searchText.value.toLowerCase();
+  return allTags.value
+    .filter((tag) => tag.name.toLowerCase().includes(query))
+    .slice(0, 50);
+});
 
 const toggleTag = (tag) => {
   if (excludeMode.value) {
     if (excludedTags.value.includes(tag))
-      excludedTags.value = excludedTags.value.filter((t) => t !== tag)
+      excludedTags.value = excludedTags.value.filter((t) => t !== tag);
     else {
-      excludedTags.value.push(tag)
-      selectedTags.value = selectedTags.value.filter((t) => t !== tag)
+      excludedTags.value.push(tag);
+      selectedTags.value = selectedTags.value.filter((t) => t !== tag);
     }
   } else {
     if (selectedTags.value.includes(tag))
-      selectedTags.value = selectedTags.value.filter((t) => t !== tag)
+      selectedTags.value = selectedTags.value.filter((t) => t !== tag);
     else {
-      selectedTags.value.push(tag)
-      excludedTags.value = excludedTags.value.filter((t) => t !== tag)
+      selectedTags.value.push(tag);
+      excludedTags.value = excludedTags.value.filter((t) => t !== tag);
     }
   }
-  emitUpdate()
-}
+  emitUpdate();
+};
 
 const clearAllTags = () => {
-  selectedTags.value = []
-  excludedTags.value = []
-  emitUpdate()
-}
+  selectedTags.value = [];
+  excludedTags.value = [];
+  emitUpdate();
+};
 
 const emitUpdate = () => {
-  emit('update:modelValue', { include: [...selectedTags.value], exclude: [...excludedTags.value] })
-}
+  emit("update:modelValue", {
+    include: [...selectedTags.value],
+    exclude: [...excludedTags.value],
+  });
+};
 onMounted(() => {
   if (props.modelValue) {
-    selectedTags.value = props.modelValue.include || []
-    excludedTags.value = props.modelValue.exclude || []
+    selectedTags.value = props.modelValue.include || [];
+    excludedTags.value = props.modelValue.exclude || [];
   }
-})
+});
 </script>
 <style scoped>
 .tag-selector {

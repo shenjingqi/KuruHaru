@@ -38,53 +38,64 @@
         <option value="h">小时</option>
       </select>
     </div>
-    <button v-if="hasValue" class="clear-btn" @click="clearValue">清除筛选</button>
+    <button v-if="hasValue" class="clear-btn" @click="clearValue">
+      清除筛选
+    </button>
   </div>
 </template>
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch } from "vue";
 const props = defineProps({
-  modelValue: { type: Object, default: () => ({ value: null, unit: 'm', mode: 'greater' }) }
-})
-const emit = defineEmits(['update:modelValue'])
-const mode = ref(props.modelValue.mode || 'greater')
-const unit = ref(props.modelValue.unit || 'm')
-const sliderValue = ref(30)
-const inputValue = ref(30)
-const hasValue = computed(() => inputValue.value !== null && inputValue.value !== '')
+  modelValue: {
+    type: Object,
+    default: () => ({ value: null, unit: "m", mode: "greater" }),
+  },
+});
+const emit = defineEmits(["update:modelValue"]);
+const mode = ref(props.modelValue.mode || "greater");
+const unit = ref(props.modelValue.unit || "m");
+const sliderValue = ref(30);
+const inputValue = ref(30);
+const hasValue = computed(
+  () => inputValue.value !== null && inputValue.value !== "",
+);
 const onSliderChange = () => {
-  inputValue.value = sliderValue.value
-  emitUpdate()
-}
+  inputValue.value = sliderValue.value;
+  emitUpdate();
+};
 const onInputChange = () => {
   if (inputValue.value !== null) {
-    if (unit.value === 'h') {
-      sliderValue.value = Math.min(inputValue.value * 60, 180)
+    if (unit.value === "h") {
+      sliderValue.value = Math.min(inputValue.value * 60, 180);
     } else {
-      sliderValue.value = Math.min(inputValue.value, 180)
+      sliderValue.value = Math.min(inputValue.value, 180);
     }
   }
-  emitUpdate()
-}
+  emitUpdate();
+};
 const clearValue = () => {
-  inputValue.value = null
-  sliderValue.value = 0
-  emitUpdate()
-}
+  inputValue.value = null;
+  sliderValue.value = 0;
+  emitUpdate();
+};
 const emitUpdate = () => {
-  emit('update:modelValue', { value: inputValue.value, unit: unit.value, mode: mode.value })
-}
+  emit("update:modelValue", {
+    value: inputValue.value,
+    unit: unit.value,
+    mode: mode.value,
+  });
+};
 watch(
   () => props.modelValue,
   (nv) => {
     if (nv) {
-      mode.value = nv.mode || 'greater'
-      unit.value = nv.unit || 'm'
-      inputValue.value = nv.value
+      mode.value = nv.mode || "greater";
+      unit.value = nv.unit || "m";
+      inputValue.value = nv.value;
     }
   },
-  { deep: true }
-)
+  { deep: true },
+);
 </script>
 <style scoped>
 .duration-picker {

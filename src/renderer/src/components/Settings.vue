@@ -11,7 +11,9 @@
         <div class="section-header" @click="togglePanel('accountStatus')">
           <span class="section-icon">👤</span>
           <h3 class="section-title">账户状态</h3>
-          <span class="expand-icon">{{ expandedPanels.accountStatus ? '−' : '+' }}</span>
+          <span class="expand-icon">{{
+            expandedPanels.accountStatus ? "−" : "+"
+          }}</span>
         </div>
         <div v-show="expandedPanels.accountStatus" class="section-body">
           <div class="status-grid">
@@ -19,21 +21,31 @@
               <div class="status-top">
                 <span class="status-icon">✈️</span>
                 <span class="status-name">Telegram</span>
-                <span class="status-badge" :class="tgConnected ? 'online' : 'offline'">
-                  {{ tgConnected ? '已连接' : '未连接' }}
+                <span
+                  class="status-badge"
+                  :class="tgConnected ? 'online' : 'offline'"
+                >
+                  {{ tgConnected ? "已连接" : "未连接" }}
                 </span>
               </div>
-              <div v-if="tgConnected" class="status-info">{{ config.tg.phone }}</div>
+              <div v-if="tgConnected" class="status-info">
+                {{ config.tg.phone }}
+              </div>
             </div>
             <div class="status-card" :class="{ connected: asmrLoggedIn }">
               <div class="status-top">
                 <span class="status-icon">🌐</span>
                 <span class="status-name">ASMR.ONE</span>
-                <span class="status-badge" :class="asmrLoggedIn ? 'online' : 'offline'">
-                  {{ asmrLoggedIn ? '已登录' : '未登录' }}
+                <span
+                  class="status-badge"
+                  :class="asmrLoggedIn ? 'online' : 'offline'"
+                >
+                  {{ asmrLoggedIn ? "已登录" : "未登录" }}
                 </span>
               </div>
-              <div v-if="asmrLoggedIn" class="status-info">{{ config.asmr.username }}</div>
+              <div v-if="asmrLoggedIn" class="status-info">
+                {{ config.asmr.username }}
+              </div>
             </div>
           </div>
         </div>
@@ -44,13 +56,19 @@
         <div class="section-header" @click="togglePanel('telegram')">
           <span class="section-icon">✈️</span>
           <h3 class="section-title">Telegram</h3>
-          <span class="expand-icon">{{ expandedPanels.telegram ? '−' : '+' }}</span>
+          <span class="expand-icon">{{
+            expandedPanels.telegram ? "−" : "+"
+          }}</span>
         </div>
         <div v-show="expandedPanels.telegram" class="section-body">
           <div class="form-grid">
             <div class="form-row">
               <label class="form-label">App ID</label>
-              <input v-model="config.tg.apiId" class="input" placeholder="123456" />
+              <input
+                v-model="config.tg.apiId"
+                class="input"
+                placeholder="123456"
+              />
             </div>
             <div class="form-row">
               <label class="form-label">App Hash</label>
@@ -62,21 +80,33 @@
                   placeholder="abcdef..."
                 />
                 <button class="toggle-btn" @click="showTgHash = !showTgHash">
-                  {{ showTgHash ? '🙈' : '👁' }}
+                  {{ showTgHash ? "🙈" : "👁" }}
                 </button>
               </div>
             </div>
             <div class="form-row">
               <label class="form-label">手机号</label>
-              <input v-model="config.tg.phone" class="input" placeholder="+86138..." />
+              <input
+                v-model="config.tg.phone"
+                class="input"
+                placeholder="+86138..."
+              />
             </div>
             <div class="form-row">
               <label class="form-label">讨论组 ID</label>
-              <input v-model="config.tg.discussion" class="input" placeholder="讨论组链接或ID" />
+              <input
+                v-model="config.tg.discussion"
+                class="input"
+                placeholder="讨论组链接或ID"
+              />
             </div>
             <div class="form-row">
               <label class="form-label">频道 ID</label>
-              <input v-model="config.tg.channel" class="input" placeholder="频道链接或ID" />
+              <input
+                v-model="config.tg.channel"
+                class="input"
+                placeholder="频道链接或ID"
+              />
             </div>
             <div class="form-row path-row">
               <label class="form-label">下载目录</label>
@@ -87,7 +117,9 @@
                   placeholder="选择TG打包下载目录"
                   readonly
                 />
-                <button class="browse-btn" @click="browseTgDownloadDir">浏览</button>
+                <button class="browse-btn" @click="browseTgDownloadDir">
+                  浏览
+                </button>
               </div>
             </div>
             <span class="form-hint">TG打包下载的文件将保存到此目录</span>
@@ -99,7 +131,9 @@
               :disabled="isTgLogging"
               @click="handleTelegramAction"
             >
-              {{ tgConnected ? '退出登录' : isTgLogging ? '登录中...' : '登录' }}
+              {{
+                tgConnected ? "退出登录" : isTgLogging ? "登录中..." : "登录"
+              }}
             </button>
             <button
               v-if="!tgConnected"
@@ -118,13 +152,17 @@
         <div class="section-header" @click="togglePanel('asmr')">
           <span class="section-icon">🌐</span>
           <h3 class="section-title">ASMR.ONE</h3>
-          <span class="expand-icon">{{ expandedPanels.asmr ? '−' : '+' }}</span>
+          <span class="expand-icon">{{ expandedPanels.asmr ? "−" : "+" }}</span>
         </div>
         <div v-show="expandedPanels.asmr" class="section-body">
           <div class="form-grid">
             <div class="form-row">
               <label class="form-label">用户名</label>
-              <input v-model="config.asmr.username" class="input" placeholder="用户名或邮箱" />
+              <input
+                v-model="config.asmr.username"
+                class="input"
+                placeholder="用户名或邮箱"
+              />
             </div>
             <div class="form-row">
               <label class="form-label">密码</label>
@@ -135,14 +173,21 @@
                   class="input"
                   placeholder="密码"
                 />
-                <button class="toggle-btn" @click="showAsmrPassword = !showAsmrPassword">
-                  {{ showAsmrPassword ? '🙈' : '👁' }}
+                <button
+                  class="toggle-btn"
+                  @click="showAsmrPassword = !showAsmrPassword"
+                >
+                  {{ showAsmrPassword ? "🙈" : "👁" }}
                 </button>
               </div>
             </div>
             <div class="form-row">
               <label class="form-label">播放列表 ID</label>
-              <input v-model="config.asmr.playlistId" class="input" placeholder="a7868acf-..." />
+              <input
+                v-model="config.asmr.playlistId"
+                class="input"
+                placeholder="a7868acf-..."
+              />
             </div>
           </div>
           <div class="action-row">
@@ -152,7 +197,9 @@
               :disabled="isAsmrLogging"
               @click="handleAsmrAction"
             >
-              {{ asmrLoggedIn ? '退出登录' : isAsmrLogging ? '登录中...' : '登录' }}
+              {{
+                asmrLoggedIn ? "退出登录" : isAsmrLogging ? "登录中..." : "登录"
+              }}
             </button>
           </div>
         </div>
@@ -163,14 +210,22 @@
         <div class="section-header" @click="togglePanel('systemConfig')">
           <span class="section-icon">⚙️</span>
           <h3 class="section-title">系统配置</h3>
-          <span class="expand-icon">{{ expandedPanels.systemConfig ? '−' : '+' }}</span>
+          <span class="expand-icon">{{
+            expandedPanels.systemConfig ? "−" : "+"
+          }}</span>
         </div>
         <div v-show="expandedPanels.systemConfig" class="section-body">
           <div class="form-row">
             <label class="form-label">日志目录</label>
             <div class="path-input-wrap">
-              <input v-model="config.paths.logsDir" class="input" placeholder="日志目录" />
-              <button class="btn btn-secondary" @click="selectLogsPath">选择</button>
+              <input
+                v-model="config.paths.logsDir"
+                class="input"
+                placeholder="日志目录"
+              />
+              <button class="btn btn-secondary" @click="selectLogsPath">
+                选择
+              </button>
             </div>
           </div>
           <div class="form-row">
@@ -181,10 +236,14 @@
                 class="input"
                 placeholder="配置文件所在文件夹"
               />
-              <button class="btn btn-secondary" @click="selectConfigDir">选择</button>
+              <button class="btn btn-secondary" @click="selectConfigDir">
+                选择
+              </button>
             </div>
           </div>
-          <p class="path-hint">提示：工具输出的路径会保存到此文件夹下的 config.json</p>
+          <p class="path-hint">
+            提示：工具输出的路径会保存到此文件夹下的 config.json
+          </p>
         </div>
       </div>
     </div>
@@ -199,11 +258,17 @@
     <!-- 验证码弹窗 -->
     <div v-if="showTgAuthModal" class="modal-mask">
       <div class="modal-box card">
-        <h3>{{ tgAuthType === 'Password' ? '二级密码' : '验证码' }}</h3>
+        <h3>{{ tgAuthType === "Password" ? "二级密码" : "验证码" }}</h3>
         <p>
-          请输入发送到你手机/客户端的{{ tgAuthType === 'Password' ? '两步验证密码' : '5位数字' }}
+          请输入发送到你手机/客户端的{{
+            tgAuthType === "Password" ? "两步验证密码" : "5位数字"
+          }}
         </p>
-        <input v-model="tgAuthCode" class="input big-input" @keyup.enter="submitTgAuth" />
+        <input
+          v-model="tgAuthCode"
+          class="input big-input"
+          @keyup.enter="submitTgAuth"
+        />
         <div class="modal-actions">
           <button class="btn btn-secondary" @click="cancelTgAuth">取消</button>
           <button class="btn btn-primary" @click="submitTgAuth">确认</button>
@@ -214,72 +279,85 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted, inject, watch } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, inject, watch } from "vue";
 
-const tgConnected = ref(false)
-const asmrLoggedIn = ref(false)
-const isTgLogging = ref(false)
-const isAsmrLogging = ref(false)
-const showTgHash = ref(false)
-const showAsmrPassword = ref(false)
-const tgAuthCode = ref('')
-const tgAuthType = ref('Code')
-const showTgAuthModal = ref(false)
-let unsubscribeTgAuth = null // 存储取消监听的函数
+const tgConnected = ref(false);
+const asmrLoggedIn = ref(false);
+const isTgLogging = ref(false);
+const isAsmrLogging = ref(false);
+const showTgHash = ref(false);
+const showAsmrPassword = ref(false);
+const tgAuthCode = ref("");
+const tgAuthType = ref("Code");
+const showTgAuthModal = ref(false);
+let unsubscribeTgAuth = null; // 存储取消监听的函数
 
 // 注入待处理的验证码数据（从 App.vue）
-const pendingAuthData = inject('pendingAuthData', null)
-const showToast = ref(false)
-const toastMessage = ref('')
-const toastType = ref('success')
+const pendingAuthData = inject("pendingAuthData", null);
+const showToast = ref(false);
+const toastMessage = ref("");
+const toastType = ref("success");
 
 const expandedPanels = reactive({
   accountStatus: true,
   telegram: false,
   asmr: false,
-  systemConfig: false
-})
+  systemConfig: false,
+});
 
 const config = reactive({
-  tg: { apiId: '', apiHash: '', phone: '', session: '', discussion: '', channel: '' },
-  asmr: { username: '', password: '', token: '', playlistId: '', rememberMe: false },
-  paths: {
-    configDir: '',
-    logsDir: '',
-    sourceDir: '',
-    toolOutputDir: '',
-    whisperTargetPath: '',
-    dataDir: '',
-    configFilePath: '',
-    chineseListPath: '',
-    tgDownloadDir: ''
+  tg: {
+    apiId: "",
+    apiHash: "",
+    phone: "",
+    session: "",
+    discussion: "",
+    channel: "",
   },
-  upload: { channelId: '' },
-  logging: { level: 'info', enableFileLog: true },
-  system: { autoStart: false, minimizeToTray: false }
-})
+  asmr: {
+    username: "",
+    password: "",
+    token: "",
+    playlistId: "",
+    rememberMe: false,
+  },
+  paths: {
+    configDir: "",
+    logsDir: "",
+    sourceDir: "",
+    toolOutputDir: "",
+    whisperTargetPath: "",
+    dataDir: "",
+    configFilePath: "",
+    chineseListPath: "",
+    tgDownloadDir: "",
+  },
+  upload: { channelId: "" },
+  logging: { level: "info", enableFileLog: true },
+  system: { autoStart: false, minimizeToTray: false },
+});
 
 const togglePanel = (panel) => {
-  expandedPanels[panel] = !expandedPanels[panel]
-}
+  expandedPanels[panel] = !expandedPanels[panel];
+};
 
 const selectLogsPath = async () => {
-  const res = await window.api.dialogOpenDirectory()
+  const res = await window.api.dialogOpenDirectory();
   if (res && res.filePath) {
-    config.paths.logsDir = res.filePath
+    config.paths.logsDir = res.filePath;
     // 立即保存，不等待防抖
-    saveAllSettings()
+    saveAllSettings();
   }
-}
+};
 
 const selectConfigDir = async () => {
-  const res = await window.api.dialogOpenDirectory()
+  const res = await window.api.dialogOpenDirectory();
   if (res && res.filePath) {
-    config.paths.configDir = res.filePath
+    config.paths.configDir = res.filePath;
     // 立即保存，不等待防抖
-    saveAllSettings()
+    saveAllSettings();
   }
-}
+};
 
 const saveAllSettings = async () => {
   try {
@@ -293,37 +371,37 @@ const saveAllSettings = async () => {
         logging: config.logging,
         system: config.system,
         upload: config.upload,
-        paths: config.paths
-      })
-    )
-    const result = await window.api.invoke('save-config', settingsToSave)
+        paths: config.paths,
+      }),
+    );
+    const result = await window.api.invoke("save-config", settingsToSave);
 
     // 处理返回结果：支持 { success: true } 或 true
-    const isSuccess = result && (result.success === true || result === true)
+    const isSuccess = result && (result.success === true || result === true);
 
     if (isSuccess) {
-      showToastMessage('设置已保存', 'success')
+      showToastMessage("设置已保存", "success");
     } else {
-      showToastMessage('保存失败: 未知错误', 'error')
+      showToastMessage("保存失败: 未知错误", "error");
     }
   } catch (error) {
-    showToastMessage('保存失败: ' + error.message, 'error')
+    showToastMessage("保存失败: " + error.message, "error");
   }
-}
+};
 
 // 防抖自动保存
-let autoSaveTimer = null
+let autoSaveTimer = null;
 const debouncedAutoSave = () => {
   // 清除之前的定时器
   if (autoSaveTimer) {
-    clearTimeout(autoSaveTimer)
+    clearTimeout(autoSaveTimer);
   }
   // 设置新的定时器，500ms 后自动保存
   autoSaveTimer = setTimeout(() => {
-    console.log('[Settings] 自动保存配置...')
-    saveAllSettings()
-  }, 500)
-}
+    console.log("[Settings] 自动保存配置...");
+    saveAllSettings();
+  }, 500);
+};
 
 // 监听配置变化，自动保存
 watch(
@@ -333,209 +411,219 @@ watch(
     logging: config.logging,
     system: config.system,
     upload: config.upload,
-    paths: config.paths
+    paths: config.paths,
   }),
   (newVal, oldVal) => {
     // 深比较，避免初始加载时触发保存
     if (JSON.stringify(newVal) !== JSON.stringify(oldVal)) {
-      debouncedAutoSave()
+      debouncedAutoSave();
     }
   },
-  { deep: true }
-)
+  { deep: true },
+);
 
-const showToastMessage = (message, type = 'success') => {
-  toastMessage.value = message
-  toastType.value = type
-  showToast.value = true
+const showToastMessage = (message, type = "success") => {
+  toastMessage.value = message;
+  toastType.value = type;
+  showToast.value = true;
   setTimeout(() => {
-    showToast.value = false
-  }, 3000)
-}
+    showToast.value = false;
+  }, 3000);
+};
 
 const handleTelegramAction = async () => {
   if (tgConnected.value) {
-    tgConnected.value = false
-    showToastMessage('已退出 Telegram 登录')
+    tgConnected.value = false;
+    showToastMessage("已退出 Telegram 登录");
   } else {
-    isTgLogging.value = true
+    isTgLogging.value = true;
     const loginPayload = JSON.parse(
       JSON.stringify({
         apiId: config.tg.apiId,
         apiHash: config.tg.apiHash,
-        phone: config.tg.phone
-      })
-    )
-    const res = await window.api.tgLogin(loginPayload)
-    isTgLogging.value = false
+        phone: config.tg.phone,
+      }),
+    );
+    const res = await window.api.tgLogin(loginPayload);
+    isTgLogging.value = false;
     if (res.success) {
-      tgConnected.value = true
-      config.tg.session = res.session
-      showToastMessage('Telegram 登录成功')
+      tgConnected.value = true;
+      config.tg.session = res.session;
+      showToastMessage("Telegram 登录成功");
       // 登录成功后清理待处理验证码，防止重复弹窗
       if (pendingAuthData && pendingAuthData.value) {
-        console.log('[Settings] 登录成功，清理待处理验证码')
-        pendingAuthData.value = null
+        console.log("[Settings] 登录成功，清理待处理验证码");
+        pendingAuthData.value = null;
       }
-      saveAllSettings()
+      saveAllSettings();
     } else {
       const errorMsg =
         res.msg ||
         res.error?.message ||
-        (typeof res.error === 'string' ? res.error : JSON.stringify(res.error)) ||
-        '未知错误'
-      showToastMessage('登录失败: ' + errorMsg, 'error')
+        (typeof res.error === "string"
+          ? res.error
+          : JSON.stringify(res.error)) ||
+        "未知错误";
+      showToastMessage("登录失败: " + errorMsg, "error");
     }
   }
-}
+};
 
 const testTelegramConnection = async () => {
-  showToastMessage('测试连接中...')
-  const isConnected = await window.api.tgCheckLogin()
-  tgConnected.value = isConnected
-  showToastMessage(isConnected ? '连接正常' : '未连接', isConnected ? 'success' : 'warning')
-}
+  showToastMessage("测试连接中...");
+  const isConnected = await window.api.tgCheckLogin();
+  tgConnected.value = isConnected;
+  showToastMessage(
+    isConnected ? "连接正常" : "未连接",
+    isConnected ? "success" : "warning",
+  );
+};
 
 const handleAsmrAction = async () => {
   if (asmrLoggedIn.value) {
-    asmrLoggedIn.value = false
-    config.asmr.token = ''
-    showToastMessage('已退出登录')
+    asmrLoggedIn.value = false;
+    config.asmr.token = "";
+    showToastMessage("已退出登录");
   } else {
     if (!config.asmr.username || !config.asmr.password) {
-      showToastMessage('请输入用户名和密码', 'warning')
-      return
+      showToastMessage("请输入用户名和密码", "warning");
+      return;
     }
-    isAsmrLogging.value = true
+    isAsmrLogging.value = true;
     const loginPayload = JSON.parse(
       JSON.stringify({
         username: config.asmr.username,
         password: config.asmr.password,
-        playlistId: config.asmr.playlistId
-      })
-    )
-    const res = await window.api.asmrLogin(loginPayload)
-    isAsmrLogging.value = false
+        playlistId: config.asmr.playlistId,
+      }),
+    );
+    const res = await window.api.asmrLogin(loginPayload);
+    isAsmrLogging.value = false;
     if (res.success && res.token) {
-      asmrLoggedIn.value = true
-      config.asmr.token = res.token
-      showToastMessage('登录成功')
-      saveAllSettings()
+      asmrLoggedIn.value = true;
+      config.asmr.token = res.token;
+      showToastMessage("登录成功");
+      saveAllSettings();
       // 登录成功后刷新云端列表
-      showToastMessage('正在刷新云端列表...', 'info')
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-      await window.api.invoke('asmr-fetch-cloud-works')
+      showToastMessage("正在刷新云端列表...", "info");
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await window.api.invoke("asmr-fetch-cloud-works");
     } else {
-      showToastMessage('登录失败: ' + (res.msg || '未知错误'), 'error')
+      showToastMessage("登录失败: " + (res.msg || "未知错误"), "error");
     }
   }
-}
+};
 
 // 浏览选择 TG 下载目录
 const browseTgDownloadDir = async () => {
   try {
-    const res = await window.api.dialogOpenDirectory()
+    const res = await window.api.dialogOpenDirectory();
     if (res && res.filePath) {
-      config.paths.tgDownloadDir = res.filePath
+      config.paths.tgDownloadDir = res.filePath;
       // 立即保存，不等待防抖
-      saveAllSettings()
+      saveAllSettings();
     }
   } catch (e) {
-    showToastMessage('选择目录失败: ' + e.message, 'error')
+    showToastMessage("选择目录失败: " + e.message, "error");
   }
-}
+};
 
 const submitTgAuth = () => {
-  window.api.send('tg-auth-reply', { code: tgAuthCode.value, cancel: false })
-  showTgAuthModal.value = false
-}
+  window.api.send("tg-auth-reply", { code: tgAuthCode.value, cancel: false });
+  showTgAuthModal.value = false;
+};
 
 const cancelTgAuth = () => {
-  window.api.send('tg-auth-reply', { code: '', cancel: true })
-  showTgAuthModal.value = false
-}
+  window.api.send("tg-auth-reply", { code: "", cancel: true });
+  showTgAuthModal.value = false;
+};
 
 onMounted(async () => {
   try {
-    console.log('Settings: 开始加载配置')
-    const result = await window.api.invoke('get-config')
-    console.log('Settings: 获取到的配置结果:', result)
-    const cfg = result?.data || result
-    console.log('Settings: 提取的配置数据:', cfg)
+    console.log("Settings: 开始加载配置");
+    const result = await window.api.invoke("get-config");
+    console.log("Settings: 获取到的配置结果:", result);
+    const cfg = result?.data || result;
+    console.log("Settings: 提取的配置数据:", cfg);
     if (cfg) {
       // 完整覆盖，不使用 Object.assign（防止遗漏字段）
       if (cfg.tg) {
-        config.tg = { ...config.tg, ...cfg.tg }
-        console.log('Settings: tg 更新后:', config.tg)
+        config.tg = { ...config.tg, ...cfg.tg };
+        console.log("Settings: tg 更新后:", config.tg);
       }
       if (cfg.asmr) {
-        config.asmr = { ...config.asmr, ...cfg.asmr }
-        console.log('Settings: asmr 更新后:', config.asmr)
+        config.asmr = { ...config.asmr, ...cfg.asmr };
+        console.log("Settings: asmr 更新后:", config.asmr);
       }
       if (cfg.paths) {
-        config.paths = { ...config.paths, ...cfg.paths }
-        console.log('Settings: paths 更新后:', config.paths)
+        config.paths = { ...config.paths, ...cfg.paths };
+        console.log("Settings: paths 更新后:", config.paths);
       }
       if (cfg.logging) {
-        config.logging = { ...config.logging, ...cfg.logging }
-        console.log('Settings: logging 更新后:', config.logging)
+        config.logging = { ...config.logging, ...cfg.logging };
+        console.log("Settings: logging 更新后:", config.logging);
       }
       if (cfg.system) {
-        config.system = { ...config.system, ...cfg.system }
-        console.log('Settings: system 更新后:', config.system)
+        config.system = { ...config.system, ...cfg.system };
+        console.log("Settings: system 更新后:", config.system);
       }
       if (cfg.upload) {
-        config.upload = { ...config.upload, ...cfg.upload }
-        console.log('Settings: upload 更新后:', config.upload)
+        config.upload = { ...config.upload, ...cfg.upload };
+        console.log("Settings: upload 更新后:", config.upload);
       }
-      console.log('Settings: 配置加载完成，当前 config:', config)
+      console.log("Settings: 配置加载完成，当前 config:", config);
     }
-    tgConnected.value = await window.api.tgCheckLogin()
-    asmrLoggedIn.value = !!config.asmr.token
-    console.log('Settings: 登录状态 - TG:', tgConnected.value, 'ASMR:', asmrLoggedIn.value)
+    tgConnected.value = await window.api.tgCheckLogin();
+    asmrLoggedIn.value = !!config.asmr.token;
+    console.log(
+      "Settings: 登录状态 - TG:",
+      tgConnected.value,
+      "ASMR:",
+      asmrLoggedIn.value,
+    );
 
     // 检查是否有待处理的验证码（从 App.vue 跳转过来）
     // 注意：如果已经登录成功，则忽略待处理的验证码（防止登录成功后重复弹窗）
     if (pendingAuthData && pendingAuthData.value && !tgConnected.value) {
-      console.log('[Settings] 发现待处理验证码:', pendingAuthData.value)
-      tgAuthType.value = pendingAuthData.value.type
-      showTgAuthModal.value = true
-      tgAuthCode.value = ''
+      console.log("[Settings] 发现待处理验证码:", pendingAuthData.value);
+      tgAuthType.value = pendingAuthData.value.type;
+      showTgAuthModal.value = true;
+      tgAuthCode.value = "";
       // 清空待处理状态
-      pendingAuthData.value = null
+      pendingAuthData.value = null;
     } else if (pendingAuthData && pendingAuthData.value && tgConnected.value) {
       // 已登录状态，清空待处理的验证码数据
-      console.log('[Settings] 已登录，忽略待处理验证码')
-      pendingAuthData.value = null
+      console.log("[Settings] 已登录，忽略待处理验证码");
+      pendingAuthData.value = null;
     }
 
     // 注册验证码监听（用于后续验证码需求）
     // 只有未登录时才监听验证码（防止登录成功后重复弹窗）
     if (window.api.onTgAuthNeeded && !tgConnected.value) {
       unsubscribeTgAuth = window.api.onTgAuthNeeded((authData) => {
-        console.log('[Settings] 收到验证码需求:', authData)
+        console.log("[Settings] 收到验证码需求:", authData);
         // 再次检查登录状态，防止登录成功后仍收到事件
         if (!tgConnected.value) {
-          tgAuthType.value = authData.type
-          showTgAuthModal.value = true
-          tgAuthCode.value = ''
+          tgAuthType.value = authData.type;
+          showTgAuthModal.value = true;
+          tgAuthCode.value = "";
         } else {
-          console.log('[Settings] 已登录，忽略验证码需求')
+          console.log("[Settings] 已登录，忽略验证码需求");
         }
-      })
+      });
     }
   } catch (e) {
-    console.error('Settings: 初始化失败:', e)
+    console.error("Settings: 初始化失败:", e);
   }
-})
+});
 
 // 组件卸载时清理事件监听
 onUnmounted(() => {
   if (unsubscribeTgAuth) {
-    unsubscribeTgAuth()
-    console.log('[Settings] 已清理 tgAuth 事件监听')
+    unsubscribeTgAuth();
+    console.log("[Settings] 已清理 tgAuth 事件监听");
   }
-})
+});
 </script>
 
 <style scoped>
@@ -895,7 +983,7 @@ onUnmounted(() => {
 }
 
 .toggle::before {
-  content: '';
+  content: "";
   position: absolute;
   top: 2px;
   left: 2px;

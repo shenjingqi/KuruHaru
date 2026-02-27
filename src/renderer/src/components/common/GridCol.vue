@@ -5,31 +5,31 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed } from "vue";
 
 const props = defineProps({
-  cols: { type: [String, Number], default: 'auto' },
+  cols: { type: [String, Number], default: "auto" },
   span: { type: [String, Number], default: null },
   offset: { type: [String, Number], default: 0 },
   lg: { type: [String, Number], default: null },
   md: { type: [String, Number], default: null },
-  sm: { type: [String, Number], default: null }
-})
+  sm: { type: [String, Number], default: null },
+});
 
 const colClass = computed(() => {
-  const classes = []
-  if (typeof props.cols === 'number') {
-    classes.push('col-span-' + props.cols)
-  } else if (props.cols == 'auto') {
-    classes.push('col-auto')
+  const classes = [];
+  if (typeof props.cols === "number") {
+    classes.push("col-span-" + props.cols);
+  } else if (props.cols == "auto") {
+    classes.push("col-auto");
   }
-  if (props.span) classes.push('col-span-' + props.span)
-  if (props.offset) classes.push('col-offset-' + props.offset)
-  if (props.lg) classes.push('lg:col-span-' + props.lg)
-  if (props.md) classes.push('md:col-span-' + props.md)
-  if (props.sm) classes.push('sm:col-span-' + props.sm)
-  return classes.join(' ')
-})
+  if (props.span) classes.push("col-span-" + props.span);
+  if (props.offset) classes.push("col-offset-" + props.offset);
+  if (props.lg) classes.push("lg:col-span-" + props.lg);
+  if (props.md) classes.push("md:col-span-" + props.md);
+  if (props.sm) classes.push("sm:col-span-" + props.sm);
+  return classes.join(" ");
+});
 </script>
 
 <style scoped>

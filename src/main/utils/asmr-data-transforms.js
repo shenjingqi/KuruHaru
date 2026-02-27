@@ -13,8 +13,8 @@ export function normalizeWorkItem(item) {
     id: String(item.id),
     source_id: item.source_id,
     title: item.title,
-    tags: item.tags || []
-  }
+    tags: item.tags || [],
+  };
 }
 
 /**
@@ -23,5 +23,5 @@ export function normalizeWorkItem(item) {
  * @returns {Array} 标准化后的作品数组
  */
 export function normalizeWorkItems(items) {
-  return items.map(normalizeWorkItem)
+  return items.map(normalizeWorkItem);
 }

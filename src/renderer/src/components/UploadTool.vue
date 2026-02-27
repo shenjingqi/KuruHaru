@@ -7,9 +7,13 @@
     <div class="status-bar card">
       <div class="status-left">
         <span class="dot" :class="{ online: tgConnected }"></span>
-        {{ tgConnected ? 'TG 已连接' : 'TG 未连接' }}
+        {{ tgConnected ? "TG 已连接" : "TG 未连接" }}
       </div>
-      <button v-if="!tgConnected" class="btn-secondary small" @click="goToSettings">
+      <button
+        v-if="!tgConnected"
+        class="btn-secondary small"
+        @click="goToSettings"
+      >
         去个人设置登录
       </button>
     </div>
@@ -17,20 +21,32 @@
     <div class="main-split">
       <div class="split-left card">
         <div class="tab-header">
-          <div class="tab-btn" :class="{ active: mode === 'scan' }" @click="mode = 'scan'">
+          <div
+            class="tab-btn"
+            :class="{ active: mode === 'scan' }"
+            @click="mode = 'scan'"
+          >
             智能扫描
           </div>
-          <div class="tab-btn" :class="{ active: mode === 'drop' }" @click="mode = 'drop'">
+          <div
+            class="tab-btn"
+            :class="{ active: mode === 'drop' }"
+            @click="mode = 'drop'"
+          >
             手动投递
           </div>
         </div>
 
         <div class="tab-content">
           <div v-if="mode === 'scan'" class="scan-mode">
-            <button class="btn-primary full" @click="scanArchives">📂 扫描文件夹</button>
+            <button class="btn-primary full" @click="scanArchives">
+              📂 扫描文件夹
+            </button>
             <div v-if="scannedFiles.length > 0" class="list-controls">
               <label class="check-all">
-                <input v-model="isAllSelected" type="checkbox" /> 全选 ({{ scannedFiles.length }})
+                <input v-model="isAllSelected" type="checkbox" /> 全选 ({{
+                  scannedFiles.length
+                }})
               </label>
               <span class="clear-btn" @click="clearScan">清空列表</span>
             </div>
@@ -39,11 +55,15 @@
                 v-for="file in scannedFiles"
                 :key="file.path"
                 class="file-item"
-                :class="{ selected: selectedFiles.some((f) => f.path === file.path) }"
+                :class="{
+                  selected: selectedFiles.some((f) => f.path === file.path),
+                }"
               >
                 <input v-model="selectedFiles" type="checkbox" :value="file" />
                 <div class="file-info">
-                  <span v-if="file.code" class="code-badge">[{{ file.code }}]</span>
+                  <span v-if="file.code" class="code-badge"
+                    >[{{ file.code }}]</span
+                  >
                   <span class="name-text">{{ file.name }}</span>
                 </div>
               </div>
@@ -56,14 +76,20 @@
               @drop.prevent="handleDrop"
               @dragover.prevent
             >
-              <div v-if="manualFiles.length === 0" class="placeholder">📦 拖入文件</div>
+              <div v-if="manualFiles.length === 0" class="placeholder">
+                📦 拖入文件
+              </div>
               <div v-else class="file-list">
                 <div class="list-controls">
                   <span class="clear-btn" @click="manualFiles = []">清空</span>
                 </div>
                 <div v-for="(f, i) in manualFiles" :key="i" class="file-tag">
                   {{ getFileName(f) }}
-                  <span class="remove-btn" @click.stop="manualFiles.splice(i, 1)">×</span>
+                  <span
+                    class="remove-btn"
+                    @click.stop="manualFiles.splice(i, 1)"
+                    >×</span
+                  >
                 </div>
               </div>
             </div>
@@ -94,120 +120,131 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick, watch, toRaw } from 'vue'
+import {
+  ref,
+  computed,
+  onMounted,
+  onUnmounted,
+  nextTick,
+  watch,
+  toRaw,
+} from "vue";
 
-const mode = ref('scan')
-const tgConnected = ref(false)
-const uploadChannelId = ref('')
-const scannedFiles = ref([])
-const selectedFiles = ref([])
-const manualFiles = ref([])
-const logs = ref([])
-const logRef = ref(null)
-let timer = null
+const mode = ref("scan");
+const tgConnected = ref(false);
+const uploadChannelId = ref("");
+const scannedFiles = ref([]);
+const selectedFiles = ref([]);
+const manualFiles = ref([]);
+const logs = ref([]);
+const logRef = ref(null);
+let timer = null;
 
 const filesToUpload = computed(() =>
-  mode.value === 'scan' ? selectedFiles.value : manualFiles.value
-)
+  mode.value === "scan" ? selectedFiles.value : manualFiles.value,
+);
 const isAllSelected = computed({
   get: () =>
-    scannedFiles.value.length > 0 && selectedFiles.value.length === scannedFiles.value.length,
+    scannedFiles.value.length > 0 &&
+    selectedFiles.value.length === scannedFiles.value.length,
   set: (val) => {
     // 保存完整文件对象，不只是路径
-    selectedFiles.value = val ? [...scannedFiles.value] : []
-  }
-})
+    selectedFiles.value = val ? [...scannedFiles.value] : [];
+  },
+});
 
 onMounted(async () => {
-  const result = await window.api.invoke('get-config')
-  const cfg = result?.data || result
-  if (cfg?.upload?.channelId) uploadChannelId.value = cfg.upload.channelId
-  checkTgConnection()
-  timer = setInterval(checkTgConnection, 30000)
+  const result = await window.api.invoke("get-config");
+  const cfg = result?.data || result;
+  if (cfg?.upload?.channelId) uploadChannelId.value = cfg.upload.channelId;
+  checkTgConnection();
+  timer = setInterval(checkTgConnection, 30000);
 
   window.api.onLogUpdate((data) => {
-    const msg = data?.msg || data || ''
-    const type = data?.type || 'tg'
-    if (type === 'tg') {
-      logs.value.push(msg)
+    const msg = data?.msg || data || "";
+    const type = data?.type || "tg";
+    if (type === "tg") {
+      logs.value.push(msg);
       nextTick(() => {
-        if (logRef.value) logRef.value.scrollTop = logRef.value.scrollHeight
-      })
+        if (logRef.value) logRef.value.scrollTop = logRef.value.scrollHeight;
+      });
     }
-  })
-})
+  });
+});
 
 const checkTgConnection = async () => {
-  const connected = await window.api.tgCheckLogin()
-  tgConnected.value = connected
-}
+  const connected = await window.api.tgCheckLogin();
+  tgConnected.value = connected;
+};
 
 onUnmounted(() => {
   if (timer) {
-    clearInterval(timer)
-    timer = null
+    clearInterval(timer);
+    timer = null;
   }
-  window.api.removeAllListeners('log-update')
-})
-watch(uploadChannelId, (val) => window.api.invoke('save-config', { upload: { channelId: val } }))
+  window.api.removeAllListeners("log-update");
+});
+watch(uploadChannelId, (val) =>
+  window.api.invoke("save-config", { upload: { channelId: val } }),
+);
 
 const getFileName = (f) => {
-  if (!f) return 'Unknown'
+  if (!f) return "Unknown";
   // 如果已经是字符串路径
-  if (typeof f === 'string') return f.split(/[\\/]/).pop()
+  if (typeof f === "string") return f.split(/[\\/]/).pop();
   // 如果是文件对象
-  return f.name || f.path?.split(/[\\/]/).pop() || 'Unknown'
-}
+  return f.name || f.path?.split(/[\\/]/).pop() || "Unknown";
+};
 const scanArchives = async () => {
-  const dir = await window.api.selectFile('dir')
+  const dir = await window.api.selectFile("dir");
   if (dir && dir.filePath) {
-    const res = await window.api.invoke('scan-local-archives', dir.filePath)
-    scannedFiles.value = res
+    const res = await window.api.invoke("scan-local-archives", dir.filePath);
+    scannedFiles.value = res;
   }
-}
+};
 const clearScan = () => {
-  scannedFiles.value = []
-  selectedFiles.value = []
-}
+  scannedFiles.value = [];
+  selectedFiles.value = [];
+};
 const handleDrop = (e) => {
   const newFiles = Array.from(e.dataTransfer.files).map((f) => ({
-    code: '',
+    code: "",
     path: f.path,
-    name: f.name
-  }))
-  manualFiles.value.push(...newFiles)
-}
+    name: f.name,
+  }));
+  manualFiles.value.push(...newFiles);
+};
 const selectZipFiles = async () => {
   const p = await window.api.dialogOpenFile({
-    type: 'file',
-    filters: [{ name: 'ZIP', extensions: ['zip'] }]
-  })
+    type: "file",
+    filters: [{ name: "ZIP", extensions: ["zip"] }],
+  });
   if (p && p.filePaths) {
     const newFiles = p.filePaths.map((filePath) => ({
-      code: '',
+      code: "",
       path: filePath,
-      name: filePath.split(/[/\\]/).pop()
-    }))
-    manualFiles.value.push(...newFiles)
+      name: filePath.split(/[/\\]/).pop(),
+    }));
+    manualFiles.value.push(...newFiles);
   }
-}
+};
 
 const uploadFiles = async () => {
-  const connected = await window.api.tgCheckLogin()
+  const connected = await window.api.tgCheckLogin();
   if (!connected) {
-    logs.value.push('未连接 Telegram，请先去个人设置登录')
-    return
+    logs.value.push("未连接 Telegram，请先去个人设置登录");
+    return;
   }
   // 使用 toRaw 提取原始对象，再用 JSON 克隆
-  const files = JSON.parse(JSON.stringify(toRaw(filesToUpload.value) || []))
-  window.api.send('tg-upload-files', {
+  const files = JSON.parse(JSON.stringify(toRaw(filesToUpload.value) || []));
+  window.api.send("tg-upload-files", {
     files,
-    channelId: uploadChannelId.value
-  })
-}
+    channelId: uploadChannelId.value,
+  });
+};
 const goToSettings = () => {
-  window.dispatchEvent(new CustomEvent('change-view', { detail: 'settings' }))
-}
+  window.dispatchEvent(new CustomEvent("change-view", { detail: "settings" }));
+};
 </script>
 
 <style scoped>

@@ -6,8 +6,15 @@
 
     <!-- 保存/更新预设 -->
     <div class="preset-save">
-      <input v-model="presetName" type="text" placeholder="输入预设名称" class="preset-input" />
-      <button class="save-btn" :disabled="!presetName" @click="savePreset">保存</button>
+      <input
+        v-model="presetName"
+        type="text"
+        placeholder="输入预设名称"
+        class="preset-input"
+      />
+      <button class="save-btn" :disabled="!presetName" @click="savePreset">
+        保存
+      </button>
     </div>
 
     <!-- 预设列表 -->
@@ -28,18 +35,27 @@
         </label>
         <span class="preset-name">{{ preset.name }}</span>
         <div v-if="getPresetTags(preset).length > 0" class="preset-tags">
-          <span v-for="tag in getPresetTags(preset).slice(0, 3)" :key="tag" class="mini-tag">{{
-            tag
-          }}</span>
+          <span
+            v-for="tag in getPresetTags(preset).slice(0, 3)"
+            :key="tag"
+            class="mini-tag"
+            >{{ tag }}</span
+          >
           <span v-if="getPresetTags(preset).length > 3" class="more-tags"
             >+{{ getPresetTags(preset).length - 3 }}</span
           >
         </div>
         <div class="preset-actions">
-          <button class="update-btn" title="用当前条件更新" @click.stop="updatePreset(preset)">
+          <button
+            class="update-btn"
+            title="用当前条件更新"
+            @click.stop="updatePreset(preset)"
+          >
             ✏️
           </button>
-          <button class="delete-btn" @click.stop="deletePreset(index)">✕</button>
+          <button class="delete-btn" @click.stop="deletePreset(index)">
+            ✕
+          </button>
         </div>
       </div>
     </div>
@@ -50,7 +66,7 @@
   </div>
 </template>
 <script setup>
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted } from "vue";
 const props = defineProps({
   presetsData: { type: Array, default: () => [] },
   currentParams: {
@@ -59,71 +75,82 @@ const props = defineProps({
       tags: { include: [], exclude: [] },
       duration: null,
       rating: null,
-      age: 'all'
-    })
-  }
-})
-const emit = defineEmits(['update:active', 'apply', 'save'])
+      age: "all",
+    }),
+  },
+});
+const emit = defineEmits(["update:active", "apply", "save"]);
 
-const presetName = ref('')
-const presets = ref([])
-const activePresets = ref([])
+const presetName = ref("");
+const presets = ref([]);
+const activePresets = ref([]);
 
 // 加载预设时通知父组件
 const emitPresetsUpdate = () => {
-  emit('save', { presets: presets.value })
-}
+  emit("save", { presets: presets.value });
+};
 
 // 同步presetsData：只在初始时加载
 watch(
   () => props.presetsData,
   (val) => {
-    if (val && Array.isArray(val) && val.length > 0 && presets.value.length === 0) {
-      presets.value = val
-      emitPresetsUpdate()
+    if (
+      val &&
+      Array.isArray(val) &&
+      val.length > 0 &&
+      presets.value.length === 0
+    ) {
+      presets.value = val;
+      emitPresetsUpdate();
     }
   },
-  { immediate: true }
-)
+  { immediate: true },
+);
 
 const getPresetTags = (preset) => {
-  if (!preset?.params?.tags) return []
-  return [...(preset.params.tags.include || []), ...(preset.params.tags.exclude || [])]
-}
+  if (!preset?.params?.tags) return [];
+  return [
+    ...(preset.params.tags.include || []),
+    ...(preset.params.tags.exclude || []),
+  ];
+};
 
 const togglePreset = (name) => {
-  const idx = activePresets.value.indexOf(name)
+  const idx = activePresets.value.indexOf(name);
   if (idx >= 0) {
-    activePresets.value.splice(idx, 1)
+    activePresets.value.splice(idx, 1);
   } else {
-    activePresets.value.push(name)
+    activePresets.value.push(name);
   }
-  updateParent()
-}
+  updateParent();
+};
 
 const loadPreset = (preset) => {
   if (preset?.params) {
-    emit('apply', preset.params)
+    emit("apply", preset.params);
   }
-}
+};
 
 const deletePreset = (index) => {
-  const name = presets.value[index].name
-  presets.value.splice(index, 1)
-  const idx = activePresets.value.indexOf(name)
-  if (idx >= 0) activePresets.value.splice(idx, 1)
-  saveToStorage()
-  updateParent()
-}
+  const name = presets.value[index].name;
+  presets.value.splice(index, 1);
+  const idx = activePresets.value.indexOf(name);
+  if (idx >= 0) activePresets.value.splice(idx, 1);
+  saveToStorage();
+  updateParent();
+};
 
 const savePreset = () => {
-  if (!presetName.value.trim()) return
+  if (!presetName.value.trim()) return;
 
-  const existingIndex = presets.value.findIndex((p) => p.name === presetName.value.trim())
+  const existingIndex = presets.value.findIndex(
+    (p) => p.name === presetName.value.trim(),
+  );
 
   // 确保 age 保存为字符串
-  const ageValue = props.currentParams.age
-  const ageStr = typeof ageValue === 'string' ? ageValue : ageValue?.age || 'all'
+  const ageValue = props.currentParams.age;
+  const ageStr =
+    typeof ageValue === "string" ? ageValue : ageValue?.age || "all";
 
   // 深拷贝当前参数，确保保存的是完整的对象
   const newPreset = {
@@ -138,31 +165,32 @@ const savePreset = () => {
       rating: props.currentParams.rating
         ? JSON.parse(JSON.stringify(props.currentParams.rating))
         : null,
-      age: ageStr
-    }
-  }
+      age: ageStr,
+    },
+  };
 
   if (existingIndex >= 0) {
     if (confirm(`预设"${presetName.value}"已存在，是否更新？`)) {
-      presets.value[existingIndex] = newPreset
+      presets.value[existingIndex] = newPreset;
     } else {
-      return
+      return;
     }
   } else {
-    presets.value.push(newPreset)
+    presets.value.push(newPreset);
   }
 
-  saveToStorage()
-  emit('save', { presets: presets.value })
-  presetName.value = ''
-}
+  saveToStorage();
+  emit("save", { presets: presets.value });
+  presetName.value = "";
+};
 
 const updatePreset = (preset) => {
-  const index = presets.value.findIndex((p) => p.name === preset.name)
+  const index = presets.value.findIndex((p) => p.name === preset.name);
   if (index >= 0) {
     // 确保 age 保存为字符串
-    const ageValue = props.currentParams.age
-    const ageStr = typeof ageValue === 'string' ? ageValue : ageValue?.age || 'all'
+    const ageValue = props.currentParams.age;
+    const ageStr =
+      typeof ageValue === "string" ? ageValue : ageValue?.age || "all";
 
     presets.value[index] = {
       name: preset.name,
@@ -176,90 +204,90 @@ const updatePreset = (preset) => {
         rating: props.currentParams.rating
           ? JSON.parse(JSON.stringify(props.currentParams.rating))
           : null,
-        age: ageStr
-      }
-    }
-    saveToStorage()
-    emit('save', { presets: presets.value })
+        age: ageStr,
+      },
+    };
+    saveToStorage();
+    emit("save", { presets: presets.value });
   }
-}
+};
 
 const updateParent = () => {
-  const merged = mergePresets()
-  emit('update:active', {
+  const merged = mergePresets();
+  emit("update:active", {
     presets: [...activePresets.value],
-    params: merged
-  })
-}
+    params: merged,
+  });
+};
 
 const mergePresets = () => {
   const result = {
     tags: { include: [], exclude: [] },
     duration: null,
     rating: null,
-    age: 'all'
-  }
+    age: "all",
+  };
 
   activePresets.value.forEach((name) => {
-    const preset = presets.value.find((p) => p.name === name)
-    if (!preset?.params) return
+    const preset = presets.value.find((p) => p.name === name);
+    if (!preset?.params) return;
 
-    const p = preset.params
+    const p = preset.params;
 
     if (p.tags?.include?.length) {
       p.tags.include.forEach((t) => {
-        if (!result.tags.include.includes(t)) result.tags.include.push(t)
-      })
+        if (!result.tags.include.includes(t)) result.tags.include.push(t);
+      });
     }
     if (p.tags?.exclude?.length) {
       p.tags.exclude.forEach((t) => {
-        if (!result.tags.exclude.includes(t)) result.tags.exclude.push(t)
-      })
+        if (!result.tags.exclude.includes(t)) result.tags.exclude.push(t);
+      });
     }
-    if (p.duration?.value != null) result.duration = { ...p.duration }
-    if (p.rating?.value != null) result.rating = { ...p.rating }
-    if (p.age && p.age !== 'all') result.age = p.age
-  })
+    if (p.duration?.value != null) result.duration = { ...p.duration };
+    if (p.rating?.value != null) result.rating = { ...p.rating };
+    if (p.age && p.age !== "all") result.age = p.age;
+  });
 
-  return result
-}
+  return result;
+};
 
 const saveToStorage = () => {
   try {
-    const data = JSON.stringify(presets.value)
-    localStorage.setItem('searchPresets', data)
+    const data = JSON.stringify(presets.value);
+    localStorage.setItem("searchPresets", data);
   } catch (e) {
-    console.error('保存失败', e)
+    console.error("保存失败", e);
   }
-}
+};
 
 onMounted(() => {
   // 优先从localStorage加载
   try {
-    const saved = localStorage.getItem('searchPresets')
+    const saved = localStorage.getItem("searchPresets");
     if (saved) {
-      const parsed = JSON.parse(saved)
+      const parsed = JSON.parse(saved);
       if (Array.isArray(parsed) && parsed.length > 0) {
         // 清理旧数据格式
         parsed.forEach((preset) => {
-          if (preset.params?.age && typeof preset.params.age !== 'string') {
-            preset.params.age = preset.params.age?.age || 'all'
+          if (preset.params?.age && typeof preset.params.age !== "string") {
+            preset.params.age = preset.params.age?.age || "all";
           }
-        })
-        presets.value = parsed
-        emitPresetsUpdate()
-        return
+        });
+        presets.value = parsed;
+        emitPresetsUpdate();
+        return;
       }
     }
   } catch (e) {
-    console.error('加载失败', e)
+    console.error("加载失败", e);
   }
   // localStorage没有数据，从父组件加载
   if (props.presetsData && props.presetsData.length > 0) {
-    presets.value = props.presetsData
-    emitPresetsUpdate()
+    presets.value = props.presetsData;
+    emitPresetsUpdate();
   }
-})
+});
 </script>
 <style scoped>
 .preset-manager {

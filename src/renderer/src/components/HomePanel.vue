@@ -282,8 +282,8 @@ const handleClearCache = async () => {
         message.info("正在删除缓存...");
 
         // 清除本地缓存文件
-        const clearResult = await window.api.invoke('clear-cache', {
-          cacheFile: 'recent_activity.json'
+        const clearResult = await window.api.invoke("clear-cache", {
+          cacheFile: "recent_activity.json",
         });
 
         if (clearResult.success) {
@@ -299,7 +299,7 @@ const handleClearCache = async () => {
       } finally {
         isLoading.value = false;
       }
-    }
+    },
   });
 };
 

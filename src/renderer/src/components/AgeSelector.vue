@@ -22,7 +22,10 @@
         <input v-model="selected" type="radio" value="r15" />
         🔞 R15
       </label>
-      <label class="age-option exclude" :class="{ active: selected === 'excludeAdult' }">
+      <label
+        class="age-option exclude"
+        :class="{ active: selected === 'excludeAdult' }"
+      >
         <input v-model="selected" type="radio" value="excludeAdult" />
         🚫 不要R18
       </label>
@@ -30,29 +33,33 @@
   </div>
 </template>
 <script setup>
-import { ref, watch } from 'vue'
-const props = defineProps({ modelValue: { type: String, default: 'all' } })
-const emit = defineEmits(['update:modelValue'])
-const selected = ref(props.modelValue || 'all')
+import { ref, watch } from "vue";
+const props = defineProps({ modelValue: { type: String, default: "all" } });
+const emit = defineEmits(["update:modelValue"]);
+const selected = ref(props.modelValue || "all");
 const emitUpdate = () => {
-  emit('update:modelValue', selected.value)
-}
+  emit("update:modelValue", selected.value);
+};
 const getLabel = (val) => {
-  const labels = { general: '👶 全年龄', r15: '🔞 R15', excludeAdult: '🚫 不要R18' }
-  return labels[val] || val
-}
+  const labels = {
+    general: "👶 全年龄",
+    r15: "🔞 R15",
+    excludeAdult: "🚫 不要R18",
+  };
+  return labels[val] || val;
+};
 watch(
   () => selected.value,
   () => {
-    emitUpdate()
-  }
-)
+    emitUpdate();
+  },
+);
 watch(
   () => props.modelValue,
   (val) => {
-    if (val) selected.value = val
-  }
-)
+    if (val) selected.value = val;
+  },
+);
 </script>
 <style scoped>
 .age-selector {
@@ -114,11 +121,11 @@ watch(
   background: #fff2f0;
   color: #ff4d4f;
 }
-.age-option input[type='radio'] {
+.age-option input[type="radio"] {
   margin-right: 10px;
   accent-color: #1890ff;
 }
-.age-option.exclude input[type='radio'] {
+.age-option.exclude input[type="radio"] {
   accent-color: #ff4d4f;
 }
 </style>

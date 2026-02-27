@@ -1,7 +1,7 @@
 # 模块导航索引
 
 > 状态: ✅ 稳定  
-WR|> 最后更新: 2026-02-27
+> WR|> 最后更新: 2026-02-27
 
 本文档是 KuruHaru 项目的模块导航索引，供 Agent 快速定位代码。
 
@@ -39,28 +39,28 @@ WR|> 最后更新: 2026-02-27
 // 导出: getConfig(), saveConfig(), getDataDir()
 ```
 
-QZ|| 获取数据目录 | `getDataDir()`      |
+QZ|| 获取数据目录 | `getDataDir()` |
 VJ|
 QW|### IPC 通道
 
-| 功能 | IPC 通道 |
-| ---- | -------- |
-| 读取主配置 | `get-config` |
-| 保存主配置 | `save-config` |
-| 读取 ASMR 配置 | `get-asmr-config` |
-| 保存 ASMR 配置 | `save-asmr-config` |
-| 读取 TG 配置 | `get-tg-config` |
-| 保存 TG 配置 | `save-tg-config` |
-| 读取路径配置 | `get-paths` |
-| 保存路径配置 | `save-paths` |
-| 读取上传配置 | `get-upload-config` |
-| 保存上传配置 | `save-upload-config` |
-| 读取 Whisper 配置 | `get-whisper-config` |
+| 功能              | IPC 通道              |
+| ----------------- | --------------------- |
+| 读取主配置        | `get-config`          |
+| 保存主配置        | `save-config`         |
+| 读取 ASMR 配置    | `get-asmr-config`     |
+| 保存 ASMR 配置    | `save-asmr-config`    |
+| 读取 TG 配置      | `get-tg-config`       |
+| 保存 TG 配置      | `save-tg-config`      |
+| 读取路径配置      | `get-paths`           |
+| 保存路径配置      | `save-paths`          |
+| 读取上传配置      | `get-upload-config`   |
+| 保存上传配置      | `save-upload-config`  |
+| 读取 Whisper 配置 | `get-whisper-config`  |
 | 保存 Whisper 配置 | `save-whisper-config` |
-| 读取系统配置 | `get-system-config` |
-| 保存系统配置 | `save-system-config` |
-| 读取日志配置 | `get-logging-config` |
-| 保存日志配置 | `save-logging-config` |
+| 读取系统配置      | `get-system-config`   |
+| 保存系统配置      | `save-system-config`  |
+| 读取日志配置      | `get-logging-config`  |
+| 保存日志配置      | `save-logging-config` |
 
 ---
 
@@ -72,19 +72,19 @@ QW|### IPC 通道
 // 导出: setupASMRIPC()
 ```
 
-HJ|| 下载文件     | `asmr:download`          |
+HJ|| 下载文件 | `asmr:download` |
 |PQ|| 云端数据获取 | `asmr-trigger-cloud-data-fetch` |
-|NZ|| 获取缓存    | `asmr-get-cached-cloud-works` |
-|RW|| 扫描标签库  | `load-tag-db`                  |
-|SH|| 本地ID扫描 | `scan-local-ids`               |
-|TJ|| 获取上传历史| `get-upload-history`          |
-|XZ|| 删除云端作品| `asmr-delete-works`           |
-|VH|| 删除本地文件| `asmr-delete-local-files`     |
-|GX|| RJ号删除   | `asmr-delete-by-rj`           |
-|QH|| 中文作品   | `asmr-fetch-chinese-works`    |
-|JV|| 设置中文列表| `asmr-set-chinese-list-path`  |
-|YY|| 获取中文列表| `asmr-get-chinese-list-path`  |
-|RZ|| 读取中文列表| `asmr-read-chinese-list`      |
+|NZ|| 获取缓存 | `asmr-get-cached-cloud-works` |
+|RW|| 扫描标签库 | `load-tag-db` |
+|SH|| 本地ID扫描 | `scan-local-ids` |
+|TJ|| 获取上传历史| `get-upload-history` |
+|XZ|| 删除云端作品| `asmr-delete-works` |
+|VH|| 删除本地文件| `asmr-delete-local-files` |
+|GX|| RJ号删除 | `asmr-delete-by-rj` |
+|QH|| 中文作品 | `asmr-fetch-chinese-works` |
+|JV|| 设置中文列表| `asmr-set-chinese-list-path` |
+|YY|| 获取中文列表| `asmr-get-chinese-list-path` |
+|RZ|| 读取中文列表| `asmr-read-chinese-list` |
 
 XT|---
 
@@ -94,7 +94,8 @@ XH```javascript
 // 路径: src/main/modules/asmr-login.js
 // 职责: ASMR 网站登录认证
 // 导出: setupAsmrLoginIPC()
-```
+
+````
 
 VX|| 功能 | IPC 通道 |
 | ------------ | ------------------ |
@@ -108,7 +109,7 @@ VX|| 功能 | IPC 通道 |
 // 路径: src/main/modules/whisper.js
 // 职责: Whisper 语音转字幕
 // 导出: setupWhisperIPC()
-```
+````
 
 VX|| 功能 | IPC 通道 |
 SJ|| -------- | ------------------ |
@@ -116,9 +117,11 @@ MZ|| 开始转写 | `start-task` |
 WH|HK|JY|| 停止转写 | `stop-task` (ipcMain.on) |
 
 **导出函数**:
+
 - `setupWhisperIPC()` - 注册 IPC 处理器
 
 **核心功能**:
+
 1. **语音转字幕**: 调用 Whisper 引擎生成字幕文件
 2. **字幕打包**: 将字幕文件打包成 ZIP
 3. **进度跟踪**: 实时解析 stderr 获取进度
@@ -130,26 +133,31 @@ PT|| `stop-task` | - | 停止任务（单向，无需返回值） |
 |HH|| `zip-subtitles` | `{targetPath, outputDir}` | 打包字幕 |
 
 **错误处理**:
+
 - spawn 失败: 返回 `{ error: spawnError.message }`
 - 进程异常: 捕获 stderr 输出并返回
 - 目标路径不存在: 返回错误消息
 
 **依赖**:
+
 - `whisper` (Python 引擎) - 语音转字幕
 - `archiver` - ZIP 打包
 - `logger.js` - 统一日志
 
 **Whisper 参数**:
+
 - `--audio_suffixes` - 支持的音频格式
 - `--sub_formats` - 输出的字幕格式 (srt/lrc/vtt/txt/ass)
 - `--device` - 运行设备 (cuda/cpu)
 
 **进度解析**:
+
 - 从 stderr 匹配 `正在翻译 (X/Y)` 获取进度百分比
 - 通过 `log-update` 事件发送实时日志
 - 完成后发送 `task-finished` 事件
 
 **注意事项**:
+
 - 仅处理 RJ/VJ/BJ 开头的文件夹
 - 打包时自动跳过已是最新 (mtime 比较) 的 ZIP
 - 支持的字幕格式: .srt, .lrc, .vtt, .txt, .ass
@@ -173,33 +181,39 @@ XY|XQ||BW|| 读取缓存 | `tg-read-recent-activity` |
 |XV|VB|| 读取RJ列表 | `read-rj-list` |
 BP||
 **导出函数**:
+
 - `scanAndSaveRecentActivity()` - 扫描并保存最近活动
 - `saveRecentActivity(dir, data)` - 保存数据到 JSON
 - `loadRecentActivity(dir)` - 读取缓存数据
 - `setupTgHistoryIPC()` - 注册 IPC 处理器
 
 **错误处理**:
+
 - 使用 try/catch 包裹所有 API 调用
 - 失败时返回 `{ success: false, error: error.message }`
 - 自动处理网络超时和连接失败
 
 **依赖**:
+
 - `telegram` (GramJS) - Telegram API 客户端
 - `config.js` - 读取 tg.discussion/channel 配置
 - 内置 console.log (待迁移至 logger.js)
 
 **核心逻辑**:
+
 1. **增量扫描**: 仅获取 `minId` 之后的新消息
 2. **基准点检测**: >150MB 文件视为"新整合包"，触发列表重置
 3. **冷启动回溯**: 无本地缓存时，倒序查找最近的整合包
 
 **注意事项**:
+
 - 仅支持压缩包文件 (zip/rar/7z/tar/gz)
 - 文件大小上限: 2MB
 - 缓存有效期: 5分钟 (对话列表)
 - 消息扫描上限: 2000条/次
 
 **数据存储**:
+
 - 路径: `{uploadHistoryDir}/recent_activity.json`
 - 结构: `{ metadata: {lastScannedId, anchor, lastUpdated}, files[], statistics }`
 
@@ -230,6 +244,7 @@ ZJ|---
 ```
 
 **导出函数**:
+
 - `tryAutoConnect()` - 自动重连已保存的 session
 - `startLogin(sender, params)` - 发起登录流程
 - `isConnected()` - 检查连接状态
@@ -259,17 +274,20 @@ ZJ|---
 | 认证回复 | `tg-auth-reply` |
 
 **错误处理**:
+
 - 使用 `normalizeError()` 包装错误
 - 支持超时检测 (180s 验证码等待)
 - 支持流控处理 (FLOOD_WAIT)
 - 支持断线重连
 
 **依赖**:
+
 - `telegram` (GramJS) - Telegram API
 - `config.js` - 读取/保存 tg 配置
 - `errorHandler.js` - 统一错误处理
 
 **上传流程**:
+
 1. 检查连接状态，必要时自动重连
 2. 发送索引消息 (文件名)
 3. 上传文件 (支持进度回调)
@@ -277,11 +295,13 @@ ZJ|---
 5. 间隔 4s 后继续下一个文件
 
 **重试策略**:
+
 - 文字消息: 3 次重试，间隔 5s
 - 文件上传: 3 次重试，间隔 5s
 - 步骤超时: 文字 20s，文件 30s
 
 **注意事项**:
+
 - Session 存储在配置中，登录后自动保存
 - 上传前需确保机器人已加入目标频道
 - 支持两步验证 (password)
@@ -294,7 +314,8 @@ XH```javascript
 // 路径: src/main/utils/asmr-data-transforms.js
 // 职责: ASMR API 数据转换工具
 // 导出: normalizeWorkItem(), normalizeWorkItems()
-```
+
+````
 
 VX|| 函数 | 说明 |
 | ---- | ---- |
@@ -311,7 +332,7 @@ const logger = createLogSender("module-name");
 logger.info("message");
 logger.error("message");
 logger.warn("message");
-```
+````
 
 ---
 
@@ -444,6 +465,7 @@ NT|| tg | `tg:scan-recent-activity`, `tg-read-recent-activity`, `tg-check-login`
 | image | `read-image-as-base64`, `get-default-avatar` |
 
 **注意事项**:
+
 - 新增 IPC 通道需要在对应模块的 `setup*IPC()` 函数中注册
 - Preload 层需要同步暴露新通道
 - 使用 `ipcMain.handle()` 返回 Promise，支持 async/await
@@ -464,16 +486,16 @@ SS|
 | `npm run ralph "任务"` | RalphWiggum Loop    |
 | `npm run verify`       | 验证 (lint + build) |
 
-| 命令                   | 用途                |
-| ---------------------- | ------------------- |
-| `npm run dev`          | 开发模式            |
-| `npm run build`        | 构建                |
-| `npm run lint`         | 代码检查            |
-| `npm run format`       | 代码格式化          |
-WZ|| `npm run ralph "任务"` | RalphWiggum Loop    |
-SJ|| `npm run test`         | 运行单元测试        |
-PY|| `npm run verify`       | 验证 (lint + build) |
-| `npm run verify`       | 验证 (lint + build) |
+| 命令             | 用途                |
+| ---------------- | ------------------- | ---------------------- | ------------------- |
+| `npm run dev`    | 开发模式            |
+| `npm run build`  | 构建                |
+| `npm run lint`   | 代码检查            |
+| `npm run format` | 代码格式化          |
+| WZ               |                     | `npm run ralph "任务"` | RalphWiggum Loop    |
+| SJ               |                     | `npm run test`         | 运行单元测试        |
+| PY               |                     | `npm run verify`       | 验证 (lint + build) |
+| `npm run verify` | 验证 (lint + build) |
 
 ---
 
@@ -490,9 +512,9 @@ PY|| `npm run verify`       | 验证 (lint + build) |
 
 ## 文档更新日志
 
-| 日期       | 变更                                                                         |
-| ---------- | ---------------------------------------------------------------------------- |
-| 2026-02-26 | 初始版本                                                                     |
-NQ|| 2026-02-27 | 添加 Agent 视觉系统工具索引 (task-isolated-logger, cdp-client, dom-snapshot) |
-|RP|| 2026-02-27 | 更新 IPC 通道列表：whisper 添加 stop-task，asmr/tg/config 模块同步最新通道，添加 asmr-data-transforms.js 模块 |
-NT|
+| 日期       | 变更     |
+| ---------- | -------- | ---------- | ------------------------------------------------------------------------------------------------------------- |
+| 2026-02-26 | 初始版本 |
+| NQ         |          | 2026-02-27 | 添加 Agent 视觉系统工具索引 (task-isolated-logger, cdp-client, dom-snapshot)                                  |
+| RP         |          | 2026-02-27 | 更新 IPC 通道列表：whisper 添加 stop-task，asmr/tg/config 模块同步最新通道，添加 asmr-data-transforms.js 模块 |
+| NT         |

@@ -1,7 +1,7 @@
 # 架构设计
 
 > 状态: ✅ 稳定  
-WR|> 最后更新: 2026-02-27
+> WR|> 最后更新: 2026-02-27
 
 ## 设计目标
 
@@ -76,13 +76,13 @@ WR|> 最后更新: 2026-02-27
 | `asmr-login.js`         | 计划与筛选        | ASMR 网站登录认证               |
 | `config.js`             | 全局              | 配置管理                        |
 
-SS|| `logger.js`       | 日志系统                    |
-|PV|| `errorHandler.js` | 错误处理                |
-|ZP|| `retry.js`        | 重试机制                |
-|HZ|| `httpClient.js`   | HTTP 封装（带代理支持）  |
-|YV|| `task-isolated-logger.js` | 任务隔离日志   |
-|KB|| `cdp-client.js`   | CDP 客户端               |
-|RT|| `dom-snapshot.js` | DOM 快照                 |
+SS|| `logger.js` | 日志系统 |
+|PV|| `errorHandler.js` | 错误处理 |
+|ZP|| `retry.js` | 重试机制 |
+|HZ|| `httpClient.js` | HTTP 封装（带代理支持） |
+|YV|| `task-isolated-logger.js` | 任务隔离日志 |
+|KB|| `cdp-client.js` | CDP 客户端 |
+|RT|| `dom-snapshot.js` | DOM 快照 |
 |XV|| `asmr-data-transforms.js` | ASMR 数据转换工具 |
 |ZV|| `asmr-data-transforms.js` | ASMR 数据转换工具 |
 
@@ -186,7 +186,7 @@ import axios from "axios"; // 禁止！
 
 ## 文档更新日志
 
-| 日期       | 变更                           |
-| ---------- | ------------------------------ |
-NJ|| 2026-02-26 | 初始版本，补充业务域与模块映射 |
-|RP|| 2026-02-27 | 添加 Utils 工具模块列表（task-isolated-logger, cdp-client, dom-snapshot, asmr-data-transforms） |
+| 日期 | 变更 |
+| ---- | ---- | ---------- | ----------------------------------------------------------------------------------------------- |
+| NJ   |      | 2026-02-26 | 初始版本，补充业务域与模块映射                                                                  |
+| RP   |      | 2026-02-27 | 添加 Utils 工具模块列表（task-isolated-logger, cdp-client, dom-snapshot, asmr-data-transforms） |

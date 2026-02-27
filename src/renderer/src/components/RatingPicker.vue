@@ -23,7 +23,8 @@
         @input="onSliderChange"
       />
       <div class="slider-labels">
-        <span>0.0</span><span class="current-value">{{ Number(sliderValue).toFixed(1) }}</span
+        <span>0.0</span
+        ><span class="current-value">{{ Number(sliderValue).toFixed(1) }}</span
         ><span>5.0</span>
       </div>
     </div>
@@ -51,60 +52,67 @@
         {{ preset.label }}
       </button>
     </div>
-    <button v-if="hasValue" class="clear-btn" @click="clearValue">清除筛选</button>
+    <button v-if="hasValue" class="clear-btn" @click="clearValue">
+      清除筛选
+    </button>
   </div>
 </template>
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch } from "vue";
 const props = defineProps({
-  modelValue: { type: Object, default: () => ({ value: null, mode: 'greater' }) }
-})
-const emit = defineEmits(['update:modelValue'])
-const mode = ref(props.modelValue.mode || 'greater')
-const sliderValue = ref(4.5)
-const inputValue = ref(4.5)
+  modelValue: {
+    type: Object,
+    default: () => ({ value: null, mode: "greater" }),
+  },
+});
+const emit = defineEmits(["update:modelValue"]);
+const mode = ref(props.modelValue.mode || "greater");
+const sliderValue = ref(4.5);
+const inputValue = ref(4.5);
 const presets = [
-  { label: '3.0', value: 3.0 },
-  { label: '4.0', value: 4.0 },
-  { label: '4.5', value: 4.5 },
-  { label: '4.8', value: 4.8 },
-  { label: '5.0', value: 5.0 }
-]
-const hasValue = computed(() => inputValue.value !== null && inputValue.value !== '')
+  { label: "3.0", value: 3.0 },
+  { label: "4.0", value: 4.0 },
+  { label: "4.5", value: 4.5 },
+  { label: "4.8", value: 4.8 },
+  { label: "5.0", value: 5.0 },
+];
+const hasValue = computed(
+  () => inputValue.value !== null && inputValue.value !== "",
+);
 const onSliderChange = () => {
-  inputValue.value = parseFloat(Number(sliderValue.value).toFixed(1))
-  emitUpdate()
-}
+  inputValue.value = parseFloat(Number(sliderValue.value).toFixed(1));
+  emitUpdate();
+};
 const onInputChange = () => {
   if (inputValue.value !== null) {
-    sliderValue.value = Math.min(Math.max(inputValue.value, 0), 5)
+    sliderValue.value = Math.min(Math.max(inputValue.value, 0), 5);
   }
-  emitUpdate()
-}
+  emitUpdate();
+};
 const setPreset = (value) => {
-  inputValue.value = value
-  sliderValue.value = value
-  emitUpdate()
-}
+  inputValue.value = value;
+  sliderValue.value = value;
+  emitUpdate();
+};
 const clearValue = () => {
-  inputValue.value = null
-  sliderValue.value = 0
-  emitUpdate()
-}
+  inputValue.value = null;
+  sliderValue.value = 0;
+  emitUpdate();
+};
 const emitUpdate = () => {
-  emit('update:modelValue', { value: inputValue.value, mode: mode.value })
-}
+  emit("update:modelValue", { value: inputValue.value, mode: mode.value });
+};
 watch(
   () => props.modelValue,
   (nv) => {
     if (nv) {
-      mode.value = nv.mode || 'greater'
-      inputValue.value = nv.value
-      sliderValue.value = nv.value || 0
+      mode.value = nv.mode || "greater";
+      inputValue.value = nv.value;
+      sliderValue.value = nv.value || 0;
     }
   },
-  { deep: true }
-)
+  { deep: true },
+);
 </script>
 <style scoped>
 .rating-picker {

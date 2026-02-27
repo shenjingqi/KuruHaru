@@ -47,7 +47,8 @@ const api = {
   getSystemInfo: () => ipcRenderer.invoke("get-system-info"),
   getStatistics: () => ipcRenderer.invoke("get-statistics"),
   openLogsDir: () => ipcRenderer.invoke("open-logs-dir"),
-  clearCache: (cacheFile = 'recent_activity.json') => ipcRenderer.invoke('clear-cache', { cacheFile }),
+  clearCache: (cacheFile = "recent_activity.json") =>
+    ipcRenderer.invoke("clear-cache", { cacheFile }),
   exportData: () => ipcRenderer.invoke("export-data"),
   importData: () => ipcRenderer.invoke("import-data"),
   clearAllData: () => ipcRenderer.invoke("clear-all-data"),
@@ -87,6 +88,7 @@ const api = {
   tgCheckLogin: () => ipcRenderer.invoke("tg-check-login"),
   tgLogin: (config) => ipcRenderer.invoke("tg-login", config),
   tgUploadFiles: (data) => ipcRenderer.send("tg-upload-files", data),
+  tgCancelUpload: () => ipcRenderer.send("tg-cancel-upload"),
   onTgAuthNeeded: (callback) => {
     const handler = (e, val) => callback(val);
     ipcRenderer.on("tg-auth-needed", handler);

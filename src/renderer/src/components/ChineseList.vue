@@ -16,7 +16,9 @@
         <div class="source-header">
           <span class="source-icon">📁</span>
           <span class="source-label">TXT导入（基准/手动）</span>
-          <span v-if="txtRJCount > 0" class="badge-success">{{ txtRJCount }} 个</span>
+          <span v-if="txtRJCount > 0" class="badge-success"
+            >{{ txtRJCount }} 个</span
+          >
         </div>
         <p class="source-desc">
           拖入已有RJ/VJ/BJ列表.txt，或拖入其他TXT补充扫描RJ/VJ/BJ号（自动去重）
@@ -36,7 +38,9 @@
             style="display: none"
             @change="handleTxtFileSelect"
           />
-          <p v-if="txtRJCount === 0">拖入一个或多个TXT文件到这里，或点击选择文件</p>
+          <p v-if="txtRJCount === 0">
+            拖入一个或多个TXT文件到这里，或点击选择文件
+          </p>
           <p v-else>已加载 {{ txtRJCount }} 个RJ/VJ/BJ号，点击可继续添加</p>
         </div>
       </div>
@@ -46,11 +50,17 @@
         <div class="source-header">
           <span class="source-icon">📱</span>
           <span class="source-label">TG讨论组数据</span>
-          <span v-if="tgRJCount > 0" class="badge-info">{{ tgRJCount }} 个</span>
+          <span v-if="tgRJCount > 0" class="badge-info"
+            >{{ tgRJCount }} 个</span
+          >
           <span v-else class="badge-warning">未读取</span>
         </div>
-        <button class="btn-secondary" :disabled="isLoadingTg" @click="loadTgData">
-          {{ isLoadingTg ? '读取中...' : '读取TG更新数据' }}
+        <button
+          class="btn-secondary"
+          :disabled="isLoadingTg"
+          @click="loadTgData"
+        >
+          {{ isLoadingTg ? "读取中..." : "读取TG更新数据" }}
         </button>
       </div>
 
@@ -59,7 +69,9 @@
         <div class="source-header">
           <span class="source-icon">🌐</span>
           <span class="source-label">API扫描（汉化/字幕/多语种）</span>
-          <span v-if="apiRJCount > 0" class="badge-info">{{ apiRJCount }} 个</span>
+          <span v-if="apiRJCount > 0" class="badge-info"
+            >{{ apiRJCount }} 个</span
+          >
         </div>
         <div class="api-options">
           <label class="option-item">
@@ -80,13 +92,27 @@
             placeholder="留空则使用默认路径"
             @blur="savePathSetting"
           />
-          <button class="btn-secondary btn-small" @click="selectPath">选择文件夹</button>
-          <button v-if="txtFilePath" class="btn-secondary btn-small" @click="clearPathSetting">
+          <button class="btn-secondary btn-small" @click="selectPath">
+            选择文件夹
+          </button>
+          <button
+            v-if="txtFilePath"
+            class="btn-secondary btn-small"
+            @click="clearPathSetting"
+          >
             恢复默认
           </button>
         </div>
-        <button class="btn-secondary" :disabled="isScanningApi" @click="scanApi">
-          {{ isScanningApi ? `扫描中... 第${scanProgress?.page || 0}页` : '开始API扫描' }}
+        <button
+          class="btn-secondary"
+          :disabled="isScanningApi"
+          @click="scanApi"
+        >
+          {{
+            isScanningApi
+              ? `扫描中... 第${scanProgress?.page || 0}页`
+              : "开始API扫描"
+          }}
         </button>
       </div>
     </div>
@@ -119,7 +145,11 @@
 
     <!-- 操作按钮 -->
     <div class="actions-section">
-      <button class="btn-primary btn-large" :disabled="totalUniqueCount === 0" @click="exportList">
+      <button
+        class="btn-primary btn-large"
+        :disabled="totalUniqueCount === 0"
+        @click="exportList"
+      >
         导出RJ/VJ/BJ列表.txt
       </button>
       <button class="btn-secondary" @click="clearAll">清除所有数据</button>
@@ -140,7 +170,10 @@
               >：拖入已有的RJ/VJ/BJ列表.txt，或拖入其他TXT文件扫描RJ/VJ/BJ号（自动去重）
             </li>
             <li><strong>TG讨论组</strong>：读取Telegram讨论组最近更新的数据</li>
-            <li><strong>API扫描</strong>：扫描 api.asmr-200.com 上带字幕/多语种标签的作品</li>
+            <li>
+              <strong>API扫描</strong>：扫描 api.asmr-200.com
+              上带字幕/多语种标签的作品
+            </li>
           </ul>
 
           <h4>使用流程</h4>
@@ -166,247 +199,268 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed } from "vue";
 
 // 状态
-const txtRJCount = ref(0)
-const tgRJCount = ref(0)
-const apiRJCount = ref(0)
-const isLoadingTg = ref(false)
-const isScanningApi = ref(false)
-const showHelp = ref(false)
-const isDraggingTxt = ref(false)
-const cacheStatus = ref('')
-const txtFilePath = ref('')
+const txtRJCount = ref(0);
+const tgRJCount = ref(0);
+const apiRJCount = ref(0);
+const isLoadingTg = ref(false);
+const isScanningApi = ref(false);
+const showHelp = ref(false);
+const isDraggingTxt = ref(false);
+const cacheStatus = ref("");
+const txtFilePath = ref("");
 
 // 数据存储（使用单一Set存储所有来源的RJ号）
-const txtSet = ref(new Set())
-const tgSet = ref(new Set())
-const apiSet = ref(new Set())
+const txtSet = ref(new Set());
+const tgSet = ref(new Set());
+const apiSet = ref(new Set());
 
 // 进度
-const scanProgress = ref({ page: 0, status: '' })
+const scanProgress = ref({ page: 0, status: "" });
 
 // 计算属性
 const totalUniqueCount = computed(() => {
-  const all = new Set([...txtSet.value, ...tgSet.value, ...apiSet.value])
-  return all.size
-})
+  const all = new Set([...txtSet.value, ...tgSet.value, ...apiSet.value]);
+  return all.size;
+});
 
 const newCount = computed(() => {
   // 新增 = 总数 - TXT基准
-  const total = totalUniqueCount.value
-  const base = txtRJCount.value
-  return total > base ? total - base : 0
-})
+  const total = totalUniqueCount.value;
+  const base = txtRJCount.value;
+  return total > base ? total - base : 0;
+});
 
 // 正则提取RJ/VJ/BJ号
 const extractRJCodes = (text) => {
   // 支持 RJ/VJ/BJ 号
-  const rjPattern = /(RJ|VJ|BJ)\d{6,8}/gi
-  const matches = text.match(rjPattern) || []
-  return [...new Set(matches.map((m) => m.toUpperCase()))]
-}
+  const rjPattern = /(RJ|VJ|BJ)\d{6,8}/gi;
+  const matches = text.match(rjPattern) || [];
+  return [...new Set(matches.map((m) => m.toUpperCase()))];
+};
 
 // 读取文件内容
 const readFileContent = (file) => {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = (e) => resolve(e.target.result)
-    reader.onerror = reject
-    reader.readAsText(file, 'UTF-8')
-  })
-}
+    const reader = new FileReader();
+    reader.onload = (e) => resolve(e.target.result);
+    reader.onerror = reject;
+    reader.readAsText(file, "UTF-8");
+  });
+};
 
 // TXT导入（支持多个文件）
 const loadTxtFiles = async (files) => {
-  let totalImported = 0
+  let totalImported = 0;
 
   for (const file of files) {
-    if (!file.name.endsWith('.txt')) continue
+    if (!file.name.endsWith(".txt")) continue;
 
     try {
-      const content = await readFileContent(file)
-      const rjCodes = extractRJCodes(content)
-      const upperCodes = rjCodes.map((r) => r.toUpperCase())
+      const content = await readFileContent(file);
+      const rjCodes = extractRJCodes(content);
+      const upperCodes = rjCodes.map((r) => r.toUpperCase());
 
-      const newSet = new Set([...txtSet.value, ...upperCodes])
-      txtSet.value = newSet
-      txtRJCount.value = newSet.size
+      const newSet = new Set([...txtSet.value, ...upperCodes]);
+      txtSet.value = newSet;
+      txtRJCount.value = newSet.size;
 
-      totalImported += upperCodes.length
+      totalImported += upperCodes.length;
     } catch (e) {
-      console.error(`读取 ${file.name} 失败:`, e)
+      console.error(`读取 ${file.name} 失败:`, e);
     }
   }
 
   // 保存到后端文件
   if (txtSet.value.size > 0) {
-    const allRjCodes = [...txtSet.value]
-    await window.api?.asmrWriteChineseList?.(allRjCodes)
+    const allRjCodes = [...txtSet.value];
+    await window.api?.asmrWriteChineseList?.(allRjCodes);
   }
 
-  console.log(`已导入 ${totalImported} 个RJ号（合并后共 ${txtSet.value.size} 个）`)
-}
+  console.log(
+    `已导入 ${totalImported} 个RJ号（合并后共 ${txtSet.value.size} 个）`,
+  );
+};
 
 const handleTxtDrop = async (e) => {
-  isDraggingTxt.value = false
-  const files = Array.from(e.dataTransfer.files).filter((f) => f.name.endsWith('.txt'))
+  isDraggingTxt.value = false;
+  const files = Array.from(e.dataTransfer.files).filter((f) =>
+    f.name.endsWith(".txt"),
+  );
   if (files.length > 0) {
-    await loadTxtFiles(files)
+    await loadTxtFiles(files);
   } else {
-    alert('请选择TXT文件')
+    alert("请选择TXT文件");
   }
-}
+};
 
 const handleTxtFileSelect = async (e) => {
-  const files = Array.from(e.target.files).filter((f) => f.name.endsWith('.txt'))
+  const files = Array.from(e.target.files).filter((f) =>
+    f.name.endsWith(".txt"),
+  );
   if (files.length > 0) {
-    await loadTxtFiles(files)
+    await loadTxtFiles(files);
   }
-}
+};
 
 // 加载TG数据
 const loadTgData = async () => {
-  isLoadingTg.value = true
+  isLoadingTg.value = true;
   try {
-    const result = await window.api?.tgReadRecentActivity?.()
-    if (result && result.success && result.data && Array.isArray(result.data.files)) {
+    const result = await window.api?.tgReadRecentActivity?.();
+    if (
+      result &&
+      result.success &&
+      result.data &&
+      Array.isArray(result.data.files)
+    ) {
       const rjCodes = result.data.files
         .map((f) => f.rjCode)
         .filter(Boolean)
-        .map((rj) => rj.toUpperCase())
+        .map((rj) => rj.toUpperCase());
       // 与已有数据去重
-      const existing = new Set([...txtSet.value, ...tgSet.value, ...apiSet.value])
-      const newCodes = rjCodes.filter((code) => !existing.has(code))
-      tgSet.value = new Set([...tgSet.value, ...newCodes])
-      tgRJCount.value = tgSet.value.size
+      const existing = new Set([
+        ...txtSet.value,
+        ...tgSet.value,
+        ...apiSet.value,
+      ]);
+      const newCodes = rjCodes.filter((code) => !existing.has(code));
+      tgSet.value = new Set([...tgSet.value, ...newCodes]);
+      tgRJCount.value = tgSet.value.size;
     } else {
-      alert('读取TG数据失败或无数据')
+      alert("读取TG数据失败或无数据");
     }
   } catch (e) {
-    console.error('读取TG数据失败:', e)
-    alert('读取TG数据失败')
+    console.error("读取TG数据失败:", e);
+    alert("读取TG数据失败");
   } finally {
-    isLoadingTg.value = false
+    isLoadingTg.value = false;
   }
-}
+};
 
 // API扫描
 const scanApi = async () => {
-  if (isScanningApi.value) return
-  isScanningApi.value = true
-  apiSet.value = new Set()
-  apiRJCount.value = 0
+  if (isScanningApi.value) return;
+  isScanningApi.value = true;
+  apiSet.value = new Set();
+  apiRJCount.value = 0;
 
   // 设置进度监听
   const progressHandler = (event, progress) => {
-    scanProgress.value = progress
-  }
-  window.api?.on?.('chinese-list-progress', progressHandler)
+    scanProgress.value = progress;
+  };
+  window.api?.on?.("chinese-list-progress", progressHandler);
 
   try {
-    const result = await window.api?.asmrFetchChineseWorks?.()
+    const result = await window.api?.asmrFetchChineseWorks?.();
 
     if (result && result.success) {
       // 处理无新增的情况
-      if (result.message === '无新增内容') {
-        apiSet.value = new Set(result.data.map((rj) => rj.toUpperCase()))
-        apiRJCount.value = result.data.length
-        cacheStatus.value = `✓ 已是最新数据，共扫描 ${apiRJCount.value} 个`
-        return
+      if (result.message === "无新增内容") {
+        apiSet.value = new Set(result.data.map((rj) => rj.toUpperCase()));
+        apiRJCount.value = result.data.length;
+        cacheStatus.value = `✓ 已是最新数据，共扫描 ${apiRJCount.value} 个`;
+        return;
       }
 
       // API结果显示在API栏
-      const existing = new Set([...txtSet.value, ...tgSet.value, ...apiSet.value])
-      const newCodes = result.data.filter((rj) => !existing.has(rj.toUpperCase()))
-      apiSet.value = new Set(newCodes.map((rj) => rj.toUpperCase()))
-      apiRJCount.value = apiSet.value.size
-      cacheStatus.value = `✓ 扫描完成，新增 ${newCodes.length} 个`
+      const existing = new Set([
+        ...txtSet.value,
+        ...tgSet.value,
+        ...apiSet.value,
+      ]);
+      const newCodes = result.data.filter(
+        (rj) => !existing.has(rj.toUpperCase()),
+      );
+      apiSet.value = new Set(newCodes.map((rj) => rj.toUpperCase()));
+      apiRJCount.value = apiSet.value.size;
+      cacheStatus.value = `✓ 扫描完成，新增 ${newCodes.length} 个`;
     } else {
-      alert(`API扫描失败: ${result?.error || '未知错误'}`)
-      cacheStatus.value = ''
+      alert(`API扫描失败: ${result?.error || "未知错误"}`);
+      cacheStatus.value = "";
     }
   } catch (e) {
-    console.error('API扫描失败:', e)
-    alert('API扫描过程出错')
-    cacheStatus.value = ''
+    console.error("API扫描失败:", e);
+    alert("API扫描过程出错");
+    cacheStatus.value = "";
   } finally {
-    isScanningApi.value = false
-    scanProgress.value = {}
-    window.api?.removeListener?.('chinese-list-progress', progressHandler)
+    isScanningApi.value = false;
+    scanProgress.value = {};
+    window.api?.removeListener?.("chinese-list-progress", progressHandler);
   }
-}
+};
 
 // 导出
 const exportList = () => {
-  const all = [...txtSet.value, ...tgSet.value, ...apiSet.value]
-  const unique = [...new Set(all)].sort()
+  const all = [...txtSet.value, ...tgSet.value, ...apiSet.value];
+  const unique = [...new Set(all)].sort();
 
-  const content = unique.join('\n')
-  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `RJ列表_${new Date().toISOString().slice(0, 10)}.txt`
-  link.click()
-  URL.revokeObjectURL(url)
-}
+  const content = unique.join("\n");
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `RJ列表_${new Date().toISOString().slice(0, 10)}.txt`;
+  link.click();
+  URL.revokeObjectURL(url);
+};
 
 // 清除
 const clearAll = () => {
-  if (confirm('确定要清除所有数据吗？')) {
-    txtSet.value = new Set()
-    tgSet.value = new Set()
-    apiSet.value = new Set()
-    txtRJCount.value = 0
-    tgRJCount.value = 0
-    apiRJCount.value = 0
+  if (confirm("确定要清除所有数据吗？")) {
+    txtSet.value = new Set();
+    tgSet.value = new Set();
+    apiSet.value = new Set();
+    txtRJCount.value = 0;
+    tgRJCount.value = 0;
+    apiRJCount.value = 0;
   }
-}
+};
 
 // 初始化时获取当前路径设置
 const initPathSetting = async () => {
   try {
-    const result = await window.api?.asmrGetChineseListPath?.()
+    const result = await window.api?.asmrGetChineseListPath?.();
     if (result) {
-      txtFilePath.value = result.isCustom ? result.path : ''
+      txtFilePath.value = result.isCustom ? result.path : "";
     }
   } catch (e) {
-    console.error('获取汉化列表路径失败:', e)
+    console.error("获取汉化列表路径失败:", e);
   }
-}
+};
 
 // 选择TXT文件夹路径
 const selectPath = async () => {
   try {
-    const result = await window.api?.dialogOpenDirectory?.()
+    const result = await window.api?.dialogOpenDirectory?.();
     if (result && !result.canceled && result.filePath) {
-      txtFilePath.value = result.filePath
-      await savePathSetting()
+      txtFilePath.value = result.filePath;
+      await savePathSetting();
     }
   } catch (e) {
-    console.error('选择文件夹失败:', e)
+    console.error("选择文件夹失败:", e);
   }
-}
+};
 
 // 保存路径设置
 const savePathSetting = async () => {
   try {
-    await window.api?.asmrSetChineseListPath?.(txtFilePath.value)
+    await window.api?.asmrSetChineseListPath?.(txtFilePath.value);
   } catch (e) {
-    console.error('保存路径设置失败:', e)
+    console.error("保存路径设置失败:", e);
   }
-}
+};
 
 // 清除路径设置（恢复默认）
 const clearPathSetting = async () => {
-  txtFilePath.value = ''
-  await savePathSetting()
-}
+  txtFilePath.value = "";
+  await savePathSetting();
+};
 
 // 组件挂载时初始化
-initPathSetting()
+initPathSetting();
 </script>
 
 <style scoped>
@@ -513,7 +567,7 @@ initPathSetting()
   color: #666;
 }
 
-.option-item input[type='checkbox'] {
+.option-item input[type="checkbox"] {
   width: 16px;
   height: 16px;
 }

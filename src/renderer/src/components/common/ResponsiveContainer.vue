@@ -5,17 +5,19 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed } from "vue";
 
 const props = defineProps({
-  gap: { type: String, default: '4' },
-  maxWidth: { type: String, default: '7xl' },
-  padding: { type: String, default: '4' }
-})
+  gap: { type: String, default: "4" },
+  maxWidth: { type: String, default: "7xl" },
+  padding: { type: String, default: "4" },
+});
 
 const containerClass = computed(() => {
-  return 'gap-' + props.gap + ' px-' + props.padding + ' max-w-' + props.maxWidth
-})
+  return (
+    "gap-" + props.gap + " px-" + props.padding + " max-w-" + props.maxWidth
+  );
+});
 </script>
 
 <style scoped>
