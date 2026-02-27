@@ -1,10 +1,10 @@
-import fs from 'fs'
-import path from 'path'
-import { app, ipcMain } from 'electron'
-import { createLogSender } from '../utils/logger'
+import fs from "fs";
+import path from "path";
+import { app, ipcMain } from "electron";
+import { createLogSender } from "../utils/logger";
 
 // 默认配置文件路径
-const DEFAULT_CONFIG_PATH = path.join(app.getPath('userData'), 'config.json')
+const DEFAULT_CONFIG_PATH = path.join(app.getPath("userData"), "config.json");
 
 /**
  * 获取默认配置
@@ -12,88 +12,92 @@ const DEFAULT_CONFIG_PATH = path.join(app.getPath('userData'), 'config.json')
 const DEFAULT_CONFIG = {
   // 用户配置
   profile: {
-    username: 'User',
+    username: "User",
     avatar: null,
-    status: 'online',
-    lastActive: null
+    status: "online",
+    lastActive: null,
   },
   tg: {
-    apiId: '',
-    apiHash: '',
-    phone: '',
-    session: '',
-    discussion: '',
-    channel: ''
+    apiId: "",
+    apiHash: "",
+    phone: "",
+    session: "",
+    discussion: "",
+    channel: "",
   },
   asmr: {
-    username: '',
-    password: '',
-    token: '',
-    playlistId: ''
+    username: "",
+    password: "",
+    token: "",
+    playlistId: "",
   },
   paths: {
-    configDir: '',
-    sourceDir: '',
-    toolOutputDir: '',
-    whisperTargetPath: '',
-    dataDir: path.join(app.getPath('userData'), 'data'),
-    logsDir: path.join(app.getPath('userData'), 'logs'),
+    configDir: "",
+    sourceDir: "",
+    toolOutputDir: "",
+    whisperTargetPath: "",
+    dataDir: path.join(app.getPath("userData"), "data"),
+    logsDir: path.join(app.getPath("userData"), "logs"),
     chineseListPath: undefined,
-    tgDownloadDir: path.join(app.getPath('documents'), 'KuruHaruDownloads'),
-    uploadHistoryDir: path.join(app.getPath('userData'), 'data', 'upload_history')
+    tgDownloadDir: path.join(app.getPath("documents"), "KuruHaruDownloads"),
+    uploadHistoryDir: path.join(
+      app.getPath("userData"),
+      "data",
+      "upload_history",
+    ),
   },
   // 上传配置
   upload: {
-    channelId: ''
+    channelId: "",
   },
   // 视频翻译配置
   whisper: {
-    exePath: '',
-    targetPath: '',
-    subFormats: ['lrc']
+    exePath: "",
+    targetPath: "",
+    subFormats: ["lrc"],
   },
   // 日志配置
   logging: {
-    level: 'info',
-    enableFileLog: true
+    level: "info",
+    enableFileLog: true,
   },
   // 系统配置
   system: {
-    theme: 'auto',
-    language: 'zh',
+    theme: "auto",
+    language: "zh",
     autoStart: false,
     minimizeToTray: true,
-    saveCustomPaths: true
-  }
-}
+    saveCustomPaths: true,
+  },
+};
 
 // 创建日志发送器
-const logger = createLogSender('config')
+const logger = createLogSender("config");
 
 /**
  * 读取配置（直接从文件读取，不使用缓存）
  */
 export function getConfig() {
   try {
-    const userDataPath = app.getPath('userData')
-    const defaultConfigPath = path.join(userDataPath, 'config.json')
-    const projectConfigPath = path.join(process.cwd(), 'config', 'config.json')
+    const userDataPath = app.getPath("userData");
+    const defaultConfigPath = path.join(userDataPath, "config.json");
+    const projectConfigPath = path.join(process.cwd(), "config", "config.json");
 
     // 1. 读取 AppData 配置
-    let appDataConfig = null
+    let appDataConfig = null;
     if (fs.existsSync(defaultConfigPath)) {
       try {
-        appDataConfig = JSON.parse(fs.readFileSync(defaultConfigPath, 'utf-8'))
+        appDataConfig = JSON.parse(fs.readFileSync(defaultConfigPath, "utf-8"));
       } catch {
         // 忽略错误
       }
     }
 
     // 2. 读取项目配置（如果存在）
-    let projectConfig = null
+    let projectConfig = null;
     if (fs.existsSync(projectConfigPath)) {
       try {
-        projectConfig = JSON.parse(fs.readFileSync(projectConfigPath, 'utf-8'))
+        projectConfig = JSON.parse(fs.readFileSync(projectConfigPath, "utf-8"));
       } catch {
         // 忽略错误
       }
@@ -101,18 +105,18 @@ export function getConfig() {
 
     // 3. 确定用户设置的配置文件夹路径
     // 优先使用 AppData 中的 configDir，如果没有则使用项目配置中的
-    let userConfigDir = ''
+    let userConfigDir = "";
     if (appDataConfig?.paths?.configDir?.trim()) {
-      userConfigDir = appDataConfig.paths.configDir
+      userConfigDir = appDataConfig.paths.configDir;
     } else if (projectConfig?.paths?.configDir?.trim()) {
-      userConfigDir = projectConfig.paths.configDir
+      userConfigDir = projectConfig.paths.configDir;
     }
 
     // 4. 如果用户设置了 configDir，从该目录读取配置
     if (userConfigDir) {
-      const userConfigPath = path.join(userConfigDir, 'config.json')
+      const userConfigPath = path.join(userConfigDir, "config.json");
       if (fs.existsSync(userConfigPath)) {
-        const userConfig = JSON.parse(fs.readFileSync(userConfigPath, 'utf-8'))
+        const userConfig = JSON.parse(fs.readFileSync(userConfigPath, "utf-8"));
 
         // 合并所有配置，userConfig 优先级最高
         return {
@@ -123,8 +127,8 @@ export function getConfig() {
           upload: { ...DEFAULT_CONFIG.upload, ...userConfig.upload },
           whisper: { ...DEFAULT_CONFIG.whisper, ...userConfig.whisper },
           logging: { ...DEFAULT_CONFIG.logging, ...userConfig.logging },
-          system: { ...DEFAULT_CONFIG.system, ...userConfig.system }
-        }
+          system: { ...DEFAULT_CONFIG.system, ...userConfig.system },
+        };
       }
     }
 
@@ -138,12 +142,12 @@ export function getConfig() {
         upload: { ...DEFAULT_CONFIG.upload, ...appDataConfig.upload },
         whisper: { ...DEFAULT_CONFIG.whisper, ...appDataConfig.whisper },
         logging: { ...DEFAULT_CONFIG.logging, ...appDataConfig.logging },
-        system: { ...DEFAULT_CONFIG.system, ...appDataConfig.system }
-      }
+        system: { ...DEFAULT_CONFIG.system, ...appDataConfig.system },
+      };
     }
   } catch (e) {
-    logger.error('Config read error:', e.message)
-    return DEFAULT_CONFIG
+    logger.error("Config read error:", e.message);
+    return DEFAULT_CONFIG;
   }
 }
 
@@ -155,17 +159,19 @@ export function getConfigPath() {
     // 直接读取配置文件中的 configFilePath，不调用 getConfig() 避免递归
     if (fs.existsSync(DEFAULT_CONFIG_PATH)) {
       try {
-        const configData = JSON.parse(fs.readFileSync(DEFAULT_CONFIG_PATH, 'utf-8'))
+        const configData = JSON.parse(
+          fs.readFileSync(DEFAULT_CONFIG_PATH, "utf-8"),
+        );
         if (configData.paths?.configFilePath?.trim()) {
-          return configData.paths.configFilePath
+          return configData.paths.configFilePath;
         }
       } catch {
         // 忽略读取错误
       }
     }
-    return DEFAULT_CONFIG_PATH
+    return DEFAULT_CONFIG_PATH;
   } catch {
-    return DEFAULT_CONFIG_PATH
+    return DEFAULT_CONFIG_PATH;
   }
 }
 
@@ -173,96 +179,101 @@ export function getConfigPath() {
  * 获取日志文件路径
  */
 export function getLogPath(module) {
-  const config = getDefaultConfig()
-  const logsDir = config.paths.logsDir || path.join(app.getPath('userData'), 'logs')
+  const config = getDefaultConfig();
+  const logsDir =
+    config.paths.logsDir || path.join(app.getPath("userData"), "logs");
 
   const logFiles = {
-    main: 'app_main.log',
-    asmr: 'asmr_asmr-login.log',
-    telegram: 'telegram.log',
-    upload: 'upload.log',
-    delete: 'delete-tool.log',
-    cleaner: 'warehouse-cleaner.log',
-    whisper: 'whisper.log'
-  }
+    main: "app_main.log",
+    asmr: "asmr_asmr-login.log",
+    telegram: "telegram.log",
+    upload: "upload.log",
+    delete: "delete-tool.log",
+    cleaner: "warehouse-cleaner.log",
+    whisper: "whisper.log",
+  };
 
-  return path.join(logsDir, logFiles[module] || 'app_main.log')
+  return path.join(logsDir, logFiles[module] || "app_main.log");
 }
 
 /**
  * 保存配置
  */
 // 配置保存锁，防止并发写入
-let saveConfigLock = Promise.resolve()
+let saveConfigLock = Promise.resolve();
 
 export async function saveConfig(newConfig) {
   // 等待之前的保存完成
-  await saveConfigLock
+  await saveConfigLock;
 
   // 创建新的锁
-  let resolveLock
-  saveConfigLock = new Promise((resolve) => (resolveLock = resolve))
+  let resolveLock;
+  saveConfigLock = new Promise((resolve) => (resolveLock = resolve));
 
   try {
-    let configPath = DEFAULT_CONFIG_PATH
+    let configPath = DEFAULT_CONFIG_PATH;
 
     // 获取用户设置的 configDir
-    const config = getConfig()
+    const config = getConfig();
     if (config.paths?.configDir?.trim()) {
-      const userConfigDir = config.paths.configDir
+      const userConfigDir = config.paths.configDir;
       if (userConfigDir) {
-        configPath = path.join(userConfigDir, 'config.json')
+        configPath = path.join(userConfigDir, "config.json");
       }
     } else {
-      configPath = DEFAULT_CONFIG_PATH
+      configPath = DEFAULT_CONFIG_PATH;
     }
 
     // 确保目录存在
-    const dir = path.dirname(configPath)
+    const dir = path.dirname(configPath);
     if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true })
+      fs.mkdirSync(dir, { recursive: true });
     }
 
-    console.log(`[SAVECONFIG] 准备保存配置，configPath: ${configPath}`)
+    console.log(`[SAVECONFIG] 准备保存配置，configPath: ${configPath}`);
 
     // 读取当前配置
-    const current = getConfig()
-    console.log(`[SAVECONFIG] 当前 chineseListPath: ${current.paths?.chineseListPath}`)
+    const current = getConfig();
+    console.log(
+      `[SAVECONFIG] 当前 chineseListPath: ${current.paths?.chineseListPath}`,
+    );
 
     // 合并配置
     const final = {
       ...current,
-      ...newConfig
-    }
+      ...newConfig,
+    };
 
     // 只保存非空的路径配置
-    const pathsToSave = {}
+    const pathsToSave = {};
     Object.keys(newConfig.paths || {}).forEach((key) => {
-      const value = newConfig.paths[key]
-      if (value && typeof value === 'string' && value.trim()) {
-        pathsToSave[key] = value.trim()
+      const value = newConfig.paths[key];
+      if (value && typeof value === "string" && value.trim()) {
+        pathsToSave[key] = value.trim();
       }
-    })
+    });
 
-    console.log(`[SAVECONFIG] pathsToSave:`, pathsToSave)
+    console.log(`[SAVECONFIG] pathsToSave:`, pathsToSave);
 
     // 更新 paths 配置
     final.paths = {
       ...current.paths,
-      ...pathsToSave
-    }
+      ...pathsToSave,
+    };
 
-    fs.writeFileSync(configPath, JSON.stringify(final, null, 2))
+    fs.writeFileSync(configPath, JSON.stringify(final, null, 2));
 
-    console.log(`[SAVECONFIG] 配置保存成功，chineseListPath: "${final.paths?.chineseListPath}"`)
+    console.log(
+      `[SAVECONFIG] 配置保存成功，chineseListPath: "${final.paths?.chineseListPath}"`,
+    );
 
-    return true
+    return true;
   } catch (e) {
-    console.error('保存配置失败:', e)
-    return false
+    console.error("保存配置失败:", e);
+    return false;
   } finally {
     // 释放锁
-    resolveLock()
+    resolveLock();
   }
 }
 
@@ -271,26 +282,34 @@ export async function saveConfig(newConfig) {
  */
 export function getDataDir() {
   try {
-    const config = getConfig()
+    const config = getConfig();
     if (!config || !config.paths) {
-      const defaultPath = path.join(app.getPath('userData'), 'data')
-      console.log('[getDataDir] Config invalid, using default:', defaultPath)
-      return defaultPath
+      const defaultPath = path.join(app.getPath("userData"), "data");
+      console.log("[getDataDir] Config invalid, using default:", defaultPath);
+      return defaultPath;
     }
 
     // 兜底处理：如果 config.paths.dataDir 是空字符串或 undefined，使用默认路径
-    const dataDir = config.paths.dataDir?.trim()
+    const dataDir = config.paths.dataDir?.trim();
     if (dataDir) {
-      return dataDir
+      return dataDir;
     }
 
-    const defaultPath = path.join(app.getPath('userData'), 'data')
-    console.log('[getDataDir] config.paths.dataDir is empty, using default:', defaultPath)
-    return defaultPath
+    const defaultPath = path.join(app.getPath("userData"), "data");
+    console.log(
+      "[getDataDir] config.paths.dataDir is empty, using default:",
+      defaultPath,
+    );
+    return defaultPath;
   } catch (e) {
-    const defaultPath = path.join(app.getPath('userData'), 'data')
-    console.error('[getDataDir] Error:', e.message, 'using default:', defaultPath)
-    return defaultPath
+    const defaultPath = path.join(app.getPath("userData"), "data");
+    console.error(
+      "[getDataDir] Error:",
+      e.message,
+      "using default:",
+      defaultPath,
+    );
+    return defaultPath;
   }
 }
 
@@ -298,7 +317,7 @@ export function getDataDir() {
  * 获取默认配置（不读取文件）
  */
 export function getDefaultConfig() {
-  return DEFAULT_CONFIG
+  return DEFAULT_CONFIG;
 }
 
 /**
@@ -307,125 +326,125 @@ export function getDefaultConfig() {
 export function setupConfigIPC() {
   // 每次调用都实时获取配置，确保一致性
 
-  ipcMain.handle('get-config', () => {
-    const config = getConfig()
-    return { success: true, data: config }
-  })
+  ipcMain.handle("get-config", () => {
+    const config = getConfig();
+    return { success: true, data: config };
+  });
 
   // 通用保存配置
-  ipcMain.handle('save-config', async (event, configData) => {
+  ipcMain.handle("save-config", async (event, configData) => {
     try {
-      const result = await saveConfig(configData)
-      return { success: result }
+      const result = await saveConfig(configData);
+      return { success: result };
     } catch (e) {
-      return { success: false, error: e.message }
+      return { success: false, error: e.message };
     }
-  })
+  });
 
   // ASMR 相关
-  ipcMain.handle('get-asmr-config', () => {
-    const config = getConfig()
-    return { success: true, data: config.asmr }
-  })
+  ipcMain.handle("get-asmr-config", () => {
+    const config = getConfig();
+    return { success: true, data: config.asmr };
+  });
 
-  ipcMain.handle('save-asmr-config', async (_event, _asmrConfig) => {
+  ipcMain.handle("save-asmr-config", async (_event, _asmrConfig) => {
     try {
-      const result = await saveConfig({ asmr: _asmrConfig })
-      return { success: result }
+      const result = await saveConfig({ asmr: _asmrConfig });
+      return { success: result };
     } catch (_e) {
-      return { success: false, error: _e.message }
+      return { success: false, error: _e.message };
     }
-  })
+  });
 
   // Telegram 相关
-  ipcMain.handle('get-tg-config', () => {
-    const config = getConfig()
-    return { success: true, data: config.tg }
-  })
+  ipcMain.handle("get-tg-config", () => {
+    const config = getConfig();
+    return { success: true, data: config.tg };
+  });
 
-  ipcMain.handle('save-tg-config', async (_event, _tgConfig) => {
+  ipcMain.handle("save-tg-config", async (_event, _tgConfig) => {
     try {
-      const result = await saveConfig({ tg: _tgConfig })
-      return { success: result }
+      const result = await saveConfig({ tg: _tgConfig });
+      return { success: result };
     } catch (_e) {
-      return { success: false, error: _e.message }
+      return { success: false, error: _e.message };
     }
-  })
+  });
 
   // Paths 相关
-  ipcMain.handle('get-paths', () => {
-    const config = getConfig()
-    return { success: true, data: config.paths }
-  })
+  ipcMain.handle("get-paths", () => {
+    const config = getConfig();
+    return { success: true, data: config.paths };
+  });
 
-  ipcMain.handle('save-paths', async (_event, paths) => {
+  ipcMain.handle("save-paths", async (_event, paths) => {
     try {
-      const result = await saveConfig({ paths })
-      return { success: result }
+      const result = await saveConfig({ paths });
+      return { success: result };
     } catch (_e) {
-      return { success: false, error: _e.message }
+      return { success: false, error: _e.message };
     }
-  })
+  });
 
   // Upload 相关
-  ipcMain.handle('get-upload-config', () => {
-    const config = getConfig()
-    return { success: true, data: config.upload }
-  })
+  ipcMain.handle("get-upload-config", () => {
+    const config = getConfig();
+    return { success: true, data: config.upload };
+  });
 
-  ipcMain.handle('save-upload-config', async (_event, upload) => {
+  ipcMain.handle("save-upload-config", async (_event, upload) => {
     try {
-      const result = await saveConfig({ upload })
-      return { success: result }
+      const result = await saveConfig({ upload });
+      return { success: result };
     } catch (_e) {
-      return { success: false, error: _e.message }
+      return { success: false, error: _e.message };
     }
-  })
+  });
 
   // Whisper 相关
-  ipcMain.handle('get-whisper-config', () => {
-    const config = getConfig()
-    return { success: true, data: config.whisper }
-  })
+  ipcMain.handle("get-whisper-config", () => {
+    const config = getConfig();
+    return { success: true, data: config.whisper };
+  });
 
-  ipcMain.handle('save-whisper-config', async (event, whisper) => {
+  ipcMain.handle("save-whisper-config", async (event, whisper) => {
     try {
-      const result = await saveConfig({ whisper })
-      return { success: result }
+      const result = await saveConfig({ whisper });
+      return { success: result };
     } catch (e) {
-      return { success: false, error: e.message }
+      return { success: false, error: e.message };
     }
-  })
+  });
 
   // System 相关
-  ipcMain.handle('get-system-config', () => {
-    const config = getConfig()
-    return { success: true, data: config.system }
-  })
+  ipcMain.handle("get-system-config", () => {
+    const config = getConfig();
+    return { success: true, data: config.system };
+  });
 
-  ipcMain.handle('save-system-config', async (event, system) => {
+  ipcMain.handle("save-system-config", async (event, system) => {
     try {
-      const result = await saveConfig({ system })
-      return { success: result }
+      const result = await saveConfig({ system });
+      return { success: result };
     } catch (e) {
-      return { success: false, error: e.message }
+      return { success: false, error: e.message };
     }
-  })
+  });
 
   // Logging 相关
-  ipcMain.handle('get-logging-config', () => {
-    const config = getConfig()
-    return { success: true, data: config.logging }
-  })
+  ipcMain.handle("get-logging-config", () => {
+    const config = getConfig();
+    return { success: true, data: config.logging };
+  });
 
-  ipcMain.handle('save-logging-config', async (event, logging) => {
+  ipcMain.handle("save-logging-config", async (event, logging) => {
     try {
-      const result = await saveConfig({ logging })
-      return { success: result }
+      const result = await saveConfig({ logging });
+      return { success: result };
     } catch (e) {
-      return { success: false, error: e.message }
+      return { success: false, error: e.message };
     }
-  })
+  });
 
-  console.log('配置模块已加载')
+  console.log("配置模块已加载");
 }

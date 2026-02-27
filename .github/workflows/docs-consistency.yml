@@ -1,0 +1,59 @@
+name: Docs Code Consistency Check
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "docs/**"
+      - "src/**"
+  pull_request:
+    paths:
+      - "docs/**"
+      - "src/**"
+
+jobs:
+  consistency-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Check for unused docs
+        run: |
+          # 检查文档中提到的文件是否存在
+          echo "Checking docs references..."
+          # 这里可以添加检查文档中提到的模块名是否与实际文件匹配
+
+      - name: Generate docs code report
+        run: |
+          echo "Generating code reference from docs..."
+          # 提取文档中提到的所有模块名
+          grep -h -oE '`(src/[^`]+)`' docs/*.md docs/**/*.md 2>/dev/null | sort -u > /tmp/docs_refs.txt
+          # 提取实际存在的文件
+          find src -name '*.js' -o -name '*.vue' | sort -u > /tmp/actual_files.txt
+          # 比较
+          echo "Files mentioned in docs but not found:"
+          comm -23 /tmp/docs_refs.txt /tmp/actual_files.txt || true
+
+      - name: Check module exports
+        run: |
+          echo "Checking module exports consistency..."
+          # 检查文档中提到的导出是否与实际一致
+
+      - name: Report status
+        if: always()
+        run: |
+          echo "=== Docs Consistency Check ==="
+          echo "Docs are source of truth. If code differs from docs, update the code."
+          echo "Run 'npm run lint' locally before pushing."

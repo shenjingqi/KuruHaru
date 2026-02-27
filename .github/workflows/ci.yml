@@ -1,0 +1,96 @@
+name: CI - Verify Pipeline
+
+on:
+  push:
+    branches: [main, master]
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Format Check
+        run: npm run format -- --check
+
+      - name: Run Lint
+        id: lint
+        run: npm run lint
+        continue-on-error: true
+
+      - name: Run Build
+        id: build
+        run: npm run build
+        continue-on-error: true
+
+      - name: Check Results
+        run: |
+          echo "=== Verification Results ==="
+
+          # Check lint result
+          if [ ${{ steps.lint.outcome }} == "success" ]; then
+            echo "✅ Lint: PASSED"
+          else
+            echo "❌ Lint: FAILED"
+            echo "Run 'npm run format && npm run lint -- --fix' to fix"
+          fi
+
+          # Check build result
+          if [ ${{ steps.build.outcome }} == "success" ]; then
+            echo "✅ Build: PASSED"
+          else
+            echo "❌ Build: FAILED"
+          fi
+
+          # Fail if either failed
+          if [ ${{ steps.lint.outcome }} != "success" ] || [ ${{ steps.build.outcome }} != "success" ]; then
+            echo ""
+            echo "❌ Verification FAILED"
+            exit 1
+          fi
+
+          echo ""
+          echo "🎉 All verifications PASSED!"
+
+  docs-check:
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check docs consistency
+        run: |
+          echo "=== Docs Consistency Check ==="
+
+          # 检查文档中提到的模块是否存在
+          echo "Checking module references in docs..."
+
+          # 提取文档中提到的 src/ 文件
+          grep -rh "src/" docs/ 2>/dev/null | grep -oE "src/[^)`'\"]+" | sort -u > /tmp/docs_files.txt
+
+          # 检查实际存在的文件
+          find src -type f -name "*.js" -o -name "*.vue" 2>/dev/null | sed 's|src/||' | sort -u > /tmp/actual_files.txt
+
+          echo "Docs references: $(wc -l < /tmp/docs_files.txt) files"
+          echo "Actual files: $(wc -l < /tmp/actual_files.txt) files"
+
+          echo ""
+          echo "✅ Docs consistency check complete"

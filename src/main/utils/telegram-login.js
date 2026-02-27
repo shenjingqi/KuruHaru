@@ -294,6 +294,7 @@ export function getConnectionState() {
 }
 
 export function setupTelegramIPC() {
+  let uploadCancelled = false;
   ipcMain.handle('tg-check-login', async () => {
     const result = await tryAutoConnect()
     return result.connected
@@ -314,6 +315,18 @@ export function setupTelegramIPC() {
     return { success: true }
   })
 
+  // 取消上传 - 强制打断当前传输
+  ipcMain.on('tg-cancel-upload', () => {
+    uploadCancelled = true;
+    if (telegramClient) {
+      logger.info('Force destroying transport for cancellation...');
+      try {
+        telegramClient._sender?._transport?.destroy();
+      } catch (e) {
+        logger.error('Error destroying transport:', e);
+      }
+    }
+  });
   ipcMain.handle('tg-get-status', () => {
     return {
       state: currentState,
@@ -323,6 +336,7 @@ export function setupTelegramIPC() {
 
   // 上传文件逻辑
   ipcMain.on('tg-upload-files', async (event, { files, channelId }) => {
+    uploadCancelled = false;
     const MAX_RETRIES = 3
     const RETRY_DELAY = 5000
     const UPLOAD_DELAY = 4000
@@ -380,6 +394,8 @@ export function setupTelegramIPC() {
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i]
+      // 检测取消标志
+      if (uploadCancelled) break;
       const fileName = path.basename(file.path)
       const filenameNoExt = path.parse(fileName).name
 
@@ -389,6 +405,8 @@ export function setupTelegramIPC() {
       let step1Success = false
       let step1Attempts = 0
       while (!step1Success && step1Attempts < MAX_RETRIES) {
+        // 每次重试前检查取消
+        if (uploadCancelled) break;
         step1Attempts++
         try {
           if (!(await checkConnection())) {
@@ -445,6 +463,11 @@ export function setupTelegramIPC() {
       }
 
       if (!step1Success) {
+      // 步骤1完成后检查取消
+      if (uploadCancelled) {
+        sendLog('🛑 任务已取消');
+        break;
+      }
         sendLog(`❌ 放弃: ${filenameNoExt}`)
         if (i < files.length - 1) await new Promise((r) => setTimeout(r, UPLOAD_DELAY))
         continue
@@ -457,6 +480,8 @@ export function setupTelegramIPC() {
       let step2Success = false
       let step2Attempts = 0
       while (!step2Success && step2Attempts < MAX_RETRIES) {
+        // 步骤2循环开始前检查取消
+        if (uploadCancelled) break;
         step2Attempts++
         try {
           if (!(await checkConnection())) {
@@ -472,6 +497,13 @@ export function setupTelegramIPC() {
 
           await new Promise((resolve, reject) => {
             let isCompleted = false
+            // 即时响应取消的轮询器
+            const cancelCheckInterval = setInterval(() => {
+              if (uploadCancelled) {
+                clearInterval(cancelCheckInterval);
+                reject(new Error('CANCELLED'));
+              }
+            }, 200);
             const timeoutId = setTimeout(() => {
               if (!isCompleted) {
                 isCompleted = true
@@ -504,6 +536,7 @@ export function setupTelegramIPC() {
                 if (!isCompleted) {
                   isCompleted = true
                   clearTimeout(timeoutId)
+                  clearInterval(cancelCheckInterval);
                   resolve({ status: 'SUCCESS', result })
                 }
               })
@@ -511,6 +544,7 @@ export function setupTelegramIPC() {
                 if (!isCompleted) {
                   isCompleted = true
                   clearTimeout(timeoutId)
+                  clearInterval(cancelCheckInterval);
                   reject(err)
                 }
               })
@@ -564,6 +598,12 @@ export function setupTelegramIPC() {
           step2Success = true
         } catch (e) {
           if (e.message === 'TIMEOUT') {
+          // 捕获取消标志
+          if (e.message === 'CANCELLED' || uploadCancelled) {
+            sendLog('⚠️ 用户取消上传');
+            step2Success = false;
+            break;
+          }
             sendLog(`⏰ 步骤2超时 (${step2Attempts}/${MAX_RETRIES})`)
           } else if (e.seconds) {
             sendLog(`⏳ 流控 ${e.seconds}s...`)
@@ -582,11 +622,20 @@ export function setupTelegramIPC() {
       if (!step2Success) {
         sendLog(`❌ 放弃: ${filenameNoExt}`)
       }
+      // 步骤2完成后检查取消
+      if (uploadCancelled) break;
 
       if (i < files.length - 1) {
         sendLog(`💤 等待 ${UPLOAD_DELAY / 1000}s...`)
         await new Promise((r) => setTimeout(r, UPLOAD_DELAY))
       }
     }
+    // 文件循环结束后检查取消
+    if (uploadCancelled) {
+      sendLog('🛑 任务已提前终止');
+      return;
+    }
+
+    sendLog('🏁 所有任务处理完毕');
   })
 }
