@@ -106,7 +106,7 @@ import RecentActivity from "./components/RecentActivity.vue";
 import Tools from "./components/Tools.vue";
 import ChineseList from "./components/ChineseList.vue";
 import AdvancedSearch from "./components/AdvancedSearch.vue";
-import RJFilter from "./components/RJFilter.vue";
+import RjFilter from "./components/RjFilter.vue";
 
 const currentView = ref("home");
 let unsubscribeTgAuth = null; // 存储取消验证码监听的函数
@@ -266,7 +266,7 @@ const activeComponent = computed(() => {
     settings: Settings,
     "chinese-list": ChineseList,
     "advanced-search": AdvancedSearch,
-    "rj-filter": RJFilter,
+    "rj-filter": RjFilter,
   };
   if (currentView.value === "local-clean") return LocalCleaner;
   if (currentView.value === "cloud-clean") return CloudCleaner;
