@@ -34,28 +34,6 @@ export function setupWhisperIPC() {
       // 忽略读取错误
     }
   }
-  function scanSubDir(dir, basePath, fileList, onFile) {
-    try {
-      const items = fs.readdirSync(dir);
-      for (const item of items) {
-        const full = path.join(dir, item);
-        const stat = fs.statSync(full);
-
-        if (stat.isDirectory()) {
-          scanSubDir(full, basePath, fileList, onFile);
-        } else if (
-          [".srt", ".lrc", ".vtt", ".txt", ".ass"].includes(
-            path.extname(item).toLowerCase(),
-          )
-        ) {
-          fileList.push({ full, rel: path.relative(basePath, full) });
-          if (onFile) onFile(stat);
-        }
-      }
-    } catch {
-      // 忽略读取错误
-    }
-  }
 
   // 🟢 辅助函数：原地打包（输出目录和源目录相同），避免扫描到zip文件
   async function packFolderInPlace(event, folderPath, rjCode) {
