@@ -153,6 +153,30 @@ export function setupWhisperIPC() {
 
   // 新增：统计文件数 (给前端用)
   ipcMain.handle("count-media-files", async (event, dirPath) => {
+    try {
+      await fs.promises.access(dirPath);
+    } catch {
+      return 0;
+    }
+    let count = 0;
+    const exts = [".mp4", ".mkv", ".avi", ".mp3", ".wav", ".flac", ".m4a"];
+    async function scan(d) {
+      try {
+        const files = await fs.promises.readdir(d);
+        for (const f of files) {
+          const full = path.join(d, f);
+          const stat = await fs.promises.stat(full);
+          if (stat.isDirectory()) await scan(full);
+          else if (exts.includes(path.extname(f).toLowerCase())) count++;
+        }
+      } catch {
+        // Ignore scan errors
+      }
+    }
+    await scan(dirPath);
+    return count;
+  });
+  ipcMain.handle("count-media-files", async (event, dirPath) => {
     if (!fs.existsSync(dirPath)) return 0;
     let count = 0;
     const exts = [".mp4", ".mkv", ".avi", ".mp3", ".wav", ".flac", ".m4a"];
