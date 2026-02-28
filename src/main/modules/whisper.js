@@ -77,6 +77,24 @@ export function setupWhisperIPC() {
     }
 
     // 检查是否有更新
+    try {
+      await fs.promises.access(outputPath);
+      const zipStat = await fs.promises.stat(outputPath);
+      if (zipStat.mtimeMs >= maxMtime) {
+        logger.info(`跳过 ${outputName} (已是最新)`);
+        return {
+          success: true,
+          msg: "已跳过 (已是最新)",
+          fileCount: filesToZip.length,
+          skipped: true,
+        };
+      }
+      // 有更新：删除旧zip
+      logger.info(`检测到更新，删除旧zip: ${outputName}`);
+      await fs.promises.unlink(outputPath);
+    } catch {
+      // 文件不存在，继续打包
+    }
     if (fs.existsSync(outputPath)) {
       const zipStat = fs.statSync(outputPath);
       if (zipStat.mtimeMs >= maxMtime) {
