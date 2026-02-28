@@ -12,6 +12,28 @@ export function setupWhisperIPC() {
   let pythonProcess = null;
 
   // 🟢 辅助函数：递归扫描子目录（用于原地打包）
+  async function scanSubDirAsync(dir, basePath, fileList, onFile) {
+    try {
+      const items = await fs.promises.readdir(dir);
+      for (const item of items) {
+        const full = path.join(dir, item);
+        const stat = await fs.promises.stat(full);
+
+        if (stat.isDirectory()) {
+          await scanSubDirAsync(full, basePath, fileList, onFile);
+        } else if (
+          [".srt", ".lrc", ".vtt", ".txt", ".ass"].includes(
+            path.extname(item).toLowerCase(),
+          )
+        ) {
+          fileList.push({ full, rel: path.relative(basePath, full) });
+          if (onFile) onFile(stat);
+        }
+      }
+    } catch {
+      // 忽略读取错误
+    }
+  }
   function scanSubDir(dir, basePath, fileList, onFile) {
     try {
       const items = fs.readdirSync(dir);

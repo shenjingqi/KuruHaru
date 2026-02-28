@@ -192,7 +192,7 @@ function recordFailure(task, attempt, error) {
 
     writeFileSync(decisionFile, newContent);
     taskLog("info", "已记录失败到 design-decisions.md");
-  } catch (_e) {
+  } catch {
     // 忽略记录错误
     // 忽略记录错误
   }

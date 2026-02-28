@@ -39,7 +39,7 @@ jobs:
         run: |
           echo "Generating code reference from docs..."
           # 提取文档中提到的所有模块名
-          grep -h -oE '`(src/[^`]+)`' docs/*.md docs/**/*.md 2>/dev/null | sort -u > /tmp/docs_refs.txt
+          QV|          grep -h -oE '`(src/[^`]+)`' docs/*.md docs/**/*.md 2>/dev/null | sed 's/`//g' | sort -u > /tmp/docs_refs.txt
           # 提取实际存在的文件
           find src -name '*.js' -o -name '*.vue' | sort -u > /tmp/actual_files.txt
           # 比较

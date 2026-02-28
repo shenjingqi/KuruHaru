@@ -263,7 +263,7 @@ function removeDuplicates(files) {
 async function findLatestAnchorAndFill() {
   logger.info("[初始化] 本地为空，正在倒序回溯寻找最近的整合包(>150MB)...");
 
-  const BACKWARD_LIMIT = 2000; // 限制回溯最近 2000 条消息，避免卡死
+  const BACKWARD_LIMIT = 10000; // 限制回溯最近 10000 条消息，避免卡死
   const tempFiles = [];
   let foundAnchor = null;
   let maxIdScanned = 0;

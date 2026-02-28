@@ -1,7 +1,7 @@
 # 模块导航索引
 
 > 状态: ✅ 稳定  
-> WR|> 最后更新: 2026-02-27
+WR|> 最后更新: 2026-02-28
 
 本文档是 KuruHaru 项目的模块导航索引，供 Agent 快速定位代码。
 
@@ -457,9 +457,9 @@ ZZ|---
 | 模块 | 通道 |
 | ---- | ---- |
 | dialog | `dialog:openFile`, `dialog:saveFile`, `dialog:openDirectory` |
-PJ|| config | `get-config`, `save-config`, `get-asmr-config`, `save-asmr-config`, `get-tg-config`, `save-tg-config`, `get-paths`, `save-paths`, `get-upload-config`, `save-upload-config`, `get-whisper-config`, `save-whisper-config`, `get-system-config`, `save-system-config`, `get-logging-config`, `save-logging-config` |
-HR|| asmr | `asmr:search`, `asmr:getDetail`, `asmr:getPlaylist`, `asmr:download`, `asmr-trigger-cloud-data-fetch`, `asmr-delete-works`, `asmr-delete-local-files`, `asmr-delete-by-rj`, `asmr-fetch-chinese-works` |
-NT|| tg | `tg:scan-recent-activity`, `tg-read-recent-activity`, `tg-check-login`, `tg-login`, `tg-get-status`, `tg-upload-files`, `tg-cancel-upload`, `download-tg-file`, `clear-cache`, `tg-get-statistics`, `read-rj-list` |
+PJ|| config | `get-config`, `save-config`, `get-asmr-config`, `save-asmr-config`, `get-tg-config`, `save-tg-config`, `get-paths`, `save-paths`, `get-upload-config`, `save-upload-config`, `get-whisper-config`, `save-whisper-config`, `get-system-config`, `save-system-config`, `get-logging-config`, `save-logging-config`, `save-custom-paths` |
+HR|| asmr | `asmr:search`, `asmr:getDetail`, `asmr:getPlaylist`, `asmr:download`, `asmr-trigger-cloud-data-fetch`, `asmr-get-cached-cloud-works`, `asmr-fetch-cloud-works`, `load-tag-db`, `scan-local-ids`, `get-upload-history`, `asmr-login`, `asmr-check-login`, `asmr-logout`, `asmr-delete-works`, `asmr-delete-local-files`, `asmr-delete-by-rj`, `asmr-fetch-chinese-works`, `asmr-set-chinese-list-path`, `asmr-get-chinese-list-path`, `asmr-read-chinese-list` |
+NT|| tg | `tg-scan-recent-activity`, `tg-read-recent-activity`, `tg-check-login`, `tg-login`, `tg-get-status`, `tg-upload-files`, `tg-cancel-upload`, `tg-cancel-auth`, `download-tg-file`, `clear-cache`, `tg-get-statistics`, `read-rj-list` |
 | whisper | `start-task`, `stop-task`, `zip-subtitles`, `count-media-files` |
 | file | `scan-local-archives`, `extract-file-names`, `fs-read-file`, `write-file`, `clean-data` |
 | image | `read-image-as-base64`, `get-default-avatar` |
