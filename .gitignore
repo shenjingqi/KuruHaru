@@ -27,3 +27,6 @@ Thumbs.db
 config/config.json
 config/*.json.backup
 *.local.json
+
+# Codepilot
+.codepilot-uploads/
