@@ -53,7 +53,7 @@
 
 | 模块                    | 状态      | 数量 | 主要操作                                           |
 | ----------------------- | --------- | ---- | -------------------------------------------------- |
-| `whisper.js`            | 🟢 已修复 | 0    | packFolderInPlace, count-media-files 已异步化      |
+| `whisper.js`            | 🟢 已修复 | 0    | packFolderInPlace, count-media-files 已异步化，递归扫描函数 scanSubDir 已异步化
 | `tg-recent-activity.js` | 🟡 待修复 | 7    | readFileSync, writeFileSync, mkdirSync, unlinkSync |
 | `config.js`             | 🟡 待修复 | 7    | readFileSync, mkdirSync, writeFileSync             |
 | `asmr-localization.js`  | 🟡 待修复 | 12   | readFileSync, unlinkSync, mkdirSync, writeFileSync |
