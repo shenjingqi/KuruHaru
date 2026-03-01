@@ -6,6 +6,17 @@ import { createLogSender } from "../utils/logger";
 // 默认配置文件路径
 const DEFAULT_CONFIG_PATH = path.join(app.getPath("userData"), "config.json");
 
+// 配置缓存
+let configCache = null;
+let configCacheTime = 0;
+const CACHE_TTL = 5000; // 5秒缓存
+import path from "path";
+import { app, ipcMain } from "electron";
+import { createLogSender } from "../utils/logger";
+
+// 默认配置文件路径
+const DEFAULT_CONFIG_PATH = path.join(app.getPath("userData"), "config.json");
+
 /**
  * 获取默认配置
  */
@@ -75,6 +86,20 @@ const DEFAULT_CONFIG = {
 const logger = createLogSender("config");
 
 /**
+ * 读取配置（带缓存，5秒有效）
+ */
+export function getConfig() {
+  const now = Date.now();
+  
+  // 检查缓存是否有效
+  if (configCache && (now - configCacheTime) < CACHE_TTL) {
+    return configCache;
+  }
+  
+  try {
+    const userDataPath = app.getPath("userData");
+    const defaultConfigPath = path.join(userDataPath, "config.json");
+    const projectConfigPath = path.join(process.cwd(), "config", "config.json");
  * 读取配置（直接从文件读取，不使用缓存）
  */
 export function getConfig() {
@@ -141,7 +166,21 @@ export function getConfig() {
         paths: { ...DEFAULT_CONFIG.paths, ...appDataConfig.paths },
         upload: { ...DEFAULT_CONFIG.upload, ...appDataConfig.upload },
         whisper: { ...DEFAULT_CONFIG.whisper, ...appDataConfig.whisper },
-        logging: { ...DEFAULT_CONFIG.logging, ...appDataConfig.logging },
+        system: { ...DEFAULT_CONFIG.system, ...appDataConfig.system },
+      };
+    }
+    
+    // 6. 如果都没有配置，返回默认配置
+    configCache = { ...DEFAULT_CONFIG };
+    configCacheTime = Date.now();
+    return configCache;
+  } catch (e) {
+    logger.error("Config read error:", e.message);
+    configCache = DEFAULT_CONFIG;
+    configCacheTime = Date.now();
+    return DEFAULT_CONFIG;
+  }
+}
         system: { ...DEFAULT_CONFIG.system, ...appDataConfig.system },
       };
     }
@@ -203,6 +242,10 @@ export function getLogPath(module) {
 let saveConfigLock = Promise.resolve();
 
 export async function saveConfig(newConfig) {
+  // 清除缓存，强制下次读取重新加载
+  configCache = null;
+  
+  // 等待之前的保存完成
   // 等待之前的保存完成
   await saveConfigLock;
 
