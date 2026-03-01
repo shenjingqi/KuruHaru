@@ -21,7 +21,7 @@ export function setupWhisperIPC() {
   handlers.forEach(({ channel }) => {
     try {
       ipcMain.removeHandler(channel);
-    } catch (e) {
+    } catch (_) {
       // 处理器不存在，忽略
     }
   });
@@ -30,7 +30,7 @@ export function setupWhisperIPC() {
   try {
     ipcMain.removeAllListeners("start-task");
     ipcMain.removeAllListeners("stop-task");
-  } catch (e) {
+  } catch (_) {
     // 监听器不存在，忽略
   }
 
@@ -39,8 +39,8 @@ export function setupWhisperIPC() {
     ipcMain.handle(channel, handler);
   });
 
-  // 🟢 辅助函数：递归扫描子目录（用于原地打包）
-  async function scanSubDirAsync(dir, basePath, fileList, onFile) {
+  // 🟢 辅助函数：递归扫描子目录（异步版本，用于原地打包）
+  async function scanSubDir(dir, basePath, fileList, onFile) {
     try {
       const items = await fs.promises.readdir(dir);
       for (const item of items) {
@@ -48,7 +48,7 @@ export function setupWhisperIPC() {
         const stat = await fs.promises.stat(full);
 
         if (stat.isDirectory()) {
-          await scanSubDirAsync(full, basePath, fileList, onFile);
+          await scanSubDir(full, basePath, fileList, onFile);
         } else if (
           [".srt", ".lrc", ".vtt", ".txt", ".ass"].includes(
             path.extname(item).toLowerCase(),
@@ -73,17 +73,17 @@ export function setupWhisperIPC() {
     let maxMtime = 0;
 
     try {
-      const allItems = fs.readdirSync(folderPath);
+      const allItems = await fs.promises.readdir(folderPath);
       for (const f of allItems) {
         // 跳过 zip 文件本身（包括旧的）
         if (f.toLowerCase() === outputName.toLowerCase()) continue;
 
         const full = path.join(folderPath, f);
-        const stat = fs.statSync(full);
+        const stat = await fs.promises.stat(full);
 
         if (stat.isDirectory()) {
           // 递归扫描子目录（不递归到zip文件，因为zip文件不是目录）
-          scanSubDir(full, folderPath, filesToZip, (stat) => {
+          await scanSubDir(full, folderPath, filesToZip, (stat) => {
             if (stat.mtimeMs > maxMtime) maxMtime = stat.mtimeMs;
           });
         } else if (
@@ -588,37 +588,20 @@ export function setupWhisperIPC() {
     const filesToZip = [];
     let maxMtime = 0;
 
-    function scan(dir) {
-      try {
-        fs.readdirSync(dir).forEach((f) => {
-          if (f === outputName) return;
-          const full = path.join(dir, f);
-          const stat = fs.statSync(full);
-          if (stat.isDirectory()) scan(full);
-          else if (
-            [".srt", ".lrc", ".vtt", ".txt", ".ass"].includes(
-              path.extname(f).toLowerCase(),
-            )
-          ) {
-            filesToZip.push({ full, rel: path.relative(folderPath, full) });
-            if (stat.mtimeMs > maxMtime) maxMtime = stat.mtimeMs;
-          }
-        });
-      } catch {
-        // 忽略读取错误
-      }
-    }
-
     try {
-      scan(folderPath);
+      // 使用异步扫描函数
+      await scanSubDir(folderPath, folderPath, filesToZip, (stat) => {
+        if (stat.mtimeMs > maxMtime) maxMtime = stat.mtimeMs;
+      });
 
       if (filesToZip.length === 0) {
         return { success: false, msg: "无字幕文件" };
       }
 
       // 🟢 检查是否有更新：如果zip存在且比所有字幕文件新，则跳过
-      if (fs.existsSync(outputPath)) {
-        const zipStat = fs.statSync(outputPath);
+      try {
+        await fs.promises.access(outputPath);
+        const zipStat = await fs.promises.stat(outputPath);
         if (zipStat.mtimeMs >= maxMtime) {
           logger.info(`跳过 ${outputName} (已是最新)`);
           return {
@@ -630,7 +613,9 @@ export function setupWhisperIPC() {
         }
         // 🟢 有更新：删除旧zip，重新打包
         logger.info(`检测到更新，删除旧zip: ${outputName}`);
-        fs.unlinkSync(outputPath);
+        await fs.promises.unlink(outputPath);
+      } catch {
+        // 文件不存在，继续打包
       }
 
       logger.info(`打包中: ${outputName}`);
