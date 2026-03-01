@@ -9,22 +9,8 @@ import { ipcMain } from "electron";
 import path from "path";
 import { getConfig, saveConfig } from "../modules/config";
 import { normalizeError } from "./errorHandler";
-
-// 创建完整的logger对象
-const logger = {
-  debug: (...args) => console.debug("[telegram:debug]", ...args),
-  info: (...args) => console.info("[telegram:info]", ...args),
-  warn: (...args) => console.warn("[telegram:warn]", ...args),
-  error: (...args) => console.error("[telegram:error]", ...args),
-  canSend: () => true,
-  canReceive: () => true,
-  connection: {
-    debug: (...args) => console.debug("[telegram:connection:debug]", ...args),
-    info: (...args) => console.info("[telegram:connection:info]", ...args),
-    warn: (...args) => console.warn("[telegram:connection:warn]", ...args),
-    error: (...args) => console.error("[telegram:connection:error]", ...args),
-  },
-};
+import { createLogSender } from "./logger.js";
+const logger = createLogSender("telegram-login");
 
 export const LOGIN_STATE = {
   DISCONNECTED: "disconnected",

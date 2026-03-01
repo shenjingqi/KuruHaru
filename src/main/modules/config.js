@@ -10,12 +10,6 @@ const DEFAULT_CONFIG_PATH = path.join(app.getPath("userData"), "config.json");
 let configCache = null;
 let configCacheTime = 0;
 const CACHE_TTL = 5000; // 5秒缓存
-import path from "path";
-import { app, ipcMain } from "electron";
-import { createLogSender } from "../utils/logger";
-
-// 默认配置文件路径
-const DEFAULT_CONFIG_PATH = path.join(app.getPath("userData"), "config.json");
 
 /**
  * 获取默认配置
@@ -90,19 +84,12 @@ const logger = createLogSender("config");
  */
 export function getConfig() {
   const now = Date.now();
-  
+
   // 检查缓存是否有效
   if (configCache && (now - configCacheTime) < CACHE_TTL) {
     return configCache;
   }
-  
-  try {
-    const userDataPath = app.getPath("userData");
-    const defaultConfigPath = path.join(userDataPath, "config.json");
-    const projectConfigPath = path.join(process.cwd(), "config", "config.json");
- * 读取配置（直接从文件读取，不使用缓存）
- */
-export function getConfig() {
+
   try {
     const userDataPath = app.getPath("userData");
     const defaultConfigPath = path.join(userDataPath, "config.json");
@@ -144,7 +131,7 @@ export function getConfig() {
         const userConfig = JSON.parse(fs.readFileSync(userConfigPath, "utf-8"));
 
         // 合并所有配置，userConfig 优先级最高
-        return {
+        configCache = {
           profile: { ...DEFAULT_CONFIG.profile, ...userConfig.profile },
           tg: { ...DEFAULT_CONFIG.tg, ...userConfig.tg },
           asmr: { ...DEFAULT_CONFIG.asmr, ...userConfig.asmr },
@@ -154,12 +141,14 @@ export function getConfig() {
           logging: { ...DEFAULT_CONFIG.logging, ...userConfig.logging },
           system: { ...DEFAULT_CONFIG.system, ...userConfig.system },
         };
+        configCacheTime = now;
+        return configCache;
       }
     }
 
     // 5. 使用 AppData 配置
     if (appDataConfig) {
-      return {
+      configCache = {
         profile: { ...DEFAULT_CONFIG.profile, ...appDataConfig.profile },
         tg: { ...DEFAULT_CONFIG.tg, ...appDataConfig.tg },
         asmr: { ...DEFAULT_CONFIG.asmr, ...appDataConfig.asmr },
@@ -168,24 +157,18 @@ export function getConfig() {
         whisper: { ...DEFAULT_CONFIG.whisper, ...appDataConfig.whisper },
         system: { ...DEFAULT_CONFIG.system, ...appDataConfig.system },
       };
+      configCacheTime = now;
+      return configCache;
     }
-    
+
     // 6. 如果都没有配置，返回默认配置
     configCache = { ...DEFAULT_CONFIG };
-    configCacheTime = Date.now();
+    configCacheTime = now;
     return configCache;
   } catch (e) {
     logger.error("Config read error:", e.message);
     configCache = DEFAULT_CONFIG;
     configCacheTime = Date.now();
-    return DEFAULT_CONFIG;
-  }
-}
-        system: { ...DEFAULT_CONFIG.system, ...appDataConfig.system },
-      };
-    }
-  } catch (e) {
-    logger.error("Config read error:", e.message);
     return DEFAULT_CONFIG;
   }
 }
@@ -244,8 +227,7 @@ let saveConfigLock = Promise.resolve();
 export async function saveConfig(newConfig) {
   // 清除缓存，强制下次读取重新加载
   configCache = null;
-  
-  // 等待之前的保存完成
+
   // 等待之前的保存完成
   await saveConfigLock;
 
@@ -273,13 +255,11 @@ export async function saveConfig(newConfig) {
       fs.mkdirSync(dir, { recursive: true });
     }
 
-    console.log(`[SAVECONFIG] 准备保存配置，configPath: ${configPath}`);
+    logger.info(`准备保存配置，configPath: ${configPath}`);
 
     // 读取当前配置
     const current = getConfig();
-    console.log(
-      `[SAVECONFIG] 当前 chineseListPath: ${current.paths?.chineseListPath}`,
-    );
+    logger.info(`当前 chineseListPath: ${current.paths?.chineseListPath}`);
 
     // 合并配置
     const final = {
@@ -296,7 +276,7 @@ export async function saveConfig(newConfig) {
       }
     });
 
-    console.log(`[SAVECONFIG] pathsToSave:`, pathsToSave);
+    logger.info(`pathsToSave:`, pathsToSave);
 
     // 更新 paths 配置
     final.paths = {
@@ -306,13 +286,11 @@ export async function saveConfig(newConfig) {
 
     fs.writeFileSync(configPath, JSON.stringify(final, null, 2));
 
-    console.log(
-      `[SAVECONFIG] 配置保存成功，chineseListPath: "${final.paths?.chineseListPath}"`,
-    );
+    logger.info(`配置保存成功，chineseListPath: "${final.paths?.chineseListPath}"`);
 
     return true;
   } catch (e) {
-    console.error("保存配置失败:", e);
+    logger.error("保存配置失败:", e);
     return false;
   } finally {
     // 释放锁
@@ -328,7 +306,7 @@ export function getDataDir() {
     const config = getConfig();
     if (!config || !config.paths) {
       const defaultPath = path.join(app.getPath("userData"), "data");
-      console.log("[getDataDir] Config invalid, using default:", defaultPath);
+      logger.info("[getDataDir] Config invalid, using default:", defaultPath);
       return defaultPath;
     }
 
@@ -339,14 +317,14 @@ export function getDataDir() {
     }
 
     const defaultPath = path.join(app.getPath("userData"), "data");
-    console.log(
+    logger.info(
       "[getDataDir] config.paths.dataDir is empty, using default:",
       defaultPath,
     );
     return defaultPath;
   } catch (e) {
     const defaultPath = path.join(app.getPath("userData"), "data");
-    console.error(
+    logger.error(
       "[getDataDir] Error:",
       e.message,
       "using default:",
@@ -390,7 +368,6 @@ export function setupConfigIPC() {
   } catch {
     // 忽略移除错误
   }
-  // 每次调用都实时获取配置，确保一致性
 
   ipcMain.handle("get-config", () => {
     const config = getConfig();
@@ -512,5 +489,5 @@ export function setupConfigIPC() {
     }
   });
 
-  console.log("配置模块已加载");
+  logger.info("配置模块已加载");
 }

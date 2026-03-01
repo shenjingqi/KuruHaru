@@ -11,13 +11,33 @@ const logger = createLogSender("whisper");
 export function setupWhisperIPC() {
   let pythonProcess = null;
 
-  // 先移除已存在的处理器，避免热重载时重复注册
+  // 统一使用数组管理处理器，便于维护
+  const handlers = [
+    { channel: "count-media-files", handler: handleCountMediaFiles },
+    { channel: "zip-subtitles", handler: handleZipSubtitles },
+  ];
+
+  // 移除所有处理器（静默处理不存在的处理器）
+  handlers.forEach(({ channel }) => {
+    try {
+      ipcMain.removeHandler(channel);
+    } catch (e) {
+      // 处理器不存在，忽略
+    }
+  });
+
+  // 移除所有事件监听器（静默处理不存在的监听器）
   try {
-    ipcMain.removeHandler("count-media-files");
-    ipcMain.removeHandler("zip-subtitles");
-  } catch {
-    // 忽略移除错误
+    ipcMain.removeAllListeners("start-task");
+    ipcMain.removeAllListeners("stop-task");
+  } catch (e) {
+    // 监听器不存在，忽略
   }
+
+  // 注册处理器
+  handlers.forEach(({ channel, handler }) => {
+    ipcMain.handle(channel, handler);
+  });
 
   // 🟢 辅助函数：递归扫描子目录（用于原地打包）
   async function scanSubDirAsync(dir, basePath, fileList, onFile) {
@@ -160,7 +180,7 @@ export function setupWhisperIPC() {
   }
 
   // 新增：统计文件数 (给前端用)
-  ipcMain.handle("count-media-files", async (event, dirPath) => {
+  async function handleCountMediaFiles(event, dirPath) {
     try {
       await fs.promises.access(dirPath);
     } catch {
@@ -183,7 +203,8 @@ export function setupWhisperIPC() {
     }
     await scan(dirPath);
     return count;
-  });
+  }
+
   // 1. 开始翻译
   ipcMain.on("start-task", (event, config) => {
     // 写入任务开始标记
@@ -482,7 +503,7 @@ export function setupWhisperIPC() {
   });
 
   // 3. 打包字幕 (🟢 只处理有RJ号的文件夹)
-  ipcMain.handle("zip-subtitles", async (event, { targetPath, outputDir }) => {
+  async function handleZipSubtitles(event, { targetPath, outputDir }) {
     if (!fs.existsSync(targetPath)) {
       return { success: false, msg: "源目录不存在" };
     }
@@ -556,7 +577,7 @@ export function setupWhisperIPC() {
       totalPacked,
       totalSkipped,
     };
-  });
+  }
 
   // 🟢 辅助函数：打包单个文件夹到指定输出目录，有更新就覆盖
   async function packFolder(event, folderPath, rjCode, outputDir) {

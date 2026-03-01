@@ -18,13 +18,10 @@ import { getConfig, getDataDir } from "./config"; // 确保 config 模块路径�
 // 全局配置与状态
 // ==========================================
 
+import { createLogSender } from "../utils/logger";
+
 // 日志工具
-const logger = {
-  debug: () => {}, // 生产环境关闭 debug 以减少噪音
-  info: (...args) => console.log("[tg-recent-activity]", ...args),
-  warn: (...args) => console.warn("[tg-recent-activity:warn]", ...args),
-  error: (...args) => console.error("[tg-recent-activity:error]", ...args),
-};
+const logger = createLogSender("tg-recent-activity");
 
 // 【关键配置】整合包体积阈值：150MB
 // 大于此文件的消息会被视为"新基准"，触发列表重置

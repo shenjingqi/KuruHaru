@@ -184,8 +184,3 @@ Types → Config → Repo → DataAccess → Service → Runtime → UI
 - 开发流程: `docs/development-workflow.md`
 - Agent Vision: `docs/agent-vision-solution.md`
 - UI 组件风格: `docs/ui-style-guide.md`
-
-- 项目架构详解: `docs/ARCHITECTURE.md`
-- 质量评分: `docs/quality/README.md`
-- 开发流程: `docs/development-workflow.md`
-- Agent Vision: `docs/agent-vision-solution.md`

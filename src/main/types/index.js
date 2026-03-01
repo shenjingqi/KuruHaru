@@ -6,13 +6,13 @@
  * 本层是所有其他层的基础，不依赖任何层
  */
 
-export const LAYER_TYPES = "types";
-export const LAYER_CONFIG = "config";
-export const LAYER_REPO = "repo";
-export const LAYER_DATA_ACCESS = "data-access";
-export const LAYER_SERVICE = "service";
-export const LAYER_RUNTIME = "runtime";
-export const LAYER_UI = "ui";
+export const LAYER_TYPES = "Types";
+export const LAYER_CONFIG = "Config";
+export const LAYER_REPO = "Repo";
+export const LAYER_DATA_ACCESS = "DataAccess";
+export const LAYER_SERVICE = "Service";
+export const LAYER_RUNTIME = "Runtime";
+export const LAYER_UI = "UI";
 
 /**
  * 层级映射表
@@ -68,6 +68,52 @@ export const ALLOWED_DEPENDENCIES = {
   ],
   utils: [LAYER_TYPES, LAYER_CONFIG],
 };
+
+export const LayerDependencies = {
+  [LAYER_TYPES]: [],
+  [LAYER_CONFIG]: [LAYER_TYPES],
+  [LAYER_REPO]: [LAYER_TYPES, LAYER_CONFIG],
+  [LAYER_DATA_ACCESS]: [LAYER_TYPES, LAYER_CONFIG],
+  [LAYER_SERVICE]: [LAYER_TYPES, LAYER_CONFIG, LAYER_DATA_ACCESS],
+  [LAYER_RUNTIME]: [LAYER_TYPES, LAYER_CONFIG, LAYER_REPO, LAYER_DATA_ACCESS, LAYER_SERVICE],
+  [LAYER_UI]: [LAYER_TYPES, LAYER_CONFIG, LAYER_REPO, LAYER_DATA_ACCESS, LAYER_SERVICE, LAYER_RUNTIME],
+};
+
+/**
+ * 开发模式依赖检查
+ * @param {string} moduleName - 模块名称
+ * @param {string} currentLayer - 当前层级
+ * @param {string[]} dependencies - 实际依赖列表
+ */
+export function checkLayerDependency(moduleName, currentLayer, dependencies) {
+  if (process.env.NODE_ENV !== "development") return;
+
+  const allowed = LayerDependencies[currentLayer] || [];
+  const invalid = dependencies.filter(
+    (dep) => !allowed.includes(dep) && dep !== "Utils", // Utils 层允许被所有层使用
+  );
+
+  if (invalid.length > 0) {
+    console.warn(
+      `[架构检查] ${moduleName} (层: ${currentLayer}) ` +
+        `依赖了不允许的层: ${invalid.join(", ")}`,
+    );
+  }
+}
+
+/**
+ * 模块装饰器 - 自动检查依赖
+ * @param {string} layer - 所属层级
+ * @param {string[]} deps - 依赖列表
+ */
+export function withLayerCheck(layer, deps) {
+  return function (target, propertyKey, descriptor) {
+    if (process.env.NODE_ENV === "development") {
+      checkLayerDependency(target.name || propertyKey, layer, deps);
+    }
+    return descriptor;
+  };
+}
 
 /**
  * 获取文件所属层级
