@@ -326,6 +326,29 @@ export function getDefaultConfig() {
 export function setupConfigIPC() {
   // 每次调用都实时获取配置，确保一致性
 
+  // 先移除已存在的处理器，避免热重载时重复注册
+  try {
+    ipcMain.removeHandler("get-config");
+    ipcMain.removeHandler("save-config");
+    ipcMain.removeHandler("get-asmr-config");
+    ipcMain.removeHandler("save-asmr-config");
+    ipcMain.removeHandler("get-tg-config");
+    ipcMain.removeHandler("save-tg-config");
+    ipcMain.removeHandler("get-paths");
+    ipcMain.removeHandler("save-paths");
+    ipcMain.removeHandler("get-upload-config");
+    ipcMain.removeHandler("save-upload-config");
+    ipcMain.removeHandler("get-whisper-config");
+    ipcMain.removeHandler("save-whisper-config");
+    ipcMain.removeHandler("get-system-config");
+    ipcMain.removeHandler("save-system-config");
+    ipcMain.removeHandler("get-logging-config");
+    ipcMain.removeHandler("save-logging-config");
+  } catch {
+    // 忽略移除错误
+  }
+  // 每次调用都实时获取配置，确保一致性
+
   ipcMain.handle("get-config", () => {
     const config = getConfig();
     return { success: true, data: config };

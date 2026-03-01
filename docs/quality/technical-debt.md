@@ -110,3 +110,170 @@
 - [docs/quality/README.md](./README.md) - 质量评分
 - [docs/development-workflow.md](../development-workflow.md) - 开发流程
 - [docs/design-docs/module-index.md](../design-docs/module-index.md) - 模块文档
+
+
+---
+
+## 新增技术债务 (2026-03-01)
+
+### 4. 代码重复: 日志工具重复实现 (P0) 🔴 待修复
+
+**问题**: 三个文件实现了相同的 `createLogSender` 功能
+
+**影响**: 代码维护困难，日志格式可能不一致
+
+**涉及文件**:
+- `src/main/utils.js` (行 109-145)
+- `src/main/utils/logger.js` (标准实现)
+- `src/main/utils/telegram-login.js` (行 14-27, 内联实现)
+
+**修复方案**:
+1. `utils.js`: 删除实现，改为从 logger.js 重新导出
+2. `telegram-login.js`: 删除内联日志，使用标准 logger
+
+**预计工作量**: 30分钟
+
+---
+
+### 5. 备份文件未清理 (P0) 🔴 待修复
+
+**问题**: 备份文件不应该存在于版本控制中
+
+**文件**: `src/main/modules/tg-recent-activity.js.bak`
+
+**风险**: 可能包含过期代码或敏感信息
+
+**修复操作**:
+```bash
+git rm src/main/modules/tg-recent-activity.js.bak
+git commit -m "chore: remove backup file"
+```
+
+**预计工作量**: 5分钟
+
+**问题**: 备份文件不应该存在于版本控制中
+
+**文件**: `src/main/modules/tg-recent-activity.js.bak`
+
+**风险**: 可能包含过期代码或敏感信息
+
+**修复操作**:
+```bash
+git rm src/main/modules/tg-recent-activity.js.bak
+git commit -m "chore: remove backup file"
+```
+
+**预计工作量**: 5分钟
+
+---
+
+### 6. IPC 处理器注册模式不一致 (P1) 🟡 待修复
+
+**问题**: 不同模块对 IPC 处理器移除的处理方式不一致
+
+**现状**:
+- `config.js`: 移除所有处理器后再注册
+- `whisper.js`: 只移除 2 个特定处理器
+- `tg-recent-activity.js`: 使用 `removeHandler`
+
+**风险**: 热重载或模块重新加载时可能导致处理器重复或覆盖
+
+**修复方案**: 统一使用 `config.js` 模式
+
+**涉及文件**:
+- `src/main/modules/whisper.js`
+- `src/main/modules/tg-recent-activity.js`
+
+**预计工作量**: 40分钟
+
+---
+
+### 7. 未使用的模块: asmr-login.js (P1) 🟡 待修复
+
+**问题**: `src/main/modules/asmr-login.js` 的 `setupAsmrIPCHandlers()` 从未被调用
+
+**分析**: `index.js` 只调用了 `asmr-localization.js` 的 `setupAsmrIPC()`
+
+**方案选项**:
+
+**选项 A** (推荐): 合并到 asmr-localization.js
+- 将 `asmr-login.js` 的 IPC 处理器合并到 `asmr-localization.js`
+- 删除 `asmr-login.js`
+
+**选项 B**: 在 index.js 中添加调用
+- 在 `index.js` 中调用 `setupAsmrIPCHandlers()`
+
+**建议**: 采用选项 A，避免功能分散
+
+**预计工作量**: 30分钟
+
+---
+
+### 8. 配置读取无缓存 (P2) 🟢 待优化
+
+**问题**: `config.js` 的 `getConfig()` 每次调用都读取文件，性能较差
+
+**代码位置**: `src/main/modules/config.js` 行 80-152
+
+**优化方案**: 添加简单缓存机制
+
+```javascript
+let configCache = null;
+let configCacheTime = 0;
+const CACHE_TTL = 5000; // 5秒缓存
+
+export async function getConfig() {
+  const now = Date.now();
+  if (configCache && (now - configCacheTime) < CACHE_TTL) {
+    return configCache;
+  }
+  
+  // 原有读取逻辑...
+  configCache = mergedConfig;
+  configCacheTime = now;
+  return mergedConfig;
+}
+
+export async function saveConfig(newConfig) {
+  configCache = null; // 清除缓存
+  // 原有保存逻辑...
+}
+```
+
+**预计工作量**: 20分钟
+
+---
+
+## 📊 修复优先级总览
+
+| 优先级 | 任务数 | 预计总时间 | 关键收益 |
+| ------ | ------ | ---------- | -------- |
+| P0 | 3 | 40分钟 | 消除严重技术债务 |
+| P1 | 3 | 2小时 | 提升代码可维护性 |
+| P2 | 1 | 20分钟 | 性能优化 |
+
+**总计**: 7项任务，约3小时工作量
+
+---
+
+## ✅ 快速启动清单
+
+### 今天可以完成的 (40分钟):
+- [ ] 删除备份文件 (5分钟)
+- [ ] 修复 technical-debt.md 表格格式 (15分钟)
+- [ ] 修复 AGENTS.md 重复内容 (5分钟)
+- [ ] 统一日志工具 (30分钟)
+
+### 本周完成的:
+- [ ] 修复 IPC 处理器模式
+- [ ] 处理未使用的 asmr-login.js
+- [ ] 添加配置缓存
+
+---
+
+## 📝 相关文档
+
+- [技术债务修复方案详细版](./technical-debt-remediation-plan.md) - 包含代码示例和详细步骤
+- [AGENTS.md](../../AGENTS.md) - 项目入职手册
+- [质量评分](./README.md) - 模块质量评分
+

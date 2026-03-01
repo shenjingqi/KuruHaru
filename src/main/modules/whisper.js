@@ -11,6 +11,14 @@ const logger = createLogSender("whisper");
 export function setupWhisperIPC() {
   let pythonProcess = null;
 
+  // 先移除已存在的处理器，避免热重载时重复注册
+  try {
+    ipcMain.removeHandler("count-media-files");
+    ipcMain.removeHandler("zip-subtitles");
+  } catch {
+    // 忽略移除错误
+  }
+
   // 🟢 辅助函数：递归扫描子目录（用于原地打包）
   async function scanSubDirAsync(dir, basePath, fileList, onFile) {
     try {
@@ -176,25 +184,6 @@ export function setupWhisperIPC() {
     await scan(dirPath);
     return count;
   });
-  ipcMain.handle("count-media-files", async (event, dirPath) => {
-    if (!fs.existsSync(dirPath)) return 0;
-    let count = 0;
-    const exts = [".mp4", ".mkv", ".avi", ".mp3", ".wav", ".flac", ".m4a"];
-    function scan(d) {
-      try {
-        fs.readdirSync(d).forEach((f) => {
-          const full = path.join(d, f);
-          if (fs.statSync(full).isDirectory()) scan(full);
-          else if (exts.includes(path.extname(f).toLowerCase())) count++;
-        });
-      } catch {
-        // Ignore scan errors
-      }
-    }
-    scan(dirPath);
-    return count;
-  });
-
   // 1. 开始翻译
   ipcMain.on("start-task", (event, config) => {
     // 写入任务开始标记
