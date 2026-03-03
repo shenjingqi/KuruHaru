@@ -84,7 +84,7 @@
                   <span class="clear-btn" @click="manualFiles = []">清空</span>
                 </div>
                 <div v-for="(f, i) in manualFiles" :key="i" class="file-tag">
-                  {{ getFileName(f) }}
+                  {{ getFileName(f.path || f) }}
                   <span
                     class="remove-btn"
                     @click.stop="manualFiles.splice(i, 1)"
@@ -102,12 +102,6 @@
         <input v-model="uploadChannelId" class="input" placeholder="频道 ID" />
         <div class="info-text">选中: {{ filesToUpload.length }} 个</div>
         <button
-          class="btn-primary full"
-          :disabled="filesToUpload.length === 0"
-          @click="uploadFiles"
-        >
-          开始上传
-        <button
           v-if="!isUploading"
           class="btn-primary full"
           :disabled="filesToUpload.length === 0"
@@ -122,6 +116,7 @@
         >
           取消上传
         </button>
+
       </div>
     </div>
 
@@ -151,7 +146,6 @@ import {
   watch,
   toRaw,
 } from "vue";
-import { deepClone } from "../utils/clone";
 
 const mode = ref("scan");
 const tgConnected = ref(false);
@@ -168,12 +162,12 @@ const isUploading = ref(false);
 const filesToUpload = computed(() =>
   mode.value === "scan" ? selectedFiles.value : manualFiles.value,
 );
+
 const isAllSelected = computed({
   get: () =>
     scannedFiles.value.length > 0 &&
     selectedFiles.value.length === scannedFiles.value.length,
   set: (val) => {
-    // 保存完整文件对象，不只是路径
     selectedFiles.value = val ? [...scannedFiles.value] : [];
   },
 });
@@ -184,45 +178,53 @@ onMounted(async () => {
   if (cfg?.upload?.channelId) {
     uploadChannelId.value = cfg.upload.channelId;
   }
+  
   checkTgConnection();
-  setInterval(checkTgConnection, 30000);
+  const connTimer = setInterval(checkTgConnection, 30000);
 
+  // 监听日志更新
   window.api.onLogUpdate((data) => {
     const msg = data?.msg || data || "";
     const type = data?.type || "tg";
     if (type === "tg") {
       logs.value.push(msg);
-      nextTick(() => {
-        if (logRef.value) logRef.value.scrollTop = logRef.value.scrollHeight;
-      });
-    if (type === "tg") {
-      logs.value.push(msg);
-      // 检测上传完成或取消，重置上传状态
-      if (
-        msg.includes("全部完成") ||
-        msg.includes("用户取消上传") ||
-        msg.includes("放弃:")
-      ) {
+      
+      // 【逻辑加固】通过日志关键字自动恢复按钮状态
+      if (msg.includes("全部完成") || msg.includes("任务已中断") || msg.includes("停止后续任务")) {
         isUploading.value = false;
       }
+
       nextTick(() => {
         if (logRef.value) logRef.value.scrollTop = logRef.value.scrollHeight;
       });
     }
   });
-  window.api.onTgAuthNeeded(() => (authNeeded.value = true));
+
+  // 【核心修复】监听主进程发送的专门结束信号
+  if (window.api.onTgUploadFinished) {
+    window.api.onTgUploadFinished(() => {
+      isUploading.value = false;
+    });
+  }
+
+  onUnmounted(() => {
+    clearInterval(connTimer);
+    window.api.removeAllListeners("log-update");
+    if (window.api.onTgUploadFinished) window.api.removeAllListeners("tg-upload-finished");
+  });
 });
 
 const checkTgConnection = async () => {
   const connected = await window.api.tgCheckLogin();
   tgConnected.value = connected;
 };
-onUnmounted(() => window.api.removeAllListeners("log-update"));
+
 watch(uploadChannelId, (val) =>
   window.api.invoke("save-config", { upload: { channelId: val } }),
 );
 
-const getFileName = (p) => p.split(/[\\/]/).pop();
+const getFileName = (p) => (typeof p === 'string' ? p.split(/[\\/]/).pop() : '');
+
 const scanArchives = async () => {
   const dir = await window.api.selectFile("dir");
   if (dir && dir.filePath) {
@@ -230,10 +232,12 @@ const scanArchives = async () => {
     scannedFiles.value = res;
   }
 };
+
 const clearScan = () => {
   scannedFiles.value = [];
   selectedFiles.value = [];
 };
+
 const handleDrop = (e) => {
   const newFiles = Array.from(e.dataTransfer.files).map((f) => ({
     code: "",
@@ -242,6 +246,7 @@ const handleDrop = (e) => {
   }));
   manualFiles.value.push(...newFiles);
 };
+
 const selectZipFiles = async () => {
   const p = await window.api.dialogOpenFile({
     type: "file",
@@ -261,36 +266,38 @@ const submitAuth = () => {
   window.api.send("tg-auth-reply", authCode.value);
   authNeeded.value = false;
 };
+
 const uploadFiles = async () => {
   const connected = await window.api.tgCheckLogin();
   if (!connected) {
     logs.value.push("未连接 Telegram，请先去个人设置登录");
     return;
   }
-  // 使用 toRaw 提取原始对象，再用 JSON 克隆
   const files = JSON.parse(JSON.stringify(toRaw(filesToUpload.value) || []));
-  window.api.send("tg-upload-files", {
-    files,
-    channelId: uploadChannelId.value,
+  if (files.length === 0) return;
+
+  isUploading.value = true;
+  logs.value.push(`开始上传 ${files.length} 个文件...`);
+  
   window.api.send("tg-upload-files", {
     files,
     channelId: uploadChannelId.value,
   });
-  isUploading.value = true;
 };
 
-const cancelUpload = () => {
-  window.api.tgCancelUpload();
-  isUploading.value = false;
-  logs.value.push("已发送取消请求...");
+const cancelUpload = async () => {
+  await window.api.invoke("tg-cancel-upload");
+  // 发送取消后立即将 loading 设为 false，让用户感觉响应迅速
+  isUploading.value = false; 
+  logs.value.push("⚠️ 已发送取消请求，正在停止当前任务...");
 };
 
-const goToSettings = () => {
-};
 const goToSettings = () => {
   window.dispatchEvent(new CustomEvent("change-view", { detail: "settings" }));
 };
 </script>
+
+
 
 <style scoped>
 .page-container {
