@@ -9,9 +9,29 @@ import { ipcMain } from "electron";
 import path from "path";
 import { getConfig, saveConfig } from "../modules/config";
 import { normalizeError } from "./errorHandler";
-import { createLogSender } from "./logger.js";
-const logger = createLogSender("telegram-login");
 
+// 创建完整的logger对象，兼容Telegram库所需的所有方法
+const logger = {
+  // 基础日志方法
+  debug: (...args) => console.debug("[telegram:debug]", ...args),
+  info: (...args) => console.info("[telegram:info]", ...args),
+  warn: (...args) => console.warn("[telegram:warn]", ...args),
+  error: (...args) => console.error("[telegram:error]", ...args),
+
+  // Telegram库可能需要的方法
+  canSend: () => true,
+  canReceive: () => true,
+  connection: {
+    debug: (...args) => console.debug("[telegram:connection:debug]", ...args),
+    info: (...args) => console.info("[telegram:connection:info]", ...args),
+    warn: (...args) => console.warn("[telegram:connection:warn]", ...args),
+    error: (...args) => console.error("[telegram:connection:error]", ...args),
+  },
+};
+
+/**
+ * 登录状态枚举
+ */
 export const LOGIN_STATE = {
   DISCONNECTED: "disconnected",
   CONNECTING: "connecting",
@@ -21,38 +41,43 @@ export const LOGIN_STATE = {
   CANCELLED: "cancelled",
 };
 
-let telegramClient = null;
+let client = null;
 let currentState = LOGIN_STATE.DISCONNECTED;
-let isLoginInProgress = false;
+// 用于防止重复触发登录
+let isLogining = false;
+// 保存当前的 reject 句柄用于手动取消
 let currentAuthReject = null;
 
 /**
  * 尝试自动重连
+ * @returns {Promise<{connected: boolean, reason?: string}>}
  */
 export async function tryAutoConnect() {
   try {
     const cfg = getConfig();
-    // 修复：增加可选链检查，防止 cfg.tg 为 undefined 时报错
-    if (!cfg?.tg?.session || !cfg?.tg?.apiId || !cfg?.tg?.apiHash) {
+    // 检查 Session 字符串是否存在（注意：仅有 Session 字符串不代表有效，需验证）
+    if (!cfg.tg.session || !cfg.tg.apiId || !cfg.tg.apiHash) {
       return { connected: false, reason: "missing_credentials" };
     }
 
-    if (isLoginInProgress) {
+    // 防止在正在手动登录时触发自动重连
+    if (isLogining) {
       return { connected: false, reason: "login_in_progress" };
     }
 
     currentState = LOGIN_STATE.CONNECTING;
     notifyStatusChange();
 
-    if (telegramClient) {
+    // 如果之前的 client 还在，先断开
+    if (client) {
       try {
-        await telegramClient.disconnect();
-      } catch {
+        await client.disconnect();
+      } catch (e) {
         /* ignore */
       }
     }
 
-    telegramClient = new TelegramClient(
+    client = new TelegramClient(
       new StringSession(cfg.tg.session),
       Number(cfg.tg.apiId),
       cfg.tg.apiHash,
@@ -60,6 +85,7 @@ export async function tryAutoConnect() {
         connectionRetries: 2,
         useWSS: false,
         deviceModel: "KuruHaru",
+        // 提供完整的baseLogger，兼容Telegram库所需的所有方法
         baseLogger: {
           debug: () => {},
           info: () => {},
@@ -72,12 +98,15 @@ export async function tryAutoConnect() {
       },
     );
 
-    await telegramClient.connect();
+    // 连接 Socket
+    await client.connect();
 
-    const isAuthorized = await telegramClient.isUserAuthorized();
+    // FIXME: 2. 关键修复 - connect() 成功只代表网络通了，不代表 Session 有效
+    const isAuthorized = await client.isUserAuthorized();
 
     if (!isAuthorized) {
       logger.warn("Auto-connect: Session invalid or expired");
+      // Session 失效，清理掉配置防止死循环，或者让用户重新登录
       currentState = LOGIN_STATE.AUTH_FAILED;
       notifyStatusChange();
       return { connected: false, reason: "session_invalid" };
@@ -105,46 +134,48 @@ export async function tryAutoConnect() {
 
 /**
  * 发起登录流程
+ * @param {Object} sender - IPC sender
+ * @returns {Promise<{success: boolean, session?: string, error?: Object}>}
  */
-export async function startLogin(sender, loginParams) {
+export async function startLogin(sender) {
   const cfg = getConfig();
 
-  if (isLoginInProgress) {
+  // 锁检查
+  if (isLogining) {
     return { success: false, error: { message: "Login already in progress" } };
   }
 
-  const apiId = loginParams?.apiId || cfg?.tg?.apiId;
-  const apiHash = loginParams?.apiHash || cfg?.tg?.apiHash;
-  const phone = loginParams?.phone || cfg?.tg?.phone;
-
-  if (!apiId || !apiHash || !phone) {
+  // 前端验证
+  if (!cfg.tg.apiId || !cfg.tg.apiHash || !cfg.tg.phone) {
     return {
       success: false,
       error: { message: "Missing credentials" },
     };
   }
 
-  isLoginInProgress = true;
+  isLogining = true;
 
   try {
-    if (telegramClient) {
-      await telegramClient.disconnect();
-      telegramClient = null;
+    // 彻底断开旧连接
+    if (client) {
+      await client.disconnect();
+      client = null;
     }
 
     currentState = LOGIN_STATE.AUTHENTICATING;
     notifyStatusChange();
 
-    logger.info(`开始登录流程: Phone=${phone}, API_ID=${apiId}`);
+    logger.info(`开始登录流程: Phone=${cfg.tg.phone}, API_ID=${cfg.tg.apiId}`);
 
-    telegramClient = new TelegramClient(
-      new StringSession(""),
-      Number(apiId),
-      apiHash,
+    client = new TelegramClient(
+      new StringSession(""), // 新登录必须用空 Session
+      Number(cfg.tg.apiId),
+      cfg.tg.apiHash,
       {
         connectionRetries: 5,
         useWSS: false,
         deviceModel: "KuruHaru",
+        // 提供完整的baseLogger，兼容Telegram库所需的所有方法
         baseLogger: {
           debug: () => {},
           info: () => {},
@@ -157,17 +188,28 @@ export async function startLogin(sender, loginParams) {
       },
     );
 
+    /**
+     * FIXME: 3. 重构验证回调生成器
+     * 修复了 IPC 监听器无法移除导致的内存泄漏问题
+     */
     const createAuthCallback = (type) => {
       return new Promise((resolve, reject) => {
+        // 保存 reject 句柄供 cancelAuth 使用
         currentAuthReject = reject;
+
+        // 设置超时 (3分钟)
         const timeoutId = setTimeout(() => {
           cleanup();
           reject(new Error("TIMEOUT"));
         }, 180000);
 
+        // 定义监听处理函数
         const handleReply = (_, result) => {
+          // 收到消息后立即清理监听器和定时器
           cleanup();
+
           logger.info(`收到验证回复 [${type}]:`, result);
+
           if (result?.cancel) {
             reject(new Error("USER_CANCEL"));
           } else if (result?.code) {
@@ -177,14 +219,17 @@ export async function startLogin(sender, loginParams) {
           }
         };
 
+        // 清理函数
         const cleanup = () => {
           clearTimeout(timeoutId);
-          ipcMain.removeListener("tg-auth-reply", handleReply);
+          ipcMain.removeListener("tg-auth-reply", handleReply); // 移除监听
           currentAuthReject = null;
         };
 
+        // 注册监听
         ipcMain.once("tg-auth-reply", handleReply);
 
+        // 通知前端显示输入框
         sender.send("tg-auth-needed", {
           type,
           timeout: 180000,
@@ -192,57 +237,43 @@ export async function startLogin(sender, loginParams) {
       });
     };
 
-    await telegramClient.start({
-      phoneNumber: phone,
+    // 执行 GramJS 的交互式登录
+    await client.start({
+      phoneNumber: cfg.tg.phone,
       phoneCode: () => createAuthCallback("Code"),
       password: (hint) => {
         logger.info(`需要两步验证密码 (Hint: ${hint})`);
         return createAuthCallback("Password");
       },
       onError: (err) => {
+        // client.start 内部报错时触发，通常不需要 throw，
+        // 除非是致命错误。GramJS 会自动重试部分错误。
         logger.error("GramJS Internal Error:", err);
       },
     });
 
-    const sessionStr = telegramClient.session.save();
+    // 登录成功，保存 Session
+    // 注意：必须包含现有 paths 配置，否则会覆盖用户设置的自定义路径
+    const sessionStr = client.session.save();
 
-    const saveData = {
+    saveConfig({
       tg: {
-        ...(cfg.tg || {}),
-        apiId: apiId,
-        apiHash: apiHash,
-        phone: phone,
+        ...cfg.tg, // 保留原有配置
         session: sessionStr,
       },
-    };
-
-    const pathsToSave = {};
-    Object.keys(cfg.paths || {}).forEach((key) => {
-      if (
-        cfg.paths[key] &&
-        typeof cfg.paths[key] === "string" &&
-        cfg.paths[key].trim()
-      ) {
-        pathsToSave[key] = cfg.paths[key];
-      }
+      paths: cfg.paths, // 保留现有路径配置
     });
-    if (Object.keys(pathsToSave).length > 0) {
-      saveData.paths = pathsToSave;
-    }
-
-    saveConfig(saveData);
 
     currentState = LOGIN_STATE.CONNECTED;
     notifyStatusChange();
     logger.info("Telegram 登录成功并保存 Session");
 
-    ipcMain.removeAllListeners("tg-auth-reply");
-    currentAuthReject = null;
-
     return { success: true, session: sessionStr };
   } catch (error) {
+    // 错误处理
     const errorMsg = error?.message || "Unknown Error";
 
+    // 如果是用户取消，不算系统错误
     if (errorMsg === "USER_CANCEL" || errorMsg.includes("CANCEL")) {
       logger.info("登录流程被用户取消");
       currentState = LOGIN_STATE.CANCELLED;
@@ -253,8 +284,10 @@ export async function startLogin(sender, loginParams) {
 
     notifyStatusChange();
 
-    if (telegramClient) {
-      await telegramClient.disconnect();
+    // 登录失败，断开清理
+    if (client) {
+      await client.disconnect();
+      // client = null // 可选：保留 client 实例以便重试，或者置空
     }
 
     return {
@@ -262,46 +295,61 @@ export async function startLogin(sender, loginParams) {
       error: { message: errorMsg, code: error?.code },
     };
   } finally {
-    isLoginInProgress = false;
+    isLogining = false;
     currentAuthReject = null;
   }
 }
 
+/**
+ * 取消当前认证流程
+ */
 export function cancelAuth() {
   if (currentAuthReject) {
     currentAuthReject(new Error("USER_CANCEL"));
     currentAuthReject = null;
     logger.info("触发手动取消登录");
   }
-  ipcMain.removeAllListeners("tg-auth-reply");
 }
 
+/**
+ * 发送状态变更通知
+ * (你需要确保在主进程初始化时正确设置了窗口发送机制)
+ */
 function notifyStatusChange() {
-  // TODO: 实现状态通知逻辑
+  // 示例：通过广播或者特定的 WebContents 发送
+  // import { BrowserWindow } from 'electron'
+  // BrowserWindow.getAllWindows().forEach(win => {
+  //    win.webContents.send('tg-status-changed', { state: currentState, connected: isConnected() })
+  // })
 }
 
+/**
+ * 检查是否已连接
+ */
 export function isConnected() {
-  return (
-    telegramClient &&
-    telegramClient.connected &&
-    currentState === LOGIN_STATE.CONNECTED
-  );
+  // 必须同时满足 Socket 连接 + 用户已认证 + 状态标记正确
+  return client && client.connected && currentState === LOGIN_STATE.CONNECTED;
 }
 
+/**
+ * 获取当前连接状态
+ */
 export function getConnectionState() {
   return currentState;
 }
 
+/**
+ * 设置 IPC 处理器
+ */
 export function setupTelegramIPC() {
-  let uploadCancelled = false;
   ipcMain.handle("tg-check-login", async () => {
     const result = await tryAutoConnect();
     return result.connected;
   });
 
-  ipcMain.handle("tg-login", async (event, loginParams) => {
+  ipcMain.handle("tg-login", async (event) => {
     try {
-      const result = await startLogin(event.sender, loginParams);
+      const result = await startLogin(event.sender);
       return result;
     } catch (error) {
       console.error("startLogin 异常:", error);
@@ -314,18 +362,6 @@ export function setupTelegramIPC() {
     return { success: true };
   });
 
-  // 取消上传 - 强制打断当前传输
-  ipcMain.on("tg-cancel-upload", () => {
-    uploadCancelled = true;
-    if (telegramClient) {
-      logger.info("Force destroying transport for cancellation...");
-      try {
-        telegramClient._sender?._transport?.destroy();
-      } catch (e) {
-        logger.error("Error destroying transport:", e);
-      }
-    }
-  });
   ipcMain.handle("tg-get-status", () => {
     return {
       state: currentState,
@@ -333,35 +369,33 @@ export function setupTelegramIPC() {
     };
   });
 
-  // 上传文件逻辑
+  /**
+   * 上传文件到 Telegram
+   * 流程：发送 RJ 号，然后发送到该消息的评论区
+   */
   ipcMain.on("tg-upload-files", async (event, { files, channelId }) => {
-    uploadCancelled = false;
     const MAX_RETRIES = 3;
     const RETRY_DELAY = 5000;
     const UPLOAD_DELAY = 4000;
-    const STEP1_TIMEOUT = 20000;
-    const STEP2_TIMEOUT = 30000;
+    const STEP_TIMEOUT = 30000; // 30秒超时
 
+    // 带超时的操作
     const withTimeout = (promise, ms) => {
-      let timeoutId;
-      const timeoutPromise = new Promise((_, reject) => {
-        timeoutId = setTimeout(() => reject(new Error("TIMEOUT")), ms);
-      });
       return Promise.race([
-        promise.then((res) => {
-          clearTimeout(timeoutId);
-          return res;
-        }),
-        timeoutPromise,
+        promise,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("TIMEOUT")), ms),
+        ),
       ]);
     };
 
+    // 连接检查
     const checkConnection = async () => {
-      if (!telegramClient) return false;
-      if (!telegramClient.connected || currentState !== LOGIN_STATE.CONNECTED) {
+      if (!client) return false;
+      if (!client.connected || currentState !== LOGIN_STATE.CONNECTED) {
         try {
-          await telegramClient.connect();
-          const isAuth = await telegramClient.isUserAuthorized();
+          await client.connect();
+          const isAuth = await client.isUserAuthorized();
           if (!isAuth) return false;
           currentState = LOGIN_STATE.CONNECTED;
           return true;
@@ -372,29 +406,27 @@ export function setupTelegramIPC() {
       return true;
     };
 
-    // 辅助函数：发送日志
-    const sendLog = (msg) => {
-      if (event.sender && !event.sender.isDestroyed()) {
-        event.sender.send("log-update", { type: "tg", msg });
-      }
-    };
-
     if (!(await checkConnection())) {
-      sendLog("❌ 未连接");
+      event.sender.send("log-update", { type: "tg", msg: "❌ 未连接" });
       return;
     }
 
-    sendLog(`🚀 开始上传 ${files.length} 个文件`);
+    event.sender.send("log-update", {
+      type: "tg",
+      msg: `🚀 开始上传 ${files.length} 个文件`,
+    });
 
+    // 解析频道 ID (如果是 -100 开头，转为整数)
     let peerId = channelId;
     if (typeof channelId === "string" && channelId.startsWith("-100")) {
       peerId = parseInt(channelId);
     }
 
+    let successCount = 0;
+    let failCount = 0;
+
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      // 检测取消标志
-      if (uploadCancelled) break;
       const fileName = path.basename(file.path);
       const filenameNoExt = path.parse(fileName).name;
 
@@ -404,244 +436,169 @@ export function setupTelegramIPC() {
       let step1Success = false;
       let step1Attempts = 0;
       while (!step1Success && step1Attempts < MAX_RETRIES) {
-        // 每次重试前检查取消
-        if (uploadCancelled) break;
         step1Attempts++;
         try {
           if (!(await checkConnection())) {
-            sendLog(`⚠️ 连接断开，重试 (${step1Attempts}/${MAX_RETRIES})`);
+            event.sender.send("log-update", {
+              type: "tg",
+              msg: `⚠️ 连接断开，重试 (${step1Attempts}/${MAX_RETRIES})`,
+            });
             await new Promise((r) => setTimeout(r, RETRY_DELAY));
             continue;
           }
 
-          sendLog(`✉️ ${i + 1}/${files.length} 发送索引: ${filenameNoExt}`);
-          sendLog(`⏳ 步骤1/2: 发送中...`);
+          event.sender.send("log-update", {
+            type: "tg",
+            msg: `✉️ ${i + 1}/${files.length} 发送索引: ${filenameNoExt}`,
+          });
+          event.sender.send("log-update", {
+            type: "tg",
+            msg: `⏳ 步骤1/2: 发送中...`,
+          });
 
           txtMsg = await withTimeout(
-            telegramClient.sendMessage(peerId, { message: filenameNoExt }),
-            STEP1_TIMEOUT,
+            client.sendMessage(peerId, { message: filenameNoExt }),
+            STEP_TIMEOUT,
           );
 
-          sendLog(`✅ 步骤1完成`);
+          event.sender.send("log-update", { type: "tg", msg: `✅ 步骤1完成` });
           step1Success = true;
         } catch (e) {
           if (e.message === "TIMEOUT") {
-            sendLog(`⏰ 步骤1超时 (${step1Attempts}/${MAX_RETRIES})`);
-            // 超时后验证消息是否已发送
-            sendLog(`🔍 验证索引消息是否已发送...`);
-            await new Promise((r) => setTimeout(r, 2000));
-
-            try {
-              const recentMessages = await withTimeout(
-                telegramClient.getMessages(peerId, { limit: 5 }),
-                10000,
-              );
-              const existingMsg = recentMessages.find(
-                (msg) => msg.message === filenameNoExt,
-              );
-
-              if (existingMsg) {
-                sendLog(`✅ 索引消息已存在，ID: ${existingMsg.id}`);
-                txtMsg = existingMsg;
-                step1Success = true;
-                continue;
-              }
-            } catch (verifyErr) {
-              sendLog(`⚠️ 验证失败: ${verifyErr.message}`);
-            }
+            event.sender.send("log-update", {
+              type: "tg",
+              msg: `⏰ 步骤1超时 (${step1Attempts}/${MAX_RETRIES})`,
+            });
           } else if (e.seconds) {
-            sendLog(`⏳ 流控 ${e.seconds}s...`);
+            event.sender.send("log-update", {
+              type: "tg",
+              msg: `⏳ 流控 ${e.seconds}s...`,
+            });
             await new Promise((r) => setTimeout(r, e.seconds * 1000));
           } else {
-            sendLog(
-              `❌ 步骤1失败: ${e.message} (${step1Attempts}/${MAX_RETRIES})`,
-            );
+            event.sender.send("log-update", {
+              type: "tg",
+              msg: `❌ 步骤1失败: ${e.message} (${step1Attempts}/${MAX_RETRIES})`,
+            });
           }
 
-          if (!step1Success && step1Attempts < MAX_RETRIES) {
-            sendLog(`💤 ${RETRY_DELAY / 1000}s 后重试...`);
+          if (step1Attempts < MAX_RETRIES) {
+            event.sender.send("log-update", {
+              type: "tg",
+              msg: `💤 ${RETRY_DELAY / 1000}s 后重试...`,
+            });
             await new Promise((r) => setTimeout(r, RETRY_DELAY));
           }
         }
       }
 
       if (!step1Success) {
-        // 步骤1完成后检查取消
-        if (uploadCancelled) {
-          sendLog("🛑 任务已取消");
-          break;
-        }
-        sendLog(`❌ 放弃: ${filenameNoExt}`);
-        if (i < files.length - 1)
-          await new Promise((r) => setTimeout(r, UPLOAD_DELAY));
+        event.sender.send("log-update", {
+          type: "tg",
+          msg: `❌ 放弃: ${filenameNoExt}`,
+        });
+        failCount++;
         continue;
       }
 
+      // 等待 2 秒确保 Telegram 服务器创建讨论线程
       await new Promise((r) => setTimeout(r, 2000));
 
       // ========== 步骤 2: 上传文件 ==========
-      // 修复：删除了重复的变量声明和 while 循环头
       let step2Success = false;
       let step2Attempts = 0;
       while (!step2Success && step2Attempts < MAX_RETRIES) {
-        // 步骤2循环开始前检查取消
-        if (uploadCancelled) break;
         step2Attempts++;
         try {
           if (!(await checkConnection())) {
-            sendLog(`⚠️ 连接断开，重试 (${step2Attempts}/${MAX_RETRIES})`);
+            event.sender.send("log-update", {
+              type: "tg",
+              msg: `⚠️ 连接断开，重试 (${step2Attempts}/${MAX_RETRIES})`,
+            });
             await new Promise((r) => setTimeout(r, RETRY_DELAY));
             continue;
           }
 
-          sendLog(`⬆️ 步骤2/2: 上传文件: ${fileName}`);
-
-          let uploadResult = null;
-          let progressReached100 = false;
-
-          await new Promise((resolve, reject) => {
-            let isCompleted = false;
-            // 即时响应取消的轮询器
-            const cancelCheckInterval = setInterval(() => {
-              if (uploadCancelled) {
-                clearInterval(cancelCheckInterval);
-                reject(new Error("CANCELLED"));
-              }
-            }, 200);
-            const timeoutId = setTimeout(() => {
-              if (!isCompleted) {
-                isCompleted = true;
-                // 如果进度已到100%，可能是网络延迟，不直接reject
-                if (progressReached100) {
-                  sendLog(`⏳ 进度100%但等待响应超时，稍后验证...`);
-                  resolve({ status: "VERIFY_NEEDED" });
-                } else {
-                  reject(new Error("TIMEOUT"));
-                }
-              }
-            }, STEP2_TIMEOUT);
-
-            telegramClient
-              .sendFile(peerId, {
-                file: file.path,
-                forceDocument: true,
-                commentTo: txtMsg.id,
-                progressCallback: (progress) => {
-                  const pct = Math.round(progress * 100);
-                  if (pct % 20 === 0 || pct === 100) {
-                    sendLog(`[${filenameNoExt}] ${pct}%`);
-                  }
-                  if (pct === 100) {
-                    progressReached100 = true;
-                  }
-                },
-              })
-              .then((result) => {
-                if (!isCompleted) {
-                  isCompleted = true;
-                  clearTimeout(timeoutId);
-                  clearInterval(cancelCheckInterval);
-                  resolve({ status: "SUCCESS", result });
-                }
-              })
-              .catch((err) => {
-                if (!isCompleted) {
-                  isCompleted = true;
-                  clearTimeout(timeoutId);
-                  clearInterval(cancelCheckInterval);
-                  reject(err);
-                }
-              });
-          }).then((res) => {
-            uploadResult = res;
+          event.sender.send("log-update", {
+            type: "tg",
+            msg: `⬆️ 步骤2/2: 上传文件: ${fileName}`,
           });
 
-          // 如果需要验证（超时但进度100%），检查消息是否已发送
-          if (uploadResult?.status === "VERIFY_NEEDED") {
-            sendLog(`🔍 验证文件是否已上传...`);
-            const VERIFY_TIMEOUT = 10000;
-
-            try {
-              // 等待2秒让服务器处理
-              await new Promise((r) => setTimeout(r, 2000));
-
-              // 直接用peerId查消息，不需要getEntity（更高效）
-              const recentMessages = await withTimeout(
-                telegramClient.getMessages(peerId, { limit: 10 }),
-                VERIFY_TIMEOUT,
-              );
-
-              const fileAlreadySent = recentMessages.some((msg) => {
-                if (msg.document) {
-                  const docName = msg.document.attributes?.find(
-                    (attr) => attr.className === "DocumentAttributeFilename",
-                  )?.fileName;
-                  return docName === fileName;
+          await withTimeout(
+            client.sendFile(peerId, {
+              file: file.path,
+              forceDocument: true,
+              commentTo: txtMsg.id,
+              progressCallback: (progress) => {
+                const pct = Math.round(progress * 100);
+                if (pct % 20 === 0 || pct === 100) {
+                  event.sender.send("log-update", {
+                    type: "tg",
+                    msg: `[${filenameNoExt}] ${pct}%`,
+                  });
                 }
-                return false;
-              });
+              },
+            }),
+            STEP_TIMEOUT,
+          );
 
-              if (fileAlreadySent) {
-                sendLog(`✅ 验证成功: 文件已在聊天中，跳过重试`);
-                uploadResult = { status: "SUCCESS" };
-              } else {
-                throw new Error("VERIFY_FAILED");
-              }
-            } catch (verifyErr) {
-              if (verifyErr.message === "TIMEOUT") {
-                sendLog(`⏰ 验证超时，假设上传成功，跳过重试`);
-                uploadResult = { status: "SUCCESS" };
-              } else {
-                sendLog(`⚠️ 验证失败: ${verifyErr.message}，将重试`);
-                throw new Error("TIMEOUT");
-              }
-            }
-          }
-
-          sendLog(`✅ 完成: ${filenameNoExt}`);
+          event.sender.send("log-update", {
+            type: "tg",
+            msg: `✅ 完成: ${filenameNoExt}`,
+          });
           step2Success = true;
+          successCount++;
         } catch (e) {
           if (e.message === "TIMEOUT") {
-            // 捕获取消标志
-            if (e.message === "CANCELLED" || uploadCancelled) {
-              sendLog("⚠️ 用户取消上传");
-              step2Success = false;
-              break;
-            }
-            sendLog(`⏰ 步骤2超时 (${step2Attempts}/${MAX_RETRIES})`);
+            event.sender.send("log-update", {
+              type: "tg",
+              msg: `⏰ 步骤2超时 (${step2Attempts}/${MAX_RETRIES})`,
+            });
           } else if (e.seconds) {
-            sendLog(`⏳ 流控 ${e.seconds}s...`);
+            event.sender.send("log-update", {
+              type: "tg",
+              msg: `⏳ 流控 ${e.seconds}s...`,
+            });
             await new Promise((r) => setTimeout(r, e.seconds * 1000));
           } else {
-            sendLog(
-              `❌ 步骤2失败: ${e.message} (${step2Attempts}/${MAX_RETRIES})`,
-            );
+            event.sender.send("log-update", {
+              type: "tg",
+              msg: `❌ 步骤2失败: ${e.message} (${step2Attempts}/${MAX_RETRIES})`,
+            });
           }
 
           if (step2Attempts < MAX_RETRIES) {
-            sendLog(`💤 ${RETRY_DELAY / 1000}s 后重试...`);
+            event.sender.send("log-update", {
+              type: "tg",
+              msg: `💤 ${RETRY_DELAY / 1000}s 后重试...`,
+            });
             await new Promise((r) => setTimeout(r, RETRY_DELAY));
           }
         }
       }
 
       if (!step2Success) {
-        sendLog(`❌ 放弃: ${filenameNoExt}`);
+        event.sender.send("log-update", {
+          type: "tg",
+          msg: `❌ 放弃: ${filenameNoExt}`,
+        });
+        failCount++;
+        // 失败后等待一下再继续
+        if (i < files.length - 1) {
+          event.sender.send("log-update", {
+            type: "tg",
+            msg: `💤 等待 ${UPLOAD_DELAY / 1000}s...`,
+          });
+          await new Promise((r) => setTimeout(r, UPLOAD_DELAY));
+        }
       }
-      // 步骤2完成后检查取消
-      if (uploadCancelled) break;
 
-      if (i < files.length - 1) {
-        sendLog(`💤 等待 ${UPLOAD_DELAY / 1000}s...`);
-        await new Promise((r) => setTimeout(r, UPLOAD_DELAY));
-      }
-    }
-    // 文件循环结束后检查取消
-    if (uploadCancelled) {
-      sendLog("🛑 任务已提前终止");
-      return;
+      // 成功完成不需要等待
     }
 
-    sendLog("🏁 所有任务处理完毕");
+    event.sender.send("log-update", {
+      type: "tg",
+      msg: `🎉 全部完成: 成功 ${successCount}，失败 ${failCount}`,
+    });
   });
 }

@@ -86,7 +86,7 @@ export function getConfig() {
   const now = Date.now();
 
   // 检查缓存是否有效
-  if (configCache && (now - configCacheTime) < CACHE_TTL) {
+  if (configCache && now - configCacheTime < CACHE_TTL) {
     return configCache;
   }
 
@@ -286,7 +286,9 @@ export async function saveConfig(newConfig) {
 
     fs.writeFileSync(configPath, JSON.stringify(final, null, 2));
 
-    logger.info(`配置保存成功，chineseListPath: "${final.paths?.chineseListPath}"`);
+    logger.info(
+      `配置保存成功，chineseListPath: "${final.paths?.chineseListPath}"`,
+    );
 
     return true;
   } catch (e) {

@@ -618,17 +618,17 @@ export function saveRecentActivityLog() {
 
 export function setupTgHistoryIPC() {
   console.log("[tg-recent-activity] 正在初始化 IPC 处理器...");
-  
+
   // 先移除已存在的处理器，避免热重载时重复注册
   const handlers = [
     "tg-scan-recent-activity",
-    "tg-read-recent-activity", 
+    "tg-read-recent-activity",
     "download-tg-file",
     "clear-cache",
     "tg-get-statistics",
-    "read-rj-list"
+    "read-rj-list",
   ];
-  
+
   for (const handler of handlers) {
     try {
       ipcMain.removeHandler(handler);
@@ -637,10 +637,10 @@ export function setupTgHistoryIPC() {
       // 处理器不存在，忽略错误
     }
   }
-  
+
   console.log("[tg-recent-activity] 正在注册新的 IPC 处理器...");
   console.log("[tg-recent-activity] 正在注册 tg-scan-recent-activity...");
-  
+
   // 1. 扫描最近活动 (前端点击刷新时调用)
   ipcMain.handle("tg-scan-recent-activity", async () => {
     logger.info("IPC: tg-scan-recent-activity");

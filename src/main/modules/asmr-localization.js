@@ -4,9 +4,9 @@ import fs from "fs";
 import { ipcMain, app, webContents } from "electron";
 import { scanForIds } from "../utils";
 import {
-  loginAsmr as asmrLogin_,
-  checkAsmrLoginStatus as checkLoginStatus_,
-  logoutAsmr as logout_,
+  login_ as asmrLogin_,
+  checkLoginStatus_,
+  logout_,
   triggerCloudDataFetch as syncCloudWorksDataFromLogin,
 } from "../modules/asmr-login";
 import { getConfig, saveConfig } from "../modules/config";

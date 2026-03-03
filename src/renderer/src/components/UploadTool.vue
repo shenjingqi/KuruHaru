@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <div class="page-header">
-      <h2 class="page-title">上传字幕</h2>
+      <h2 class="page-title">投稿视频</h2>
     </div>
 
     <div class="status-bar card">
@@ -111,6 +111,14 @@
       </div>
     </div>
 
+    <div v-if="authNeeded" class="modal-mask">
+      <div class="modal-box card">
+        <h3>验证</h3>
+        <input v-model="authCode" class="input big-input" />
+        <button class="btn-primary full" @click="submitAuth">确认</button>
+      </div>
+    </div>
+
     <div class="log-panel card">
       <div ref="logRef" class="log-body">
         <div v-for="(log, i) in logs" :key="i">{{ log }}</div>
@@ -129,6 +137,7 @@ import {
   watch,
   toRaw,
 } from "vue";
+import { deepClone } from "../utils/clone";
 
 const mode = ref("scan");
 const tgConnected = ref(false);
@@ -138,7 +147,8 @@ const selectedFiles = ref([]);
 const manualFiles = ref([]);
 const logs = ref([]);
 const logRef = ref(null);
-let timer = null;
+const authNeeded = ref(false);
+const authCode = ref("");
 
 const filesToUpload = computed(() =>
   mode.value === "scan" ? selectedFiles.value : manualFiles.value,
@@ -156,9 +166,11 @@ const isAllSelected = computed({
 onMounted(async () => {
   const result = await window.api.invoke("get-config");
   const cfg = result?.data || result;
-  if (cfg?.upload?.channelId) uploadChannelId.value = cfg.upload.channelId;
+  if (cfg?.upload?.channelId) {
+    uploadChannelId.value = cfg.upload.channelId;
+  }
   checkTgConnection();
-  timer = setInterval(checkTgConnection, 30000);
+  setInterval(checkTgConnection, 30000);
 
   window.api.onLogUpdate((data) => {
     const msg = data?.msg || data || "";
@@ -170,31 +182,19 @@ onMounted(async () => {
       });
     }
   });
+  window.api.onTgAuthNeeded(() => (authNeeded.value = true));
 });
 
 const checkTgConnection = async () => {
   const connected = await window.api.tgCheckLogin();
   tgConnected.value = connected;
 };
-
-onUnmounted(() => {
-  if (timer) {
-    clearInterval(timer);
-    timer = null;
-  }
-  window.api.removeAllListeners("log-update");
-});
+onUnmounted(() => window.api.removeAllListeners("log-update"));
 watch(uploadChannelId, (val) =>
   window.api.invoke("save-config", { upload: { channelId: val } }),
 );
 
-const getFileName = (f) => {
-  if (!f) return "Unknown";
-  // 如果已经是字符串路径
-  if (typeof f === "string") return f.split(/[\\/]/).pop();
-  // 如果是文件对象
-  return f.name || f.path?.split(/[\\/]/).pop() || "Unknown";
-};
+const getFileName = (p) => p.split(/[\\/]/).pop();
 const scanArchives = async () => {
   const dir = await window.api.selectFile("dir");
   if (dir && dir.filePath) {
@@ -229,6 +229,10 @@ const selectZipFiles = async () => {
   }
 };
 
+const submitAuth = () => {
+  window.api.send("tg-auth-reply", authCode.value);
+  authNeeded.value = false;
+};
 const uploadFiles = async () => {
   const connected = await window.api.tgCheckLogin();
   if (!connected) {
