@@ -109,14 +109,9 @@
         >
           开始上传
         </button>
-        <button
-          v-else
-          class="btn-danger full"
-          @click="cancelUpload"
-        >
+        <button v-else class="btn-danger full" @click="cancelUpload">
           取消上传
         </button>
-
       </div>
     </div>
 
@@ -178,7 +173,7 @@ onMounted(async () => {
   if (cfg?.upload?.channelId) {
     uploadChannelId.value = cfg.upload.channelId;
   }
-  
+
   checkTgConnection();
   const connTimer = setInterval(checkTgConnection, 30000);
 
@@ -188,9 +183,13 @@ onMounted(async () => {
     const type = data?.type || "tg";
     if (type === "tg") {
       logs.value.push(msg);
-      
+
       // 【逻辑加固】通过日志关键字自动恢复按钮状态
-      if (msg.includes("全部完成") || msg.includes("任务已中断") || msg.includes("停止后续任务")) {
+      if (
+        msg.includes("全部完成") ||
+        msg.includes("任务已中断") ||
+        msg.includes("停止后续任务")
+      ) {
         isUploading.value = false;
       }
 
@@ -210,7 +209,8 @@ onMounted(async () => {
   onUnmounted(() => {
     clearInterval(connTimer);
     window.api.removeAllListeners("log-update");
-    if (window.api.onTgUploadFinished) window.api.removeAllListeners("tg-upload-finished");
+    if (window.api.onTgUploadFinished)
+      window.api.removeAllListeners("tg-upload-finished");
   });
 });
 
@@ -223,7 +223,8 @@ watch(uploadChannelId, (val) =>
   window.api.invoke("save-config", { upload: { channelId: val } }),
 );
 
-const getFileName = (p) => (typeof p === 'string' ? p.split(/[\\/]/).pop() : '');
+const getFileName = (p) =>
+  typeof p === "string" ? p.split(/[\\/]/).pop() : "";
 
 const scanArchives = async () => {
   const dir = await window.api.selectFile("dir");
@@ -278,7 +279,7 @@ const uploadFiles = async () => {
 
   isUploading.value = true;
   logs.value.push(`开始上传 ${files.length} 个文件...`);
-  
+
   window.api.send("tg-upload-files", {
     files,
     channelId: uploadChannelId.value,
@@ -288,7 +289,7 @@ const uploadFiles = async () => {
 const cancelUpload = async () => {
   await window.api.invoke("tg-cancel-upload");
   // 发送取消后立即将 loading 设为 false，让用户感觉响应迅速
-  isUploading.value = false; 
+  isUploading.value = false;
   logs.value.push("⚠️ 已发送取消请求，正在停止当前任务...");
 };
 
@@ -296,8 +297,6 @@ const goToSettings = () => {
   window.dispatchEvent(new CustomEvent("change-view", { detail: "settings" }));
 };
 </script>
-
-
 
 <style scoped>
 .page-container {
@@ -426,6 +425,50 @@ const goToSettings = () => {
 .btn-primary:disabled {
   background: #d4d4d4;
   cursor: not-allowed;
+}
+
+.btn-danger {
+  padding: 12px 20px;
+  border-radius: 8px;
+  border: 1px solid #dc2626;
+  cursor: pointer;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  transition: all 0.2s ease;
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.24);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px rgba(220, 38, 38, 0.32);
+}
+
+.btn-danger:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 3px 8px rgba(220, 38, 38, 0.2);
+}
+
+.btn-danger:disabled {
+  background: #d4d4d4;
+  border-color: #d4d4d4;
+  color: #fafafa;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn-danger:focus-visible,
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible {
+  outline: 2px solid #a78bfa;
+  outline-offset: 2px;
+}
+
+.full {
+  width: 100%;
 }
 
 .btn-secondary {
