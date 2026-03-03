@@ -107,6 +107,20 @@
           @click="uploadFiles"
         >
           开始上传
+        <button
+          v-if="!isUploading"
+          class="btn-primary full"
+          :disabled="filesToUpload.length === 0"
+          @click="uploadFiles"
+        >
+          开始上传
+        </button>
+        <button
+          v-else
+          class="btn-danger full"
+          @click="cancelUpload"
+        >
+          取消上传
         </button>
       </div>
     </div>
@@ -149,6 +163,7 @@ const logs = ref([]);
 const logRef = ref(null);
 const authNeeded = ref(false);
 const authCode = ref("");
+const isUploading = ref(false);
 
 const filesToUpload = computed(() =>
   mode.value === "scan" ? selectedFiles.value : manualFiles.value,
@@ -177,6 +192,19 @@ onMounted(async () => {
     const type = data?.type || "tg";
     if (type === "tg") {
       logs.value.push(msg);
+      nextTick(() => {
+        if (logRef.value) logRef.value.scrollTop = logRef.value.scrollHeight;
+      });
+    if (type === "tg") {
+      logs.value.push(msg);
+      // 检测上传完成或取消，重置上传状态
+      if (
+        msg.includes("全部完成") ||
+        msg.includes("用户取消上传") ||
+        msg.includes("放弃:")
+      ) {
+        isUploading.value = false;
+      }
       nextTick(() => {
         if (logRef.value) logRef.value.scrollTop = logRef.value.scrollHeight;
       });
@@ -244,7 +272,20 @@ const uploadFiles = async () => {
   window.api.send("tg-upload-files", {
     files,
     channelId: uploadChannelId.value,
+  window.api.send("tg-upload-files", {
+    files,
+    channelId: uploadChannelId.value,
   });
+  isUploading.value = true;
+};
+
+const cancelUpload = () => {
+  window.api.tgCancelUpload();
+  isUploading.value = false;
+  logs.value.push("已发送取消请求...");
+};
+
+const goToSettings = () => {
 };
 const goToSettings = () => {
   window.dispatchEvent(new CustomEvent("change-view", { detail: "settings" }));

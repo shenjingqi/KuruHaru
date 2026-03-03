@@ -47,6 +47,9 @@ let currentState = LOGIN_STATE.DISCONNECTED;
 let isLogining = false;
 // 保存当前的 reject 句柄用于手动取消
 let currentAuthReject = null;
+// 上传取消相关
+let uploadCancelled = false;
+let uploadReject = null;
 
 /**
  * 尝试自动重连
@@ -309,6 +312,25 @@ export function cancelAuth() {
     currentAuthReject = null;
     logger.info("触发手动取消登录");
   }
+
+/**
+ * 取消当前上传流程
+ */
+export function cancelUpload() {
+  uploadCancelled = true;
+  logger.info("触发上传取消");
+  // 如果有正在等待的 Promise，调用其 reject
+  if (uploadReject) {
+    uploadReject(new Error("UPLOAD_CANCELLED"));
+    uploadReject = null;
+  }
+  // 尝试销毁 transport 以立即停止
+  try {
+    client?._sender?._transport?.destroy();
+    logger.info("已销毁传输层");
+  } catch (e) {
+    logger.warn("销毁传输层失败:", e.message);
+  }
 }
 
 /**
@@ -359,6 +381,14 @@ export function setupTelegramIPC() {
 
   ipcMain.handle("tg-cancel-auth", () => {
     cancelAuth();
+    return { success: true };
+  ipcMain.handle("tg-cancel-auth", () => {
+    cancelAuth();
+    return { success: true };
+  });
+
+  ipcMain.handle("tg-cancel-upload", () => {
+    cancelUpload();
     return { success: true };
   });
 
@@ -424,7 +454,27 @@ export function setupTelegramIPC() {
 
     let successCount = 0;
     let failCount = 0;
+    let successCount = 0;
+    let failCount = 0;
 
+    // 重置取消标志
+    uploadCancelled = false;
+    uploadReject = null;
+
+    // 取消检查辅助函数
+    const checkCancelled = () => {
+      if (uploadCancelled) {
+        throw new Error("UPLOAD_CANCELLED");
+      }
+    };
+
+    for (let i = 0; i < files.length; i++) {
+      // 文件循环开始时检查取消
+      checkCancelled();
+
+      const file = files[i];
+      const fileName = path.basename(file.path);
+      const file = files[i];
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const fileName = path.basename(file.path);
@@ -436,6 +486,8 @@ export function setupTelegramIPC() {
       let step1Success = false;
       let step1Attempts = 0;
       while (!step1Success && step1Attempts < MAX_RETRIES) {
+        // 步骤1循环前检查取消
+        checkCancelled();
         step1Attempts++;
         try {
           if (!(await checkConnection())) {
@@ -464,6 +516,11 @@ export function setupTelegramIPC() {
           event.sender.send("log-update", { type: "tg", msg: `✅ 步骤1完成` });
           step1Success = true;
         } catch (e) {
+          // 处理取消
+          if (e.message === "UPLOAD_CANCELLED") {
+            event.sender.send("log-update", { type: "tg", msg: "⚠️ 用户取消上传" });
+            return; // 直接退出整个上传流程
+          }
           if (e.message === "TIMEOUT") {
             event.sender.send("log-update", {
               type: "tg",
@@ -508,6 +565,8 @@ export function setupTelegramIPC() {
       let step2Success = false;
       let step2Attempts = 0;
       while (!step2Success && step2Attempts < MAX_RETRIES) {
+        // 步骤2循环前检查取消
+        checkCancelled();
         step2Attempts++;
         try {
           if (!(await checkConnection())) {
@@ -549,6 +608,11 @@ export function setupTelegramIPC() {
           step2Success = true;
           successCount++;
         } catch (e) {
+          // 处理取消
+          if (e.message === "UPLOAD_CANCELLED") {
+            event.sender.send("log-update", { type: "tg", msg: "⚠️ 用户取消上传" });
+            return; // 直接退出整个上传流程
+          }
           if (e.message === "TIMEOUT") {
             event.sender.send("log-update", {
               type: "tg",
