@@ -1,8 +1,6 @@
-import axios from "axios";
 import pathModule from "path";
 import { join } from "path";
 import fs from "fs";
-import { HttpsProxyAgent } from "https-proxy-agent";
 import { ipcMain, app, webContents } from "electron";
 import { scanForIds } from "../utils";
 import {
@@ -13,6 +11,7 @@ import {
 } from "../modules/asmr-login";
 import { getConfig, saveConfig } from "../modules/config";
 import { createLogSender } from "../utils/logger";
+import { getHttpClient } from "./httpClient";
 
 // 创建日志发送器
 const logger = createLogSender("asmr");
@@ -22,15 +21,9 @@ let cloudWorksCache = [];
 
 // 创建HTTP客户端，支持代理和直连两种模式
 const createClient = () => {
-  try {
-    const PROXY_URL = "http://127.0.0.1:7890";
-    const agent = new HttpsProxyAgent(PROXY_URL);
-    logger.info("使用代理连接:", PROXY_URL);
-    return axios.create({ timeout: 30000, httpsAgent: agent, proxy: false });
-  } catch (e) {
-    logger.error("代理设置失败，使用直连:", e.message);
-    return axios.create({ timeout: 30000 });
-  }
+  const PROXY_URL = "http://127.0.0.1:7890";
+  logger.info("使用代理连接:", PROXY_URL);
+  return getHttpClient({ timeout: 30000, proxyUrl: PROXY_URL });
 };
 
 /**
@@ -877,7 +870,7 @@ export function setupAsmrIPC(historyPath) {
   // 缓存文件路径
   const getCachePath = () => {
     const dataDir = app.getPath("userData");
-    return path.join(dataDir, "chinese_list_cache.json");
+    return pathModule.join(dataDir, "chinese_list_cache.json");
   };
 
   // 防止并发访问TXT文件的锁

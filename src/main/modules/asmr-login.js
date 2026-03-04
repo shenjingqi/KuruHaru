@@ -5,13 +5,12 @@
  * 以 asmr.js 的登录逻辑为主
  */
 
-import axios from "axios";
-import { HttpsProxyAgent } from "https-proxy-agent";
 import { ipcMain, app } from "electron";
 import { getConfig, saveConfig } from "../modules/config";
 import { createLogSender } from "../utils/logger";
 import { normalizeError } from "../utils/errorHandler";
 import { withRetry } from "../utils/retry";
+import { getHttpClient } from "./httpClient";
 
 // 创建日志发送器
 const logger = createLogSender("asmr");
@@ -65,7 +64,8 @@ export function validateLoginParams(params) {
  */
 export async function validateToken(token) {
   try {
-    const response = await axios.get("https://api.asmr-200.com/api/auth/me", {
+    const client = getHttpClient({ timeout: 5000 });
+    const response = await client.get("https://api.asmr-200.com/api/auth/me", {
       headers: { Authorization: `Bearer ${token}` },
       timeout: 5000,
     });
@@ -126,20 +126,9 @@ export async function loginStep1(params) {
     logger.info("第一步：正在登录 ASMR.ONE 获取 token...");
 
     // 创建 HTTP 客户端
-    let client;
-    try {
-      const PROXY_URL = "http://127.0.0.1:7890";
-      const agent = new HttpsProxyAgent(PROXY_URL);
-      logger.info("使用代理连接:", PROXY_URL);
-      client = axios.create({
-        timeout: 30000,
-        httpsAgent: agent,
-        proxy: false,
-      });
-    } catch (error) {
-      logger.error("代理设置失败，使用直连:", error.message);
-      client = axios.create({ timeout: 30000 });
-    }
+    const PROXY_URL = "http://127.0.0.1:7890";
+    logger.info("使用代理连接:", PROXY_URL);
+    const client = getHttpClient({ timeout: 30000, proxyUrl: PROXY_URL });
 
     // 使用重试机制发送登录请求
     const response = await withRetry(
@@ -262,15 +251,8 @@ export async function loginStep1(params) {
  */
 async function fetchCloudWorksAsync(token, playlistId) {
   // 创建 HTTP 客户端
-  let client;
-  try {
-    const PROXY_URL = "http://127.0.0.1:7890";
-    const agent = new HttpsProxyAgent(PROXY_URL);
-    client = axios.create({ timeout: 30000, httpsAgent: agent, proxy: false });
-  } catch (error) {
-    logger.error("代理设置失败，使用直连:", error.message);
-    client = axios.create({ timeout: 30000 });
-  }
+  const PROXY_URL = "http://127.0.0.1:7890";
+  const client = getHttpClient({ timeout: 30000, proxyUrl: PROXY_URL });
 
   const headers = {
     Authorization: `Bearer ${token}`,
