@@ -46,7 +46,33 @@ const syntaxItems = computed(() => {
       items.push({ type: "tag-exclude", text: "$-tag:" + t + "$" }),
     );
   }
-  if (p.duration?.value != null) {
+  if (p.tagw?.include?.length) {
+    p.tagw.include.forEach((t) =>
+      items.push({ type: "tagw-include", text: "$tagw:" + t + "$" }),
+    );
+  }
+  if (p.tagw?.exclude?.length) {
+    p.tagw.exclude.forEach((t) =>
+      items.push({ type: "tagw-exclude", text: "$-tagw:" + t + "$" }),
+    );
+  }
+  if (p.lang?.include?.length) {
+    p.lang.include.forEach((lang) =>
+      items.push({
+        type: "lang-include",
+        text: "$lang:" + String(lang).toUpperCase() + "$",
+      }),
+    );
+  }
+  if (p.lang?.exclude?.length) {
+    p.lang.exclude.forEach((lang) =>
+      items.push({
+        type: "lang-exclude",
+        text: "$-lang:" + String(lang).toUpperCase() + "$",
+      }),
+    );
+  }
+  if (p.duration?.value !== null && p.duration?.value !== undefined) {
     const suffix = p.duration.unit === "h" ? "h" : "m";
     const prefix = p.duration.mode === "less" ? "-" : "";
     items.push({
@@ -54,14 +80,14 @@ const syntaxItems = computed(() => {
       text: "$" + prefix + "duration:" + p.duration.value + suffix + "$",
     });
   }
-  if (p.rating?.value != null) {
+  if (p.rating?.value !== null && p.rating?.value !== undefined) {
     const prefix = p.rating.mode === "less" ? "-" : "";
     items.push({
       type: "rating",
       text: "$" + prefix + "rate:" + p.rating.value + "$",
     });
   }
-  if (p.price?.value != null) {
+  if (p.price?.value !== null && p.price?.value !== undefined) {
     const prefix = p.price.mode === "less" ? "-" : "";
     items.push({
       type: "price",
@@ -159,6 +185,27 @@ watch(
   background: #fff2f0;
   color: #ff4d4f;
 }
+
+.syntax-item.tagw-include {
+  background: #f3f0ff;
+  color: #531dab;
+}
+
+.syntax-item.tagw-exclude {
+  background: #fff2f0;
+  color: #cf1322;
+}
+
+.syntax-item.lang-include {
+  background: #e6fffb;
+  color: #08979c;
+}
+
+.syntax-item.lang-exclude {
+  background: #fff1f0;
+  color: #f5222d;
+}
+
 .syntax-item.duration {
   background: #fff7e6;
   color: #fa8c16;

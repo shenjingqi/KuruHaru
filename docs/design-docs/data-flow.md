@@ -1,239 +1,207 @@
 # 数据流设计
 
 > 状态: ✅ 稳定  
-> 最后更新: 2026-02-26
+> 最后更新: 2026-03-04
 
-本文档描述 KuruHaru 项目的数据流向、模块交互和数据存储。
+> 本轮同步标记: 2026-03-04（实现态对齐）
+> 真相源路径: `docs/design-docs/data-flow.md`
+
+本文档描述 KuruHaru 当前实现态的数据流向、模块交互与数据落盘。
 
 ---
 
-## 数据流总览
+## 1. 数据流总览（实现态）
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                            用户交互层 (Renderer)                         │
-│   HomePanel │ Settings │ WhisperTool │ UploadTool │ LocalCleaner ...   │
-└─────────────────────────────────┬───────────────────────────────────────┘
-                                  │ window.api (IPC)
-┌─────────────────────────────────▼───────────────────────────────────────┐
-│                            预加载层 (Preload)                            │
-│                        ipcRenderer.invoke()                             │
-└─────────────────────────────────┬───────────────────────────────────────┘
-                                  │ IPC Channel
-┌─────────────────────────────────▼───────────────────────────────────────┐
-│                            主进程层 (Main)                              │
-│   ┌─────────────────────────────────────────────────────────────────┐ │
-│   │                     IPC Handlers                                  │ │
-│   │   dialog:*, fs:*, config:*, asmr:*, whisper:*, tg:*            │ │
-│   └─────────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────┬───────────────────────────────────────┘
-                                  │
-        ┌─────────────────────────┼─────────────────────────┐
-        ▼                         ▼                         ▼
-┌───────────────┐      ┌─────────────────┐      ┌────────────────┐
-│    Modules    │      │     Utils       │      │    Config     │
-│               │      │                 │      │                │
-│ asmr-localize │◄────►│ httpClient      │◄────►│  config.json  │
-│ whisper       │      │ logger          │      │                │
-│ tg-activity   │      │ errorHandler    │      │                │
-│ tg-login      │      │ retry           │      │                │
-│ asmr-login    │      │                 │      │                │
-└───────────────┘      └─────────────────┘      └────────────────┘
-        │                         │
-        ▼                         ▼
-┌───────────────┐      ┌─────────────────┐
-│  外部 API     │      │   文件系统       │
-│               │      │                 │
-│ ASMR.one      │      │ 用户数据目录     │
-│ Telegram API  │      │ 配置文件        │
-│ Whisper CLI   │      │ 日志文件        │
-└───────────────┘      └─────────────────┘
+```text
+Renderer (Vue Components)
+  └─ window.api.*
+      └─ Preload (contextBridge + ipcRenderer.invoke/send)
+          └─ Main Runtime (ipcMain.handle/on)
+              ├─ modules/*   (ASMR / Whisper / TG / Config)
+              ├─ utils/*     (TG 登录上传、日志、错误处理、重试)
+              ├─ config.json (用户配置)
+              ├─ 本地文件系统 (字幕、缓存、索引)
+              └─ 外部 API / 工具
+                  ├─ ASMR API
+                  ├─ Telegram API / Bot API
+                  └─ Whisper 本地可执行程序
 ```
 
 ---
 
-## 核心数据流
+## 2. 关键 IPC 通道族
 
-### 数据流 1：计划筛选
+| 业务域              | 主要通道（节选）                                                                                                                                     | 处理文件                                          |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| 配置与通用文件      | `get-config`, `save-config`, `dialog:*`, `write-file`, `fs-read-file`, `clean-data`, `extract-file-names`                                            | `src/main/modules/config.js`, `src/main/index.js` |
+| ASMR 云端与筛选     | `asmr-fetch-cloud-works`, `asmr-trigger-cloud-data-fetch`, `asmr-get-cached-cloud-works`, `load-tag-db`, `asmr-fetch-playlist`, `filter-rj-from-url` | `src/main/modules/asmr-localization.js`           |
+| ASMR 清理与汉化列表 | `asmr-delete-works`, `asmr-delete-local-files`, `asmr-delete-by-rj`, `asmr-fetch-chinese-works`, `asmr-set-chinese-list-path`                        | `src/main/modules/asmr-localization.js`           |
+| Whisper             | `count-media-files`, `zip-subtitles`, `start-task`（事件）, `stop-task`（事件）                                                                      | `src/main/modules/whisper.js`                     |
+| Telegram 登录与上传 | `tg-check-login`, `tg-login`, `tg-get-status`, `tg-upload-files`（事件）, `tg-cancel-upload`                                                         | `src/main/utils/telegram-login.js`                |
+| TG 最近活动/下载    | `tg-scan-recent-activity`, `tg-read-recent-activity`, `get-recent-activity`, `download-tg-file`, `read-rj-list`, `clear-cache`                       | `src/main/modules/tg-recent-activity.js`          |
+| TG 搜索 Bot         | `tg-bot-start`, `tg-bot-stop`, `tg-bot-status`, `tg-bot-search`, `tg-bot-sync-history`                                                               | `src/main/modules/tg-search-bot.js`               |
+| RJ 重复检测         | `tg-scan-rj-duplicates`, `tg-delete-duplicate-messages`                                                                                              | `src/main/modules/tg-rj-duplicates.js`            |
 
-```
-用户操作
-    │
-    ▼
-AdvancedSearch.vue ──invoke──► ipcMain.handle('asmr:search')
-    │                                 │
-    │                                 ▼
-    │                    asmr-localization.js
-    │                         │
-    │                         ├──► httpClient (ASMR API)
-    │                         │
-    │                         ▼
-    │                    返回搜索结果
-    │
-    ▼
-更新 UI 显示
-```
+---
 
-### 数据流 2： Whisper 转写
+## 3. 核心数据流
 
-```
-用户选择音频文件
-    │
-    ▼
-WhisperTool.vue ──send──► ipcMain.on('whisper:start')
-    │                                 │
-    │                                 ▼
-    │                        whisper.js
-    │                         │
-    │                         ├──► 读取配置文件获取 Whisper 路径
-    │                         │
-    │                         ├──► spawn 子进程运行 Whisper
-    │                         │
-    │                         ├──► 进度推送 'log-update'
-    │                         │
-    │                         ▼
-    │                    生成字幕文件
-    │
-    ▼
-显示完成状态
+### 3.1 ASMR 云端同步与缓存广播
+
+```text
+Settings / CloudCleaner
+    └─ invoke('asmr-fetch-cloud-works' 或 'asmr-trigger-cloud-data-fetch')
+        └─ asmr-localization.js -> syncCloudWorksData()
+            └─ ASMR API 拉取播放列表/作品
+                └─ 更新 cloudWorksCache
+                    └─ webContents.send('cloud-works-updated') 广播到前端
 ```
 
-### 数据流 3：频道上传
+### 3.2 计划筛选与 RJ 过滤
 
-```
-用户选择文件夹/输入频道 ID
-    │
-    ▼
-UploadTool.vue ──invoke──► ipcMain.handle('tg:upload')
-    │                                 │
-    │                                 ▼
-    │                        tg-recent-activity.js
-    │                         │
-    │                         ├──► 读取配置获取 TG 认证
-    │                         │
-    │                         ├──► httpClient (Telegram API)
-    │                         │
-    │                         ▼
-    │                    上传文件到频道
-    │
-    ▼
-更新 UI 显示上传结果
+```text
+RjFilter.vue
+    └─ invoke('filter-rj-from-url', { url, dateMode, compareFilePath })
+        └─ asmr-localization.js 拉取搜索/列表结果
+            ├─ 日期筛选
+            ├─ TXT 去重比对
+            └─ 返回 RJ 列表
+                └─ Renderer 可继续 dialog:saveFile + write-file 导出
 ```
 
-### 数据流 4：数据清理（本地）
+> 说明：`AdvancedSearch.vue` 当前直接拼接 ASMR 搜索 URL 并 `window.open`，不经过主进程 IPC。
 
-```
-用户选择清理模式
-    │
-    ▼
-LocalCleaner.vue ──invoke──► ipcMain.handle('clean:local')
-    │                                 │
-    │                                 ▼
-    │                        asmr-localization.js
-    │                         │
-    │                         ├──► 扫描本地文件
-    │                         │
-    │                         ├──► 匹配 RJ 号
-    │                         │
-    │                         ▼
-    │                    返回待清理列表
-    │
-    ▼
-用户确认后执行删除
+### 3.3 Whisper 转写与打包
+
+```text
+WhisperTool.vue
+    ├─ send('start-task', config)
+    │   └─ whisper.js spawn 子进程执行转写
+    │       ├─ send('log-update') 推进度
+    │       └─ send('task-finished') 回传结果
+    ├─ send('stop-task') 中断任务
+    └─ invoke('zip-subtitles', payload) 打包字幕
 ```
 
-### 数据流 5：数据清理（云端）
+### 3.4 Telegram 上传链路
 
+```text
+Settings.vue
+    └─ invoke('tg-login' / 'tg-check-login')
+
+UploadTool.vue
+    ├─ send('tg-upload-files', { files, channelId })
+    └─ invoke('tg-cancel-upload')
+
+telegram-login.js
+    └─ 串行发送消息 + 文件，持续 send('log-update')
 ```
-用户触发云端清理
-    │
-    ▼
-CloudCleaner.vue ──invoke──► ipcMain.handle('clean:cloud')
-    │                                 │
-    │                                 ▼
-    │                        tg-recent-activity.js
-    │                         │
-    │                         ├──► httpClient (Telegram API)
-    │                         │
-    │                         ├──► 获取频道最近发布记录
-    │                         │
-    │                         ▼
-    │                    返回最近 RJ 号列表
-    │
-    ▼
-更新计划列表，标记已完成
+
+### 3.5 最近活动与周期下载
+
+```text
+HomePanel / TgDownloader
+    ├─ invoke('tg-scan-recent-activity')
+    ├─ invoke('tg-read-recent-activity' / 'get-recent-activity')
+    ├─ invoke('download-tg-file', { tgMessageId, fileName })
+    └─ invoke('read-rj-list' / 'clear-cache')
+
+tg-recent-activity.js
+    └─ 落盘 recent_activity.json（uploadHistoryDir）
+```
+
+### 3.6 TG 搜索 Bot
+
+```text
+TgSearchBot.vue
+    ├─ invoke('tg-bot-start' / 'tg-bot-stop' / 'tg-bot-status')
+    ├─ invoke('tg-bot-sync-history')
+    └─ invoke('tg-bot-search', rjCode)
+
+tg-search-bot.js
+    └─ 搜索顺序：历史索引 -> 前置包索引 -> 频道检索
+```
+
+### 3.7 RJ 重复检测与清理
+
+```text
+RjDuplicateDetector.vue
+    ├─ invoke('tg-scan-rj-duplicates', options)
+    └─ invoke('tg-delete-duplicate-messages', messageIds)
+
+tg-rj-duplicates.js
+    └─ 频道扫描 -> 消息配对 -> 重复分组 -> 安全删除返回 deletedMessageIds/errors
+```
+
+### 3.8 工具箱本地清洗
+
+```text
+Tools.vue
+    └─ invoke('clean-data', { mainFile, compareDir, deleteFiles })
+        └─ index.js 比对 zip 文件名中的 RJ/VJ/BJ 与主文件列表
+            └─ 返回待删除/已删除统计
 ```
 
 ---
 
-## 数据存储
+## 4. 数据存储与缓存
 
-### 配置文件
-
-```
-config/
-├── config.json          # 用户配置（包含敏感信息）
-└── config-template.json # 配置模板（不含敏感信息）
-```
-
-**配置结构**：
-
-```javascript
-{
-  profile: { username, avatar },      // 个人设置
-  tg: { apiId, apiHash, session },  // TG 认证
-  asmr: { username, token },        // ASMR 认证
-  paths: { sourceDir, toolOutputDir }, // 路径设置
-  whisper: { exePath },              // Whisper 路径
-  system: { theme, language }       // 系统设置
-}
-```
-
-### 本地数据
-
-```
-用户数据目录 (AppData/KuruHaru)/
-├── data/                    # 数据目录
-│   ├── chinese-list.txt   # 汉化列表
-│   └── ...
-├── logs/                    # 日志目录
-│   └── kuruharu-YYYYMMDD.log
-└── config.json              # 用户配置
-```
+| 数据            | 默认位置（实现态）                                        | 说明                               |
+| --------------- | --------------------------------------------------------- | ---------------------------------- |
+| 用户配置        | `<userData>/config.json`（支持 `paths.configDir` 覆盖）   | `config.js` 合并默认配置与用户配置 |
+| TG 最近活动缓存 | `paths.uploadHistoryDir/recent_activity.json`             | `tg-recent-activity.js` 读写       |
+| TG Bot 历史索引 | `tg.botHistoryPath` 或 `getDataDir()/tg-bot-history.json` | `tg-search-bot.js` 读写            |
+| 汉化列表        | `paths.chineseListPath` 或默认数据目录文本文件            | `asmr-localization.js` 管理        |
+| 日志            | `paths.logsDir`                                           | 主进程日志输出                     |
 
 ---
 
-## IPC 通信模式
+## 5. 通信模式
 
-### 请求-响应模式
+### 5.1 请求-响应（`invoke/handle`）
 
 ```javascript
 // Renderer
 const result = await window.api.invoke("channel-name", payload);
 
 // Main
-ipcMain.handle("channel-name", async (event, payload) => {
-  // 处理逻辑
+ipcMain.handle("channel-name", async (_event, payload) => {
   return result;
 });
 ```
 
-### 推送模式
+### 5.2 事件推送（`send/on`）
 
 ```javascript
-// Main - 推送进度
-mainWindow.webContents.send("log-update", { type: "progress", data: 50 });
+// Renderer -> Main
+window.api.send("start-task", payload);
 
-// Renderer - 监听
-window.api.onLogUpdate((data) => {
-  console.log(data);
-});
+// Main -> Renderer
+event.sender.send("log-update", { type: "whisper", msg: "..." });
+event.sender.send("task-finished", { success: true });
 ```
+
+> 说明：当前实现态示例使用 `event.sender.send(...)`。若你看到 `mainWindow.webContents.send(...)` 的通用示例，多半是旧版本内容。
+
+---
+
+## 6. 旧通道说明（已从文档主链路移除）
+
+以下示例名不再代表当前实现真相源：
+
+- `asmr:search`
+- `whisper:start`
+- `tg:upload`
+- `clean:local`
+- `clean:cloud`
+
+请以本文件第 2 节“关键 IPC 通道族”与对应代码文件为准。
 
 ---
 
 ## 文档更新日志
 
-| 日期       | 变更     |
-| ---------- | -------- |
-| 2026-02-26 | 初始版本 |
+| 日期       | 变更                                     |
+| ---------- | ---------------------------------------- |
+| 2026-03-04 | 按当前代码重写数据流、IPC 通道与存储路径 |
+| 2026-02-26 | 初始版本                                 |

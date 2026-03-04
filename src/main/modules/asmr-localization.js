@@ -1746,8 +1746,6 @@ async function fetchSearchFromPage(_client, url, beforeDate) {
 
     // 并发获取其余页面（带重试和限流）
     const pagePromises = [];
-    const maxConcurrent = 5;
-    const requestInterval = 300;
 
     logger.info(
       `将获取第 2-${maxPageToFetch} 页 (跳过 ${maxPageToFetch + 1}-${totalPages} 页)`,

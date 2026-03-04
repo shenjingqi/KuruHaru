@@ -1,15 +1,15 @@
-# Telegram Search Bot - Bot API 
+# Telegram Search Bot - Bot API
 
 ## 文档信息
+
 - **日期**: 2026-03-02
 - **类型**: 实现计划
 - **优先级**: 高
 
 ---
 
+### 1.2 (Bot API)
 
-
-### 1.2  (Bot API)
 ```
 ┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
 │  主进程         │────▶│  TelegramBot    │────▶│  Bot API        │
@@ -19,7 +19,9 @@
 ```
 
 ### 2. **docs/plan-telegram-bot-api-migration.md** ✅
+
 **最新的 Bot API 迁移完整计划**（基于您的最新需求）：
+
 - **目标**： 使用到真正的 Bot API
 - **技术栈**：`node-telegram-bot-api` + Bot Token（从 @BotFather 获取）
 - **核心功能**：
@@ -30,17 +32,16 @@
 - **权限控制**：支持用户/群组白名单
 - **完整的代码实现**：包含启动、停止、消息处理、权限检查等
 
-
-
-
 **核心需求**：
+
 1. 需要从系统内填写bot token 和channelid 以及 txt前置包的文件
 2. 用户在 Telegram 内通过 `/search RJ123456` 命令与 Bot 交互 还要支持后续如果拉到群里也能使用。
 3. 搜索逻辑改为 Bot 直接响应用户命令 bot从channelID里的频道获取该RJ号找到的最近一个链接。如果没找到从txt找如果还没找到提示请在one站查看是否拥有或者在频道提出
 
 以下方案是由别的给出的一些指导可做参考
+
 1. 基础信息
-日期: 2026-03-03
+   日期: 2026-03-03
 
 类型: 整合技术方案 (V2.0)
 
@@ -54,8 +55,8 @@ history.json: 本地数据库，存储 { RJ号: 频道消息链接 } 及扫描�
 
 2. 系统流程图
 3. 组件实现细节
-3.1 增量扫描仪 (importer.js)
-功能: 启动时自动判断。若无记录则全量抓取；若有记录则从上次断点 (lastMsgId) 开始增量同步。
+   3.1 增量扫描仪 (importer.js)
+   功能: 启动时自动判断。若无记录则全量抓取；若有记录则从上次断点 (lastMsgId) 开始增量同步。
 
 ```JavaScript
 // 依赖: npm install telegram input
@@ -134,8 +135,8 @@ const startTime = Math.floor(Date.now() / 1000); // 解决堆积回复的关键
 // 加载数据
 let data = JSON.parse(fs.readFileSync(CONFIG.historyPath, 'utf-8'));
 let prePackageSet = new Set(
-    fs.existsSync(CONFIG.prePackagePath) 
-    ? fs.readFileSync(CONFIG.prePackagePath, 'utf-8').split('\n').map(s => s.trim().toUpperCase()) 
+    fs.existsSync(CONFIG.prePackagePath)
+    ? fs.readFileSync(CONFIG.prePackagePath, 'utf-8').split('\n').map(s => s.trim().toUpperCase())
     : []
 );
 
@@ -146,7 +147,7 @@ bot.on('message', (msg) => {
     // 2. 权限校验
     if (!CONFIG.whiteList.includes(msg.chat.id) && msg.from.id !== CONFIG.adminId) {
         // 可选：静默处理或提示无权
-        return; 
+        return;
     }
 
     const match = msg.text?.match(/\/search\s+(RJ\d{6,})/i);
@@ -191,3 +192,71 @@ bot.on('channel_post', (msg) => {
 
 4.2 离线后的同步
 若 Bot 离线超过一天，建议先手动运行一次 node importer.js。由于它记录了 lastMsgId，它会瞬间只抓取你离线期间漏掉的那几条消息，保持 history.json 完整。
+
+---
+
+## 5. 当前代码落地映射（2026-03-03）
+
+### 5.1 运行入口
+
+- 主入口模块：`src/main/modules/tg-search-bot.js`
+- 兼容入口（旧名）：`src/main/modules/tg-bot-api.js`（内部转发到 `tg-search-bot`）
+- 主进程注册：`src/main/index.js` 中 `setupTgSearchBotIPC()`
+- 渲染层控制：`src/renderer/src/components/TgSearchBot.vue`
+
+### 5.2 配置字段（`tg`）
+
+在设置页 Telegram 面板中可配置：
+
+- `botToken`: BotFather 创建的 Bot Token（必填）
+- `botMode`: `polling` / `webhook`
+- `botWebhookUrl`: Webhook 地址（Webhook 模式必填）
+- `botWebhookPort`: Webhook 监听端口（默认 `8443`）
+- `searchChannelId`: 频道 ID 或 `@username`（Bot 搜索目标频道）
+- `prePackagePath`: 前置包 TXT 路径
+- `prePackageLink`: 前置包兜底链接（TXT 行内无 URL 时使用）
+- `botAllowedUsers`: 用户白名单（逗号/空格分隔）
+- `botAllowedChats`: 群组白名单（逗号/空格分隔）
+- `botWhitelistDebugLog`: 白名单调试日志开关（默认 `false`，关闭时日志脱敏）
+- `botSearchLimit`: 频道历史检索上限（默认 `3000`，支持 `3w` / `3万` / `30k` 写法）
+- `botHistoryPath`: 本地历史索引路径（默认 `userData/data/tg-bot-history.json`）
+
+兼容保留旧字段：`apiId`、`apiHash`、`phone`、`session`、`discussion`、`channel`。
+
+### 5.3 当前搜索逻辑
+
+`/search RJxxxxxx` 执行顺序：
+
+1. 本地历史索引命中（`tg-bot-history.json`）
+2. 前置包内存索引命中（启动预热 + 文件变更自动重建）
+3. 频道历史检索（User API，可选；需 `apiId/apiHash/session`）
+4. 未命中兜底提示（提示去 one 站或频道提出）
+
+群聊命令支持两种写法：`/search@BotName RJ123456` 与 `@BotName /search RJ123456`。
+
+Bot 同时监听 `channel_post`，新帖出现 RJ 号会自动更新本地历史索引。
+
+`/start`、`/help`、`/search` 请求会记录审计日志：发送者 ID/用户名、群或频道 ID/类型/标题、请求文本、白名单匹配结果（matchedUser/matchedChat）。
+默认脱敏；开启 `tg.botWhitelistDebugLog` 后记录完整字段，便于排查白名单问题。
+
+Bot 启动时会重置 Telegram 命令菜单（private/group/admin/default 作用域）为 `start/search/help`，
+避免同一 token 被其他工具设置过的无关命令残留。
+
+渲染层 `TgSearchBot` 页面支持「获取频道消息并保存索引」按钮，手动触发
+`tg-bot-sync-history`，会把“频道扫描结果 + 前置包 TXT 可解析链接”合并到同一个索引文件，
+用于离线后补全索引或首次全量建立索引文件。
+
+应用启动后也会默认异步触发一次相同索引同步（不阻塞窗口启动），
+用于自动刷新 `tg-bot-history.json`。
+
+同时会在启动阶段预热前置包索引缓存；后续 `/search` 前置包兜底读取走内存索引（避免每次重读 TXT），
+并在前置包命中后异步补充频道结果写回历史索引。
+
+### 5.4 IPC 通道
+
+- `tg-bot-start`
+- `tg-bot-stop`
+- `tg-bot-status`
+- `tg-bot-search`
+- `tg-bot-sync-history`
+```

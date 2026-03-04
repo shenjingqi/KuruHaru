@@ -1,54 +1,54 @@
 # 设计文档索引
 
-本文档包含 KuruHaru 项目的重要设计决策。
+> 最后更新: 2026-03-04
 
-## 核心设计原则
+本目录用于沉淀项目的**长期设计资产**（架构、数据流、边界、功能实现留存、决策日志）。
 
-1. **分层架构**: 严格遵守 Types → Config → Repo → DataAccess → Service → Runtime → UI
-2. **IPC 优先**: 所有主进程功能通过 IPC 暴露，不直接在 Renderer 中使用 Node.js
-3. **配置驱动**: 业务配置与代码分离，支持多级配置覆盖
-4. **日志规范**: 主进程统一使用 logger，避免 console.log
-5. **HTTP 代理**: 所有网络请求必须通过 httpClient 模块
-6. **真相源**: docs 目录是项目的唯一真相源，当信息矛盾时以 docs 为准
+> 单智能体快速入口：优先阅读 `docs/README.md` 的“必读最小集”。
 
 ---
 
-## 设计文档列表
+## 核心原则
 
-| 文档                                  | 状态    | 描述                         |
-| ------------------------------------- | ------- | ---------------------------- |
-| [架构设计](./architecture-design.md)  | ✅ 稳定 | 系统分层、业务域、模块映射   |
-| [业务背景](./business-background.md)  | ✅ 稳定 | 项目背景、目标用户、核心需求 |
-| [业务边界](./business-boundary.md)    | ✅ 稳定 | 业务边界、外部依赖           |
-| [数据流设计](./data-flow.md)          | ✅ 稳定 | 数据流向、模块交互           |
-| [设计决策日志](./design-decisions.md) | ✅ 稳定 | 关键决策记录、失败复盘       |
-| [模块导航索引](./module-index.md)     | ✅ 稳定 | 快速定位代码、IPC 通道       |
-
-| 文档                                  | 状态    | 描述                         |
-| ------------------------------------- | ------- | ---------------------------- |
-| [架构设计](./architecture-design.md)  | ✅ 稳定 | 系统分层、业务域、模块映射   |
-| [业务背景](./business-background.md)  | ✅ 稳定 | 项目背景、目标用户、核心需求 |
-| [业务边界](./business-boundary.md)    | ✅ 稳定 | 业务边界、外部依赖           |
-| [数据流设计](./data-flow.md)          | ✅ 稳定 | 数据流向、模块交互           |
-| [设计决策日志](./design-decisions.md) | ✅ 稳定 | 关键决策记录、失败复盘       |
+1. **向前依赖**：遵循 `Types → Config → Repo → DataAccess → Service → Runtime → UI`。
+2. **IPC 优先**：Renderer 不直接访问 Node 能力。
+3. **配置驱动**：行为由配置字段驱动，默认值与合并策略可追溯。
+4. **可追溯沉淀**：`exec-plans/completed` 的长期成果必须回写到 design-docs。
 
 ---
 
-## 文档真相源原则
+## 文档列表
 
-> **重要**: docs 目录是项目的唯一真相源
-
-- 当代码与文档不一致时，以 docs 为准
-- 发现不一致时，需更新代码或文档使其一致
-- 每次代码提交应确保与文档描述一致
+| 文档                               | 状态      | 说明                                             |
+| ---------------------------------- | --------- | ------------------------------------------------ |
+| `architecture-design.md`           | ✅ 可用   | 架构摘要页（详细以 `docs/ARCHITECTURE.md` 为准） |
+| `business-background.md`           | ✅ 稳定   | 业务背景与目标                                   |
+| `business-boundary.md`             | ✅ 稳定   | 业务边界与外部依赖                               |
+| `data-flow.md`                     | ✅ 稳定   | 核心数据流与交互路径                             |
+| `design-decisions.md`              | ✅ 活跃   | 关键决策与来源追溯                               |
+| `module-index.md`                  | ✅ 可用   | 模块与 IPC 快速导航                              |
+| `feature-local-file-management.md` | ✅ 已实现 | 本地文件扫描/提取/导出实现留存                   |
+| `feature-cloud-data-sync.md`       | ✅ 已实现 | ASMR 云端数据同步与缓存广播留存                  |
+| `feature-whisper-transcription.md` | ✅ 已实现 | Whisper 转写与字幕打包链路留存                   |
+| `feature-telegram-upload.md`       | ✅ 已实现 | Telegram 登录与串行上传留存                      |
+| `feature-local-cleaning.md`        | ✅ 已实现 | 本地清理（`clean-data`）实现留存                 |
+| `feature-cloud-cleaning.md`        | ✅ 已实现 | 云端清理（作品/RJ/本地关联）实现留存             |
+| `feature-recent-activity.md`       | ✅ 已实现 | 最近活动扫描/读取/下载留存                       |
+| `feature-rj-filter.md`             | ✅ 已实现 | RJ 筛选与导出链路留存                            |
+| `feature-advanced-search.md`       | ✅ 已实现 | 高级搜索新增 `$tagw:` / `$lang:` 语法留存        |
+| `feature-rj-duplicate-detector.md` | ✅ 已实现 | RJ 重复检测最终实现留存                          |
+| `feature-telegram-search-bot.md`   | ✅ 已实现 | Telegram Search Bot（Bot API）留存               |
 
 ---
 
-## 文档维护
+## 与执行计划的关系
 
-- 更新时在文档头部标注 `最后更新: YYYY-MM-DD`
-- 重大变更需要创建新文档而不是覆盖
-- 验证状态说明：
-  - ✅ 稳定：经过充分测试，可放心使用
-  - 🔄 演进中：正在完善中，可能有变化
-  - ⚠️ 实验性：不建议在生产环境使用
+- `exec-plans/active/*`：执行中过程文档。
+- `exec-plans/completed/*`：完成记录（历史）。
+- `design-docs/*`：稳定设计真相源（长期留存）。
+
+当一个执行计划完成且结果具有长期价值时：
+
+1. 在对应 feature 文档更新“实现态设计”。
+2. 在 `design-decisions.md` 记录决策与影响。
+3. 在本索引登记文档状态。

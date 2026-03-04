@@ -63,6 +63,124 @@
         <div v-show="expandedPanels.telegram" class="section-body">
           <div class="form-grid">
             <div class="form-row">
+              <label class="form-label">Bot Token</label>
+              <div class="password-wrap">
+                <input
+                  v-model="config.tg.botToken"
+                  :type="showBotToken ? 'text' : 'password'"
+                  class="input"
+                  placeholder="123456:ABC..."
+                />
+                <button
+                  class="toggle-btn"
+                  @click="showBotToken = !showBotToken"
+                >
+                  {{ showBotToken ? "🙈" : "👁" }}
+                </button>
+              </div>
+            </div>
+            <div class="form-row">
+              <label class="form-label">Bot 模式</label>
+              <select v-model="config.tg.botMode" class="input">
+                <option value="polling">polling（开发）</option>
+                <option value="webhook">webhook（生产）</option>
+              </select>
+            </div>
+            <div v-if="config.tg.botMode === 'webhook'" class="form-row">
+              <label class="form-label">Webhook URL</label>
+              <input
+                v-model="config.tg.botWebhookUrl"
+                class="input"
+                placeholder="https://example.com/tg/bot/webhook"
+              />
+            </div>
+            <div v-if="config.tg.botMode === 'webhook'" class="form-row">
+              <label class="form-label">Webhook Port</label>
+              <input
+                v-model="config.tg.botWebhookPort"
+                class="input"
+                type="number"
+                min="1"
+                placeholder="8443"
+              />
+            </div>
+            <div class="form-row">
+              <label class="form-label">搜索频道 ID</label>
+              <input
+                v-model="config.tg.searchChannelId"
+                class="input"
+                placeholder="@channel 或 -100xxxxxxxxxx"
+              />
+            </div>
+            <div class="form-row path-row">
+              <label class="form-label">前置包 TXT</label>
+              <div class="path-input-row">
+                <input
+                  v-model="config.tg.prePackagePath"
+                  class="input"
+                  placeholder="选择前置包 txt 文件"
+                  readonly
+                />
+                <button class="browse-btn" @click="browsePrePackageFile">
+                  浏览
+                </button>
+              </div>
+            </div>
+            <div class="form-row">
+              <label class="form-label">前置包链接</label>
+              <input
+                v-model="config.tg.prePackageLink"
+                class="input"
+                placeholder="https://...（可选，用于 TXT 无链接场景）"
+              />
+            </div>
+            <div class="form-row">
+              <label class="form-label">白名单用户 ID</label>
+              <input
+                v-model="config.tg.botAllowedUsers"
+                class="input"
+                placeholder="12345678, 87654321"
+              />
+            </div>
+            <div class="form-row">
+              <label class="form-label">白名单群组 ID</label>
+              <input
+                v-model="config.tg.botAllowedChats"
+                class="input"
+                placeholder="-1001234567890, -1009876543210"
+              />
+            </div>
+            <div class="form-row">
+              <div class="toggle-row">
+                <span class="toggle-label">白名单调试日志（完整内容）</span>
+                <input
+                  v-model="config.tg.botWhitelistDebugLog"
+                  class="toggle"
+                  type="checkbox"
+                />
+              </div>
+              <span class="form-hint"
+                >开启后记录完整 sender/chat/content，关闭时默认脱敏</span
+              >
+            </div>
+            <div class="form-row">
+              <label class="form-label">Bot 搜索上限</label>
+              <input
+                v-model="config.tg.botSearchLimit"
+                class="input"
+                type="text"
+                placeholder="3000（支持 3w / 3万 / 30k）"
+              />
+            </div>
+            <div class="form-row">
+              <label class="form-label">Bot 索引文件</label>
+              <input
+                v-model="config.tg.botHistoryPath"
+                class="input"
+                placeholder="留空则默认 userData/data/tg-bot-history.json"
+              />
+            </div>
+            <div class="form-row">
               <label class="form-label">App ID</label>
               <input
                 v-model="config.tg.apiId"
@@ -123,6 +241,10 @@
               </div>
             </div>
             <span class="form-hint">TG打包下载的文件将保存到此目录</span>
+            <span class="form-hint"
+              >若要频道历史实时检索，需要先完成 User API 登录并保存
+              session</span
+            >
           </div>
           <div class="action-row">
             <button
@@ -286,6 +408,7 @@ const asmrLoggedIn = ref(false);
 const isTgLogging = ref(false);
 const isAsmrLogging = ref(false);
 const showTgHash = ref(false);
+const showBotToken = ref(false);
 const showAsmrPassword = ref(false);
 const tgAuthCode = ref("");
 const tgAuthType = ref("Code");
@@ -307,6 +430,18 @@ const expandedPanels = reactive({
 
 const config = reactive({
   tg: {
+    botToken: "",
+    botMode: "polling",
+    botWebhookUrl: "",
+    botWebhookPort: 8443,
+    searchChannelId: "",
+    prePackagePath: "",
+    prePackageLink: "",
+    botAllowedUsers: "",
+    botAllowedChats: "",
+    botWhitelistDebugLog: false,
+    botSearchLimit: 3000,
+    botHistoryPath: "",
     apiId: "",
     apiHash: "",
     phone: "",
@@ -341,6 +476,103 @@ const togglePanel = (panel) => {
   expandedPanels[panel] = !expandedPanels[panel];
 };
 
+const formatIdListForInput = (rawValue) => {
+  if (Array.isArray(rawValue)) {
+    return rawValue
+      .map((item) => String(item).trim())
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  if (typeof rawValue === "string") {
+    return rawValue;
+  }
+
+  return "";
+};
+
+const parseIdListFromInput = (rawValue) => {
+  if (!rawValue) return [];
+
+  return String(rawValue)
+    .split(/[\n,，\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
+
+const DEFAULT_BOT_SEARCH_LIMIT = 3000;
+const MIN_BOT_SEARCH_LIMIT = 100;
+
+const parseBotSearchLimit = (
+  rawValue,
+  fallbackValue = DEFAULT_BOT_SEARCH_LIMIT,
+) => {
+  if (rawValue === null || rawValue === undefined || rawValue === "") {
+    return fallbackValue;
+  }
+
+  const normalized = String(rawValue)
+    .trim()
+    .toLowerCase()
+    .replace(/[，,\s]+/g, "");
+
+  if (!normalized) {
+    return fallbackValue;
+  }
+
+  const suffixMatch = normalized.match(/^(\d+(?:\.\d+)?)(w|万|k)?$/i);
+
+  let parsedLimit = Number.NaN;
+  if (suffixMatch) {
+    const baseValue = Number(suffixMatch[1]);
+    if (Number.isFinite(baseValue) && baseValue > 0) {
+      const suffix = suffixMatch[2];
+      const multiplier =
+        suffix === "w" || suffix === "万" ? 10000 : suffix === "k" ? 1000 : 1;
+      parsedLimit = baseValue * multiplier;
+    }
+  } else {
+    const directValue = Number(normalized);
+    if (Number.isFinite(directValue) && directValue > 0) {
+      parsedLimit = directValue;
+    }
+  }
+
+  if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) {
+    return fallbackValue;
+  }
+
+  return Math.max(Math.floor(parsedLimit), MIN_BOT_SEARCH_LIMIT);
+};
+
+const toSafeNumber = (rawValue, fallbackValue) => {
+  const parsed = Number(rawValue);
+  return Number.isFinite(parsed) ? parsed : fallbackValue;
+};
+
+const toSafeBoolean = (rawValue, fallbackValue = false) => {
+  if (typeof rawValue === "boolean") {
+    return rawValue;
+  }
+
+  if (typeof rawValue === "number") {
+    return rawValue !== 0;
+  }
+
+  if (typeof rawValue === "string") {
+    const normalized = rawValue.trim().toLowerCase();
+    if (["1", "true", "yes", "on"].includes(normalized)) {
+      return true;
+    }
+
+    if (["0", "false", "no", "off", ""].includes(normalized)) {
+      return false;
+    }
+  }
+
+  return fallbackValue;
+};
+
 const selectLogsPath = async () => {
   const res = await window.api.dialogOpenDirectory();
   if (res && res.filePath) {
@@ -361,13 +593,25 @@ const selectConfigDir = async () => {
 
 const saveAllSettings = async () => {
   try {
+    const tgSettings = {
+      ...config.tg,
+      botAllowedUsers: parseIdListFromInput(config.tg.botAllowedUsers),
+      botAllowedChats: parseIdListFromInput(config.tg.botAllowedChats),
+      botWhitelistDebugLog: toSafeBoolean(
+        config.tg.botWhitelistDebugLog,
+        false,
+      ),
+      botWebhookPort: toSafeNumber(config.tg.botWebhookPort, 8443),
+      botSearchLimit: parseBotSearchLimit(config.tg.botSearchLimit),
+    };
+
     // 保存前端管理的设置，包含路径配置
     // 使用 JSON 序列化/反序列化将 reactive 对象转换为普通对象
     // 避免 Electron IPC "An object could not be cloned" 错误
     const settingsToSave = JSON.parse(
       JSON.stringify({
         asmr: config.asmr,
-        tg: config.tg,
+        tg: tgSettings,
         logging: config.logging,
         system: config.system,
         upload: config.upload,
@@ -528,6 +772,23 @@ const browseTgDownloadDir = async () => {
   }
 };
 
+// 浏览选择前置包 txt 文件
+const browsePrePackageFile = async () => {
+  try {
+    const res = await window.api.dialogOpenFile({ type: "file" });
+    const selectedPath =
+      res?.filePath ||
+      (Array.isArray(res?.filePaths) ? res.filePaths[0] : null);
+
+    if (selectedPath) {
+      config.tg.prePackagePath = selectedPath;
+      saveAllSettings();
+    }
+  } catch (e) {
+    showToastMessage("选择前置包文件失败: " + e.message, "error");
+  }
+};
+
 const submitTgAuth = () => {
   window.api.send("tg-auth-reply", { code: tgAuthCode.value, cancel: false });
   showTgAuthModal.value = false;
@@ -549,6 +810,21 @@ onMounted(async () => {
       // 完整覆盖，不使用 Object.assign（防止遗漏字段）
       if (cfg.tg) {
         config.tg = { ...config.tg, ...cfg.tg };
+        config.tg.botAllowedUsers = formatIdListForInput(
+          config.tg.botAllowedUsers,
+        );
+        config.tg.botAllowedChats = formatIdListForInput(
+          config.tg.botAllowedChats,
+        );
+        config.tg.botWebhookPort = toSafeNumber(config.tg.botWebhookPort, 8443);
+        config.tg.botWhitelistDebugLog = toSafeBoolean(
+          config.tg.botWhitelistDebugLog,
+          false,
+        );
+        config.tg.botSearchLimit = parseBotSearchLimit(
+          config.tg.botSearchLimit,
+        );
+        config.tg.botMode = config.tg.botMode || "polling";
         console.log("Settings: tg 更新后:", config.tg);
       }
       if (cfg.asmr) {

@@ -42,9 +42,7 @@ src/
 │       ├── logger.js           # 日志系统
 │       ├── errorHandler.js    # 错误处理
 │       ├── retry.js           # 重试机制
-│       ├── task-isolated-logger.js  # 任务隔离日志
-│       ├── cdp-client.js      # CDP 客户端
-│       └── dom-snapshot.js    # DOM 快照
+│       └── telegram-login.js  # Telegram 登录与上传
 ├── preload/
 │   └── index.js            # 预加载脚本
 └── renderer/
@@ -73,7 +71,6 @@ npm run test:watch   # 监听模式
 
 # RalphWiggum Loop (自动验证循环)
 npm run ralph "任务描述"                 # 基本验证
-npm run ralph "任务描述" --with-vision # 启用视觉系统 (CDP)
 
 # 验证
 npm run verify       # lint + build
@@ -179,8 +176,7 @@ Types → Config → Repo → DataAccess → Service → Runtime → UI
 
 ## 扩展阅读
 
+- 单入口导航（建议先读）: `docs/README.md`
 - 项目架构详解: `docs/ARCHITECTURE.md`
 - 质量评分: `docs/quality/README.md`
-- 开发流程: `docs/development-workflow.md`
-- Agent Vision: `docs/agent-vision-solution.md`
-- UI 组件风格: `docs/ui-style-guide.md`
+- UI 组件风格: `docs/design-docs/ui-style-guide.md`

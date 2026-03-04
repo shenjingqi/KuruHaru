@@ -623,6 +623,7 @@ export function setupTgHistoryIPC() {
   const handlers = [
     "tg-scan-recent-activity",
     "tg-read-recent-activity",
+    "get-recent-activity",
     "download-tg-file",
     "clear-cache",
     "tg-get-statistics",
@@ -633,7 +634,7 @@ export function setupTgHistoryIPC() {
     try {
       ipcMain.removeHandler(handler);
       console.log(`[tg-recent-activity] 已移除旧的处理器: ${handler}`);
-    } catch (e) {
+    } catch {
       // 处理器不存在，忽略错误
     }
   }
@@ -651,6 +652,22 @@ export function setupTgHistoryIPC() {
   ipcMain.handle("tg-read-recent-activity", () => {
     const config = getConfig();
     return loadRecentActivity(config.paths?.uploadHistoryDir);
+  });
+
+  // 2.1 兼容旧接口：返回扁平 files 结构
+  ipcMain.handle("get-recent-activity", () => {
+    const config = getConfig();
+    const result = loadRecentActivity(config.paths?.uploadHistoryDir);
+
+    if (!result?.success) {
+      return result;
+    }
+
+    return {
+      success: true,
+      files: Array.isArray(result.data?.files) ? result.data.files : [],
+      metadata: result.data?.metadata || {},
+    };
   });
 
   // 3. 下载文件

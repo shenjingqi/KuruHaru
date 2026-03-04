@@ -333,12 +333,9 @@ const toggleSelect = (fileId) => {
 };
 
 const selectAll = () => {
-  skippedFileIds.value.forEach((id) => {
-    const idx = selectedFiles.value.indexOf(id);
-    if (idx === -1) {
-      selectedFiles.value.push(id);
-    }
-  });
+  selectedFiles.value = allFiles.value
+    .map((file) => file.id)
+    .filter((id) => !skippedFileIds.value.has(id));
 };
 
 const deselectAll = () => {

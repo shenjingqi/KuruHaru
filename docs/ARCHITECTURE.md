@@ -1,325 +1,153 @@
 # ARCHITECTURE.md — KuruHaru 项目架构
 
-> 本文档描述 KuruHaru 应用的系统架构、业务域划分和模块关系。
-> 供 Agent 理解代码组织方式，用于自主导航和决策。
+> 状态: 🔄 持续更新  
+> 最后更新: 2026-03-04
 
----
+> 单智能体快速入口：`docs/README.md`
 
-## 1. 系统架构总览
+## 1. 系统总览
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Renderer (Vue 3)                         │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐   │
-│  │ Components  │  │   Stores    │  │       Utils         │   │
-│  │ (UI Layer)  │  │  (Pinia)    │  │  (filter, clone...) │   │
-│  └──────┬──────┘  └──────┬──────┘  └──────────┬──────────┘   │
-│         │                 │                     │               │
-│         └─────────────────┼─────────────────────┘               │
-│                           │                                     │
-│                    window.api                                   │
-│                     (IPC Bridge)                                │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │
-┌───────────────────────────┼─────────────────────────────────────┐
-│                    Preload (Bridge)                             │
-│              ipcRenderer.invoke() / send()                      │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │
-┌───────────────────────────┼─────────────────────────────────────┐
-│                    Main Process (Node.js)                        │
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │                    IPC Handlers                             ││
-│  │   dialog:*, fs:*, config:*, asmr:*, whisper:*, tg:*        ││
-│  └────────────────────────────┬────────────────────────────────┘│
-│                               │                                  │
-│  ┌────────────┐  ┌───────────┴───────────┐  ┌──────────────┐ │
-│  │  Modules   │  │        Utils           │  │    Config    │ │
-│  │ asmr-local │  │  telegram-login       │  │   (JSON)     │ │
-│  │ whisper    │  │  logger                │  │               │ │
-│  │ tg-history │  │  errorHandler         │  │               │ │
-│  │ httpClient │  │  retry                 │  │               │ │
-│  └────────────┘  └────────────────────────┘  └──────────────┘ │
-└─────────────────────────────────────────────────────────────────┘
+KuruHaru 是 Electron 桌面应用，采用 `Renderer -> Preload -> Main` 三段式架构。
+
+```text
+Renderer (Vue 3 + Pinia + Naive UI)
+  └─ window.api.*
+      └─ Preload (contextBridge)
+          └─ ipcRenderer.invoke/send
+              └─ Main Process (ipcMain.handle/on)
+                  ├─ src/main/modules/*
+                  └─ src/main/utils/*
 ```
 
 ---
 
-## 2. 分层架构
+## 2. 分层与职责
 
-### 2.1 层级定义
+| 层级         | 目录                   | 职责                                    |
+| ------------ | ---------------------- | --------------------------------------- |
+| Renderer     | `src/renderer/src/`    | UI 展示、状态管理、用户交互             |
+| Preload      | `src/preload/index.js` | 将安全 API 暴露给 `window.api`          |
+| Main Runtime | `src/main/index.js`    | 窗口生命周期、托盘、IPC 装配            |
+| Modules      | `src/main/modules/`    | 业务逻辑（ASMR/TG/Whisper/配置）        |
+| Utils        | `src/main/utils/`      | 通用工具（日志、错误、重试、TG 登录等） |
 
-| 层级             | 目录                         | 职责                     | 规则                |
-| ---------------- | ---------------------------- | ------------------------ | ------------------- |
-| **Runtime**      | `src/main/index.js`          | 窗口管理、生命周期、托盘 | 入口文件            |
-| **IPC Handlers** | `src/main/index.js`          | 处理 renderer 请求       | 只能调用 Modules    |
-| **Modules**      | `src/main/modules/`          | 业务逻辑核心             | 可调用 Utils        |
-| **Utils**        | `src/main/utils/`            | 通用工具函数             | 无业务逻辑          |
-| **Config**       | `src/main/modules/config.js` | 配置读写                 | 被所有层调用        |
-| **Renderer**     | `src/renderer/src/`          | UI 展示                  | 只能调用 window.api |
+关键约束：
 
-### 2.2 依赖方向
-
-```
-Config ──────► Modules ──────► Utils
-  │               │
-  │               ▼
-  │         IPC Handlers ──────► Renderer
-  │               │
-  ▼               ▼
-Main Process ◄─── Preload
-```
-
-**强制规则**:
-
-- ❌ Renderer 不能直接 require Node.js 模块
-- ❌ Renderer 不能直接访问文件系统
-- ❌ Service 层不能引用 UI 组件
-- ✅ 所有主进程功能通过 IPC 暴露
-- ✅ 数据流向必须是单向的
+- Renderer 不直接访问 Node.js/文件系统。
+- Renderer 通过 `window.api` 调用主进程能力。
+- 主进程能力通过 IPC 通道暴露。
 
 ---
 
-## 3. 业务域划分
+## 3. 主进程模块现状（代码实况）
 
-### 3.1 核心业务域
+### 3.1 `src/main/modules/`（11 个文件）
 
-| 域            | 模块                       | 描述                            |
-| ------------- | -------------------------- | ------------------------------- |
-| **ASMR 内容** | `asmr-localization.js`     | ASMR 网站数据抓取、播放列表管理 |
-|               | `asmr-login.js`            | ASMR 网站登录认证               |
-| **Telegram**  | `telegram-login.js`        | Telegram 登录认证               |
-|               | `tg-recent-activity.js`    | 最近活动扫描                    |
-| **Whisper**   | `whisper.js`               | 语音转字幕功能                  |
-| **文件处理**  | `src/main/index.js` (内联) | 压缩包扫描、文件清理、数据清洗  |
-| **配置**      | `config.js`                | 配置读取/保存                   |
+| 文件                      | 作用                                           |
+| ------------------------- | ---------------------------------------------- |
+| `asmr-localization.js`    | ASMR 数据抓取、云端/本地清理、中文列表相关 IPC |
+| `asmr-login.js`           | ASMR 登录相关 IPC                              |
+| `asmr.js`                 | ASMR 功能旧实现/兼容实现                       |
+| `config.js`               | 配置读取与保存                                 |
+| `httpClient.js`           | 统一 HTTP 客户端                               |
+| `tg-bot-api.js`           | TG Bot API 适配                                |
+| `tg-recent-activity.js`   | 最近活动扫描、下载、缓存读取                   |
+| `tg-rj-duplicates.js`     | RJ 重复消息扫描与删除                          |
+| `tg-rj-duplicates-old.js` | 旧版重复检测实现                               |
+| `tg-search-bot.js`        | TG 搜索 Bot 与索引同步                         |
+| `whisper.js`              | Whisper 转写与字幕打包                         |
 
-### 3.2 工具域
+### 3.2 `src/main/utils/`（关键文件）
 
-| 模块                      | 描述                   |
-| ------------------------- | ---------------------- |
-| `logger.js`               | 日志系统，支持文件输出 |
-| `errorHandler.js`         | 全局错误处理           |
-| `retry.js`                | 重试机制               |
-| `httpClient.js`           | HTTP 请求封装          |
-| `asmr-data-transforms.js` | ASMR 数据格式转换      |
-
-### 3.3 UI 组件域
-
-| 组件                 | 描述         |
-| -------------------- | ------------ |
-| `HomePanel.vue`      | 仪表盘       |
-| `UploadTool.vue`     | 上传字幕     |
-| `WhisperTool.vue`    | Whisper 工具 |
-| `LocalCleaner.vue`   | 本地清理     |
-| `CloudCleaner.vue`   | 云端清理     |
-| `RecentActivity.vue` | 最近上传     |
-| `ChineseList.vue`    | 汉化列表     |
-| `AdvancedSearch.vue` | 高级搜索     |
-| `RjFilter.vue`       | RJ 筛选      |
-| `Tools.vue`          | 工具箱       |
-| `Settings.vue`       | 设置页面     |
+| 文件                      | 作用                        |
+| ------------------------- | --------------------------- |
+| `telegram-login.js`       | Telegram 登录与上传流程 IPC |
+| `logger.js`               | 统一日志发送器              |
+| `errorHandler.js`         | 错误标准化                  |
+| `retry.js`                | 通用重试工具                |
+| `asmr-data-transforms.js` | ASMR 数据结构转换           |
 
 ---
 
-## 4. IPC 通信模式
+## 4. IPC 通信模式（实际实现）
 
-### 4.1 主进程 → 渲染进程
+项目中并存两类 IPC：
 
-使用 `ipcMain.handle()` 注册处理函数：
+1. 请求/响应：`ipcMain.handle()` + `ipcRenderer.invoke()`
+2. 事件推送：`ipcMain.on()` + `ipcRenderer.send()` / `webContents.send()`
 
-```javascript
-// src/main/index.js
-ipcMain.handle("dialog:openFile", async (event, options) => {
-  // 处理逻辑
-  return { canceled: false, filePath: "..." };
-});
-```
+示例：
 
-### 4.2 渲染进程调用
-
-```javascript
-// src/preload/index.js
-api.dialogOpenFile = (options) =>
-  ipcRenderer.invoke("dialog:openFile", options);
-
-// src/renderer/src/components/xxx.vue
-const result = await window.api.dialogOpenFile({ type: "file" });
-```
-
-### 4.3 事件推送
-
-```javascript
-// 主进程推送日志
-mainWindow.webContents.send("log-update", { type: "system", msg: "..." });
-
-// 渲染进程监听
-window.api.onLogUpdate((data) => {
-  console.log(data.msg);
-});
-```
+- 请求/响应：`dialog:openFile`、`get-config`、`tg-scan-recent-activity`
+- 事件推送：`start-task`/`stop-task`、`log-update`、`task-finished`
 
 ---
 
-## 5. 配置管理
+## 5. 配置管理（`src/main/modules/config.js`）
 
-### 5.1 配置结构
+配置来源优先级（按实际逻辑）：
 
-```javascript
-// src/main/modules/config.js - DEFAULT_CONFIG
-{
-  profile: { username, avatar, status },
-  tg: { apiId, apiHash, phone, session, discussion, channel },
-  asmr: { username, password, token, playlistId },
-  paths: { sourceDir, toolOutputDir, whisperTargetPath, ... },
-  upload: { channelId },
-  whisper: { exePath, targetPath, subFormats },
-  logging: { level, enableFileLog },
-  system: { theme, language, autoStart, minimizeToTray }
-}
-```
+1. 若配置了 `paths.configDir`，优先读取 `<configDir>/config.json`
+2. 否则读取 AppData 配置：`<userData>/config.json`
+3. 若都不可用，回退到 `DEFAULT_CONFIG`
 
-### 5.2 配置加载优先级
+补充：项目目录下 `config/config.json` 会参与 `configDir` 发现流程。
 
-1. 用户自定义配置目录 (`configDir/config.json`)
-2. AppData 配置 (`%APPDATA%/KuruHaru/config.json`)
-3. 默认配置 (`DEFAULT_CONFIG`)
+配置字段真相源：`src/main/modules/config.js` 中的 `DEFAULT_CONFIG`。
 
 ---
 
-## 6. 数据流示例
+## 6. Renderer 组件现状
 
-### 6.1 上传字幕流程
+`src/renderer/src/components/` 当前包含：
 
-```
-User 点击上传
-    │
-    ▼
-UploadTool.vue ──invoke──► ipcMain.handle('upload-subtitle')
-    │                           │
-    │                           ▼
-    │                    asmr-localization.js (处理业务逻辑)
-    │                           │
-    │                           ▼
-    │                    返回结果
-    │
-    ▼
-更新 UI
-```
+- 23 个顶层 `.vue` 组件
+- 1 个 `common/` 子目录
 
-### 6.2 Whisper 转写流程
+重点组件包括：
 
-```
-User 选择文件
-    │
-    ▼
-WhisperTool.vue ──send──► ipcMain.on('start-task')
-    │                           │
-    │                           ▼
-    │                    whisper.js (启动子进程)
-    │                           │
-    │                           ▼
-    │                    进度推送 'log-update'
-    │                           │
-    │                           ▼
-    │                    完成推送 'task-finished'
-    │
-    ▼
-更新进度 UI
-```
+- `HomePanel.vue`
+- `UploadTool.vue`
+- `WhisperTool.vue`
+- `RecentActivity.vue`
+- `TgSearchBot.vue`
+- `RjDuplicateDetector.vue`
+- `Settings.vue`
+- `Tools.vue`
 
 ---
 
-## 7. 模块依赖图
+## 7. 当前可验证状态（2026-03-04）
 
-```
-                    ┌─────────────────┐
-                    │  config.js      │ ◄── 配置文件读写
-                    └────────┬────────┘
-                             │
-        ┌────────────────────┼────────────────────┐
-        │                    │                    │
-        ▼                    ▼                    ▼
-┌───────────────┐  ┌───────────────┐  ┌───────────────┐
-│ asmr-localize │  │ whisper.js    │  │ tg-history    │
-│ asmr-login    │  │               │  │ tg-login      │
-└───────┬───────┘  └───────┬───────┘  └───────┬───────┘
-        │                  │                  │
-        └──────────────────┼──────────────────┘
-                           │
-                           ▼
-                    ┌───────────────┐
-                    │ httpClient.js │
-                    │ retry.js      │
-                    │ logger.js     │
-                    └───────────────┘
-                           │
-                           ▼
-                    ┌───────────────┐
-                    │ main/index.js │ ◄── IPC 入口
-                    └───────────────┘
-                           │
-                           ▼
-                    ┌───────────────┐
-                    │   preload     │ ◄── 桥接层
-                    └───────────────┘
-                           │
-                           ▼
-                    ┌───────────────┐
-                    │   renderer    │ ◄── Vue UI
-                    └───────────────┘
-```
+| 项目     | 命令             | 结果                              |
+| -------- | ---------------- | --------------------------------- |
+| 单元测试 | `npm run test`   | ✅ 通过（20/20）                  |
+| 生产构建 | `npm run build`  | ✅ 通过                           |
+| 综合验证 | `npm run verify` | ❌ 失败（lint 阶段有 3 个 error） |
+
+当前 lint 阻塞错误（非本次文档修复引入）：
+
+- `src/main/modules/asmr-login.js`：`axios` 直接导入受限
+- `src/main/modules/asmr.js`：`axios` 直接导入受限
+- `src/main/modules/asmr.js`：`path` 未定义
 
 ---
 
-## 8. 技术约束
+## 8. 架构文档同步状态（2026-03-04）
 
-### 8.1 安全约束
+本轮已与代码实现对齐的文档：
 
-- **Context Isolation**: 启用 `contextIsolation: true`
-- **Node Integration**: 禁用 `nodeIntegration`（渲染进程）
-- **Preload Script**: 所有 API 通过 preload 暴露
-- **外部数据校验**: 所有外部输入必须做 Schema 校验
-
-### 8.2 性能约束
-
-- **主进程**: 避免长时间阻塞操作，使用 async/await
-- **IPC**: 大数据使用流式传输，避免一次性传递大对象
-- **渲染进程**: 使用虚拟列表处理大数据集
+- `docs/design-docs/module-index.md`（模块装配状态、兼容模块标记）
+- `docs/design-docs/data-flow.md`（实现态 IPC 与数据流）
+- `docs/design-docs/business-background.md`（补充 TG 搜索 Bot / RJ 重复检测）
+- `docs/design-docs/business-boundary.md`（补充频道检索与治理边界）
+- `docs/product-specs/README.md`（功能清单与流程图补齐）
 
 ---
 
-## 9. 扩展指引
+## 9. 相关文档
 
-### 添加新模块
-
-1. 在 `src/main/modules/` 创建 `new-module.js`
-2. 导出 `setupNewModuleIPC()` 函数
-3. 在 `src/main/index.js` 中引入并调用
-4. 在 `src/preload/index.js` 暴露 API
-
-### 添加新组件
-
-1. 在 `src/renderer/src/components/` 创建 `NewComponent.vue`
-2. 使用 `<script setup>` 语法
-3. 在 `App.vue` 注册组件和菜单项
-
----
-
-## 10. 验证状态
-
-| 层级         | 状态      | 备注                        |
-| ------------ | --------- | --------------------------- |
-| 主进程模块化 | ✅ 良好   | 6 个业务模块清晰分离        |
-| IPC 通信     | ✅ 规范   | 统一使用 handle/invoke 模式 |
-| 配置管理     | ✅ 完整   | 支持多级配置覆盖            |
-| 前端组件     | ✅ 完整   | 21 个组件覆盖所有功能       |
-| 分层约束     | ⚠️ 待增强 | 需 ESLint 规则强制          |
-
----
-
-## 相关文档
-
-- **入门手册**: `AGENTS.md`
-- **配置字段**: `docs/config-fields.md`
-- **API 参考**: `src/preload/index.js`
+- 模块导航：`docs/design-docs/module-index.md`
+- 设计视角：`docs/design-docs/architecture-design.md`
+- 文档结构：`docs/STRUCTURE.md`
+- 质量状态：`docs/quality/README.md`

@@ -5,6 +5,8 @@ class SearchParser {
   parse(searchString) {
     const result = {
       tags: { include: [], exclude: [] },
+      tagw: { include: [], exclude: [] },
+      lang: { include: [], exclude: [] },
       duration: { min: null, max: null },
       rate: { min: null, max: null },
       price: { min: null, max: null },
@@ -22,6 +24,30 @@ class SearchParser {
       const tagValue = match[1].trim();
       if (tagValue && !result.tags.exclude.includes(tagValue))
         result.tags.exclude.push(tagValue);
+    }
+    const tagwInclude = /\$tagw:([^$]+)\$/g;
+    while ((match = tagwInclude.exec(searchString)) !== null) {
+      const tagValue = match[1].trim();
+      if (tagValue && !result.tagw.include.includes(tagValue))
+        result.tagw.include.push(tagValue);
+    }
+    const tagwExclude = /\$-tagw:([^$]+)\$/g;
+    while ((match = tagwExclude.exec(searchString)) !== null) {
+      const tagValue = match[1].trim();
+      if (tagValue && !result.tagw.exclude.includes(tagValue))
+        result.tagw.exclude.push(tagValue);
+    }
+    const langInclude = /\$lang:([A-Z_]+)\$/gi;
+    while ((match = langInclude.exec(searchString)) !== null) {
+      const langCode = String(match[1]).toUpperCase();
+      if (langCode && !result.lang.include.includes(langCode))
+        result.lang.include.push(langCode);
+    }
+    const langExclude = /\$-lang:([A-Z_]+)\$/gi;
+    while ((match = langExclude.exec(searchString)) !== null) {
+      const langCode = String(match[1]).toUpperCase();
+      if (langCode && !result.lang.exclude.includes(langCode))
+        result.lang.exclude.push(langCode);
     }
     const durGreater = /\$duration:(\d+)([mh])\$/g;
     while ((match = durGreater.exec(searchString)) !== null) {
@@ -94,11 +120,33 @@ class SearchParser {
     let searchString = "";
     const includeTags = options.tags?.include || [];
     const excludeTags = options.tags?.exclude || [];
+    const includeTagw = options.tagw?.include || [];
+    const excludeTagw = options.tagw?.exclude || [];
+    const includeLangs = options.lang?.include || [];
+    const excludeLangs = options.lang?.exclude || [];
     includeTags.forEach((tag) => {
       if (tag && tag.trim()) searchString += "$tag:" + tag + "$ ";
     });
     excludeTags.forEach((tag) => {
       if (tag && tag.trim()) searchString += "$-tag:" + tag + "$ ";
+    });
+    includeTagw.forEach((tag) => {
+      if (tag && tag.trim()) searchString += "$tagw:" + tag + "$ ";
+    });
+    excludeTagw.forEach((tag) => {
+      if (tag && tag.trim()) searchString += "$-tagw:" + tag + "$ ";
+    });
+    includeLangs.forEach((lang) => {
+      const normalized = String(lang || "")
+        .trim()
+        .toUpperCase();
+      if (normalized) searchString += "$lang:" + normalized + "$ ";
+    });
+    excludeLangs.forEach((lang) => {
+      const normalized = String(lang || "")
+        .trim()
+        .toUpperCase();
+      if (normalized) searchString += "$-lang:" + normalized + "$ ";
     });
     if (options.duration?.min !== null && options.duration?.min !== undefined) {
       const minMinutes = options.duration.min;

@@ -1,12 +1,16 @@
 <template>
   <div class="tag-selector">
     <div class="selector-header">
-      <span class="label">🏷️ 标签选择</span>
-      <span class="hint">(可多选)</span>
+      <span class="label">{{ props.title }}</span>
+      <span class="hint">{{ props.hint }}</span>
     </div>
     <div class="search-box">
       <span class="search-icon">🔍</span>
-      <input v-model="searchText" type="text" placeholder="搜索标签..." />
+      <input
+        v-model="searchText"
+        type="text"
+        :placeholder="props.searchPlaceholder"
+      />
       <button v-if="searchText" class="clear-btn" @click="searchText = ''">
         ✕
       </button>
@@ -42,20 +46,10 @@
       </div>
       <div class="tag-badges">
         <span v-for="tag in selectedTags" :key="tag" class="tag-badge include"
-          >{{ tag
-          }}<button
-            @click="selectedTags = selectedTags.filter((t) => t !== tag)"
-          >
-            ✕
-          </button></span
+          >{{ tag }}<button @click="removeSelectedTag(tag)">✕</button></span
         >
         <span v-for="tag in excludedTags" :key="tag" class="tag-badge exclude"
-          >{{ tag
-          }}<button
-            @click="excludedTags = excludedTags.filter((t) => t !== tag)"
-          >
-            ✕
-          </button></span
+          >{{ tag }}<button @click="removeExcludedTag(tag)">✕</button></span
         >
       </div>
     </div>
@@ -71,17 +65,25 @@
   </div>
 </template>
 <script setup>
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted, computed, watch } from "vue";
 import tagsData from "../../../../config/tags.json";
 
 const props = defineProps({
   modelValue: { type: Object, default: () => ({ include: [], exclude: [] }) },
+  title: { type: String, default: "🏷️ 标签选择" },
+  hint: { type: String, default: "(可多选)" },
+  searchPlaceholder: { type: String, default: "搜索标签..." },
 });
 const emit = defineEmits(["update:modelValue"]);
 const searchText = ref("");
 const excludeMode = ref(false);
 const selectedTags = ref([]);
 const excludedTags = ref([]);
+
+const syncFromModelValue = (value) => {
+  selectedTags.value = Array.isArray(value?.include) ? [...value.include] : [];
+  excludedTags.value = Array.isArray(value?.exclude) ? [...value.exclude] : [];
+};
 
 // 从 tags.json 导入标签数据
 const allTags = computed(() => {
@@ -128,6 +130,16 @@ const clearAllTags = () => {
   emitUpdate();
 };
 
+const removeSelectedTag = (tag) => {
+  selectedTags.value = selectedTags.value.filter((item) => item !== tag);
+  emitUpdate();
+};
+
+const removeExcludedTag = (tag) => {
+  excludedTags.value = excludedTags.value.filter((item) => item !== tag);
+  emitUpdate();
+};
+
 const emitUpdate = () => {
   emit("update:modelValue", {
     include: [...selectedTags.value],
@@ -135,11 +147,16 @@ const emitUpdate = () => {
   });
 };
 onMounted(() => {
-  if (props.modelValue) {
-    selectedTags.value = props.modelValue.include || [];
-    excludedTags.value = props.modelValue.exclude || [];
-  }
+  syncFromModelValue(props.modelValue);
 });
+
+watch(
+  () => props.modelValue,
+  (value) => {
+    syncFromModelValue(value);
+  },
+  { deep: true },
+);
 </script>
 <style scoped>
 .tag-selector {

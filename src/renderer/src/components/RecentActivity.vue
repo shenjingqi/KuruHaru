@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <div class="page-header">
-      <h2 class="page-title">TG打包下载</h2>
+      <h2 class="page-title">最近上传</h2>
       <div class="header-actions">
         <button
           class="btn-secondary"
@@ -15,7 +15,9 @@
           :disabled="selectedFiles.length === 0 || isDownloading"
           @click="startDownload"
         >
-          {{ isDownloading ? "下载中..." : `下载 (${selectedFiles.length})` }}
+          {{
+            isDownloading ? "下载中..." : `下载选中 (${selectedFiles.length})`
+          }}
         </button>
       </div>
     </div>

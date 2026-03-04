@@ -7,6 +7,13 @@
     <div class="search-content">
       <div class="main-panel">
         <TagSelector v-model="params.tags" />
+        <TagSelector
+          v-model="params.tagw"
+          title="🧩 包含低愿力标签"
+          hint="($tagw: / $-tagw:)"
+          search-placeholder="搜索低愿力标签..."
+        />
+        <LanguageSelector v-model="params.lang" />
         <DurationPicker v-model="params.duration" />
         <RatingPicker v-model="params.rating" />
         <PricePicker v-model="params.price" />
@@ -37,36 +44,53 @@ import DurationPicker from "./DurationPicker.vue";
 import RatingPicker from "./RatingPicker.vue";
 import PricePicker from "./PricePicker.vue";
 import AgeSelector from "./AgeSelector.vue";
+import LanguageSelector from "./LanguageSelector.vue";
 import PresetManager from "./PresetManager.vue";
 import SearchPreview from "./SearchPreview.vue";
 
+const createEmptyBiFilter = () => ({ include: [], exclude: [] });
+
 const params = reactive({
-  tags: { include: [], exclude: [] },
+  tags: createEmptyBiFilter(),
+  tagw: createEmptyBiFilter(),
+  lang: createEmptyBiFilter(),
   duration: { value: null, unit: "m", mode: "greater" },
   rating: { value: null, mode: "greater" },
   price: { value: null, mode: "greater" },
   age: "all",
 });
 
-// 预设的 tags（勾选预设时更新）
-const presetTags = reactive({
-  include: [],
-  exclude: [],
+// 预设带来的筛选条件（勾选预设时更新）
+const presetFilters = reactive({
+  tags: createEmptyBiFilter(),
+  tagw: createEmptyBiFilter(),
+  lang: createEmptyBiFilter(),
 });
 
 const presets = ref([]);
 
-// mergedParams 直接从 params 计算
-const mergedParams = computed(() => {
-  // 合并：用户选的 + 预设的（去重）
-  const include = new Set([...params.tags.include, ...presetTags.include]);
-  const exclude = new Set([...params.tags.exclude, ...presetTags.exclude]);
+const mergeBiFilter = (manual = {}, preset = {}) => {
+  const include = new Set([
+    ...(manual.include || []),
+    ...(preset.include || []),
+  ]);
+  const exclude = new Set([
+    ...(manual.exclude || []),
+    ...(preset.exclude || []),
+  ]);
 
   return {
-    tags: {
-      include: Array.from(include),
-      exclude: Array.from(exclude),
-    },
+    include: Array.from(include),
+    exclude: Array.from(exclude),
+  };
+};
+
+// mergedParams 直接从 params + presetFilters 计算
+const mergedParams = computed(() => {
+  return {
+    tags: mergeBiFilter(params.tags, presetFilters.tags),
+    tagw: mergeBiFilter(params.tagw, presetFilters.tagw),
+    lang: mergeBiFilter(params.lang, presetFilters.lang),
     duration: params.duration,
     rating: params.rating,
     price: params.price,
@@ -75,30 +99,44 @@ const mergedParams = computed(() => {
 });
 
 const resetAll = () => {
-  params.tags = { include: [], exclude: [] };
-  presetTags.include = [];
-  presetTags.exclude = [];
+  params.tags = createEmptyBiFilter();
+  params.tagw = createEmptyBiFilter();
+  params.lang = createEmptyBiFilter();
+  presetFilters.tags.include = [];
+  presetFilters.tags.exclude = [];
+  presetFilters.tagw.include = [];
+  presetFilters.tagw.exclude = [];
+  presetFilters.lang.include = [];
+  presetFilters.lang.exclude = [];
   params.duration = { value: null, unit: "m", mode: "greater" };
   params.rating = { value: null, mode: "greater" };
   params.price = { value: null, mode: "greater" };
   params.age = "all";
 };
 
-// 勾选预设时：只更新预设的 tags（不覆盖用户选的）
+// 勾选预设时：只更新预设带来的筛选条件（不覆盖用户手动选择）
 const onPresetUpdate = (data) => {
   if (!data.presets || data.presets.length === 0) {
     // 没有勾选任何预设
-    presetTags.include = [];
-    presetTags.exclude = [];
+    presetFilters.tags.include = [];
+    presetFilters.tags.exclude = [];
+    presetFilters.tagw.include = [];
+    presetFilters.tagw.exclude = [];
+    presetFilters.lang.include = [];
+    presetFilters.lang.exclude = [];
     params.duration = { value: null, unit: "m", mode: "greater" };
     params.rating = { value: null, mode: "greater" };
     params.age = "all";
     return;
   }
 
-  // 收集所有预设的 tags
-  const allInclude = new Set();
-  const allExclude = new Set();
+  // 收集所有预设筛选条件
+  const allTagInclude = new Set();
+  const allTagExclude = new Set();
+  const allTagwInclude = new Set();
+  const allTagwExclude = new Set();
+  const allLangInclude = new Set();
+  const allLangExclude = new Set();
 
   data.presets.forEach((name) => {
     const preset = presets.value.find((p) => p.name === name);
@@ -106,13 +144,29 @@ const onPresetUpdate = (data) => {
 
     const p = preset.params;
     if (p.tags?.include?.length)
-      p.tags.include.forEach((t) => allInclude.add(t));
+      p.tags.include.forEach((t) => allTagInclude.add(t));
     if (p.tags?.exclude?.length)
-      p.tags.exclude.forEach((t) => allExclude.add(t));
+      p.tags.exclude.forEach((t) => allTagExclude.add(t));
+    if (p.tagw?.include?.length)
+      p.tagw.include.forEach((t) => allTagwInclude.add(t));
+    if (p.tagw?.exclude?.length)
+      p.tagw.exclude.forEach((t) => allTagwExclude.add(t));
+    if (p.lang?.include?.length)
+      p.lang.include.forEach((lang) =>
+        allLangInclude.add(String(lang).toUpperCase()),
+      );
+    if (p.lang?.exclude?.length)
+      p.lang.exclude.forEach((lang) =>
+        allLangExclude.add(String(lang).toUpperCase()),
+      );
   });
 
-  presetTags.include = Array.from(allInclude);
-  presetTags.exclude = Array.from(allExclude);
+  presetFilters.tags.include = Array.from(allTagInclude);
+  presetFilters.tags.exclude = Array.from(allTagExclude);
+  presetFilters.tagw.include = Array.from(allTagwInclude);
+  presetFilters.tagw.exclude = Array.from(allTagwExclude);
+  presetFilters.lang.include = Array.from(allLangInclude);
+  presetFilters.lang.exclude = Array.from(allLangExclude);
 
   // 取最后一个勾选预设的 duration/rating/age
   const lastPreset = data.presets
@@ -120,9 +174,15 @@ const onPresetUpdate = (data) => {
     .filter((p) => p?.params)
     .pop();
   if (lastPreset?.params) {
-    if (lastPreset.params.duration?.value != null)
+    if (
+      lastPreset.params.duration?.value !== null &&
+      lastPreset.params.duration?.value !== undefined
+    )
       params.duration = { ...lastPreset.params.duration };
-    if (lastPreset.params.rating?.value != null)
+    if (
+      lastPreset.params.rating?.value !== null &&
+      lastPreset.params.rating?.value !== undefined
+    )
       params.rating = { ...lastPreset.params.rating };
     if (lastPreset.params.age) params.age = lastPreset.params.age;
   }
@@ -130,13 +190,47 @@ const onPresetUpdate = (data) => {
 
 // 点击预设名称时：加载预设的全部条件
 const onApplyPreset = (presetParams) => {
-  if (presetParams.tags) params.tags = { ...presetParams.tags };
+  if (presetParams.tags) {
+    params.tags = {
+      include: [...(presetParams.tags.include || [])],
+      exclude: [...(presetParams.tags.exclude || [])],
+    };
+  } else {
+    params.tags = createEmptyBiFilter();
+  }
+
+  if (presetParams.tagw) {
+    params.tagw = {
+      include: [...(presetParams.tagw.include || [])],
+      exclude: [...(presetParams.tagw.exclude || [])],
+    };
+  } else {
+    params.tagw = createEmptyBiFilter();
+  }
+
+  if (presetParams.lang) {
+    params.lang = {
+      include: (presetParams.lang.include || []).map((lang) =>
+        String(lang).toUpperCase(),
+      ),
+      exclude: (presetParams.lang.exclude || []).map((lang) =>
+        String(lang).toUpperCase(),
+      ),
+    };
+  } else {
+    params.lang = createEmptyBiFilter();
+  }
+
   if (presetParams.duration) params.duration = { ...presetParams.duration };
   if (presetParams.rating) params.rating = { ...presetParams.rating };
   if (presetParams.age) params.age = presetParams.age;
-  // 清空预设的标签（因为已经加载到用户标签里了）
-  presetTags.include = [];
-  presetTags.exclude = [];
+  // 清空预设合并区（因为已经加载到用户筛选里了）
+  presetFilters.tags.include = [];
+  presetFilters.tags.exclude = [];
+  presetFilters.tagw.include = [];
+  presetFilters.tagw.exclude = [];
+  presetFilters.lang.include = [];
+  presetFilters.lang.exclude = [];
 };
 
 const onSavePreset = (data) => {
@@ -153,16 +247,32 @@ const executeSearch = () => {
   if (p.tags?.exclude?.length) {
     p.tags.exclude.forEach((t) => parts.push("$-tag:" + t + "$"));
   }
-  if (p.duration?.value != null) {
+  if (p.tagw?.include?.length) {
+    p.tagw.include.forEach((t) => parts.push("$tagw:" + t + "$"));
+  }
+  if (p.tagw?.exclude?.length) {
+    p.tagw.exclude.forEach((t) => parts.push("$-tagw:" + t + "$"));
+  }
+  if (p.lang?.include?.length) {
+    p.lang.include.forEach((lang) =>
+      parts.push("$lang:" + String(lang).toUpperCase() + "$"),
+    );
+  }
+  if (p.lang?.exclude?.length) {
+    p.lang.exclude.forEach((lang) =>
+      parts.push("$-lang:" + String(lang).toUpperCase() + "$"),
+    );
+  }
+  if (p.duration?.value !== null && p.duration?.value !== undefined) {
     const suffix = p.duration.unit === "h" ? "h" : "m";
     const prefix = p.duration.mode === "less" ? "-" : "";
     parts.push("$" + prefix + "duration:" + p.duration.value + suffix + "$");
   }
-  if (p.rating?.value != null) {
+  if (p.rating?.value !== null && p.rating?.value !== undefined) {
     const prefix = p.rating.mode === "less" ? "-" : "";
     parts.push("$" + prefix + "rate:" + p.rating.value + "$");
   }
-  if (p.price?.value != null) {
+  if (p.price?.value !== null && p.price?.value !== undefined) {
     const prefix = p.price.mode === "less" ? "-" : "";
     parts.push("$" + prefix + "price:" + p.price.value + "$");
   }

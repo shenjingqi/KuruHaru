@@ -701,7 +701,6 @@ export function setupAsmrIPC(historyPath) {
   // 删除本地文件
   ipcMain.handle("asmr-delete-local-files", async (event, filePaths) => {
     const fs = await import("fs");
-    const path = await import("path");
     let deletedCount = 0;
     let failedCount = 0;
 
@@ -867,12 +866,6 @@ export function setupAsmrIPC(historyPath) {
     }
   });
 
-  // 缓存文件路径
-  const getCachePath = () => {
-    const dataDir = app.getPath("userData");
-    return pathModule.join(dataDir, "chinese_list_cache.json");
-  };
-
   // 防止并发访问TXT文件的锁
   let fileLock = Promise.resolve();
   // 防止并发扫描
@@ -937,33 +930,6 @@ export function setupAsmrIPC(historyPath) {
         logger.error(`Stack: ${e.stack}`);
       }
     });
-  };
-
-  // 判断是否为汉化作品（优化版）
-  const isChineseWork = (work) => {
-    // 条件1: 有字幕标记（最快判断）
-    if (work.has_subtitle === true) return true;
-
-    // 条件2: 检查语言版本
-    const editions = work.language_editions;
-    if (!editions || !Array.isArray(editions) || editions.length === 0)
-      return false;
-
-    // 快速检查：language_editions 存在且长度>0，且至少有一个非日语
-    // 只检查 lang 字段，避免深层遍历
-    for (let i = 0; i < editions.length; i++) {
-      const lang = editions[i].lang;
-      // CHI_HANS=简体中文, CHI_HANT=繁体中文, KO_KR=韩语, ENG=英语
-      if (
-        lang === "CHI_HANS" ||
-        lang === "CHI_HANT" ||
-        lang === "KO_KR" ||
-        lang === "ENG"
-      ) {
-        return true;
-      }
-    }
-    return false;
   };
 
   // 从页数据提取RJ号（服务器已用subtitle=1过滤）
@@ -1045,18 +1011,6 @@ export function setupAsmrIPC(historyPath) {
     return rjCodes;
   };
 
-  // 在页数据中查找RJ号的位置
-  const findRjPositionInPage = (works, targetRjCode) => {
-    for (let i = 0; i < works.length; i++) {
-      const work = works[i];
-      const rjCode = work.source_id || `RJ${String(work.id).padStart(8, "0")}`;
-      if (rjCode.toUpperCase() === targetRjCode.toUpperCase()) {
-        return i; // 返回在该页的位置
-      }
-    }
-    return -1;
-  };
-
   // 7. 获取汉化作品列表（带字幕/多语种）
   ipcMain.handle("asmr-fetch-chinese-works", async (event, options = {}) => {
     const { stopCondition = 5 } = options;
@@ -1079,7 +1033,7 @@ export function setupAsmrIPC(historyPath) {
     try {
       // 等待当前扫描完成后再开始（如果有）
       await currentScanLock;
-    } catch (e) {
+    } catch {
       // 忽略错误
     }
 
@@ -1177,9 +1131,6 @@ export function setupAsmrIPC(historyPath) {
         ) {
           pagesToFetch.push(page);
         }
-
-        // 最后5页必须扫完（页1-5）
-        const forceScanPages = new Set([1, 2, 3, 4, 5]);
 
         // 分批处理
         for (let i = 0; i < pagesToFetch.length; i += batchSize) {
@@ -1454,193 +1405,6 @@ export function setupAsmrIPC(historyPath) {
     },
   );
 
-  // 辅助函数：获取搜索结果总数
-  async function getSearchTotal(client, url) {
-    try {
-      // 先请求一次获取总数
-      const testUrl = url.includes("?")
-        ? `${url}&pageSize=1`
-        : `${url}?pageSize=1`;
-      const res = await client.get(testUrl, { timeout: 10000 });
-
-      if (res.data.pagination?.totalCount) {
-        return res.data.pagination.totalCount;
-      }
-      if (res.data.total) {
-        return res.data.total;
-      }
-      return null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  // 辅助函数：获取搜索结果总数（备用方法）
-  async function getSearchTotalFromContent(client, url) {
-    try {
-      const { default: axios } = await import("axios");
-      const res = await axios.get(url, { timeout: 10000 });
-
-      // 尝试各种可能的响应格式
-      if (res.data?.works?.length > 0) return res.data.works.length;
-      if (res.data?.data?.length > 0) return res.data.data.length;
-      if (res.data?.items?.length > 0) return res.data.items.length;
-      if (res.data?.list?.length > 0) return res.data.list.length;
-      if (Array.isArray(res.data)) return res.data.length;
-
-      return 0;
-    } catch (e) {
-      return 0;
-    }
-  }
-
-  // 辅助函数：并发获取所有搜索结果
-  async function fetchAllSearchResults(client, baseUrl) {
-    const works = [];
-    let totalCount = 0;
-    const pageSize = 30;
-
-    try {
-      // 先获取第一页和总数
-      const firstUrl = baseUrl.includes("?")
-        ? `${baseUrl}&page=1&pageSize=${pageSize}`
-        : `${baseUrl}?page=1&pageSize=${pageSize}`;
-
-      const firstRes = await client.get(firstUrl, { timeout: 30000 });
-
-      logger.info(`第一页响应状态: ${firstRes.status}`);
-      logger.info(`响应数据类型: ${typeof firstRes.data}`);
-      logger.info(
-        `响应数据: ${JSON.stringify(firstRes.data).substring(0, 500)}`,
-      );
-
-      // 解析第一页数据
-      let items = [];
-      if (Array.isArray(firstRes.data)) {
-        items = firstRes.data;
-        logger.info(`数据是数组，长度: ${items.length}`);
-      } else if (firstRes.data.works) {
-        items = firstRes.data.works;
-        logger.info(`数据在 works 中，长度: ${items.length}`);
-      } else if (firstRes.data.data) {
-        items = firstRes.data.data;
-        logger.info(`数据在 data 中，长度: ${items.length}`);
-      } else if (firstRes.data.items) {
-        items = firstRes.data.items;
-        logger.info(`数据在 items 中，长度: ${items.length}`);
-      } else if (firstRes.data.list) {
-        items = firstRes.data.list;
-        logger.info(`数据在 list 中，长度: ${items.length}`);
-      } else {
-        // 尝试查找任何包含数组的字段
-        logger.info(`未知响应结构，尝试查找数组字段`);
-        for (const key in firstRes.data) {
-          if (Array.isArray(firstRes.data[key])) {
-            logger.info(
-              `找到数组字段: ${key}, 长度: ${firstRes.data[key].length}`,
-            );
-          }
-        }
-      }
-
-      // 获取总数
-      if (firstRes.data.pagination?.totalCount) {
-        totalCount = firstRes.data.pagination.totalCount;
-      } else if (firstRes.data.total) {
-        totalCount = firstRes.data.total;
-      }
-
-      if (items.length === 0) {
-        // 没有获取到数据，抛出异常触发备用方法
-        throw new Error("未获取到搜索结果数据");
-      }
-
-      works.push(...items.map(formatWorkData));
-
-      // 计算总页数
-      const totalPages = totalCount > 0 ? Math.ceil(totalCount / pageSize) : 1;
-
-      // 如果只有一页，直接返回
-      if (totalPages <= 1) {
-        return works;
-      }
-
-      logger.info(`搜索共 ${totalCount} 条结果，${totalPages} 页`);
-
-      // 并发获取其余页面
-      const pagePromises = [];
-      for (let page = 2; page <= totalPages; page++) {
-        const pageUrl = baseUrl.includes("?")
-          ? `${baseUrl}&page=${page}&pageSize=${pageSize}`
-          : `${baseUrl}?page=${page}&pageSize=${pageSize}`;
-
-        pagePromises.push(
-          client
-            .get(pageUrl, { timeout: 30000 })
-            .then((res) => {
-              let pageItems = [];
-              if (Array.isArray(res.data)) {
-                pageItems = res.data;
-              } else if (res.data.works) {
-                pageItems = res.data.works;
-              } else if (res.data.data) {
-                pageItems = res.data.data;
-              } else if (res.data.items) {
-                pageItems = res.data.items;
-              } else if (res.data.list) {
-                pageItems = res.data.list;
-              }
-              return pageItems;
-            })
-            .catch((e) => {
-              logger.warn(`获取第 ${page} 页失败: ${e.message}`);
-              return [];
-            }),
-        );
-      }
-
-      const allResults = await Promise.all(pagePromises);
-
-      allResults.forEach((pageItems) => {
-        works.push(...pageItems.map(formatWorkData));
-      });
-
-      return works;
-    } catch (e) {
-      logger.error("获取搜索结果失败:", e.message);
-      // 抛出异常触发备用方法
-      throw e;
-    }
-  }
-
-  // 辅助函数：并发获取列表所有作品
-  async function fetchAllListWorks(client, url) {
-    const works = [];
-
-    try {
-      const res = await client.get(url, { timeout: 30000 });
-
-      let items = [];
-      if (Array.isArray(res.data)) {
-        items = res.data;
-      } else if (res.data.works) {
-        items = res.data.works;
-      } else if (res.data.data) {
-        items = res.data.data;
-      } else if (res.data.items) {
-        items = res.data.items;
-      } else if (res.data.list) {
-        items = res.data.list;
-      }
-
-      works.push(...items.map(formatWorkData));
-      return works;
-    } catch (e) {
-      logger.error("获取列表作品失败:", e.message);
-      return [];
-    }
-  }
-
   // 备用方法：直接用 axios 获取搜索结果（绕过代理问题）
   async function fetchSearchFromPage(client, url) {
     try {
@@ -1658,7 +1422,7 @@ export function setupAsmrIPC(historyPath) {
         }
         try {
           queryParam = decodeURIComponent(queryParam);
-        } catch (e) {
+        } catch {
           // 忽略解码错误
         }
       } else {
@@ -1669,7 +1433,7 @@ export function setupAsmrIPC(historyPath) {
             urlObj.searchParams.get("keyword") ||
             urlObj.searchParams.get("q") ||
             url;
-        } catch (e) {
+        } catch {
           queryParam = url;
         }
       }

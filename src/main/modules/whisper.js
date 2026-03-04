@@ -21,7 +21,7 @@ export function setupWhisperIPC() {
   handlers.forEach(({ channel }) => {
     try {
       ipcMain.removeHandler(channel);
-    } catch (_) {
+    } catch {
       // 处理器不存在，忽略
     }
   });
@@ -30,7 +30,7 @@ export function setupWhisperIPC() {
   try {
     ipcMain.removeAllListeners("start-task");
     ipcMain.removeAllListeners("stop-task");
-  } catch (_) {
+  } catch {
     // 监听器不存在，忽略
   }
 

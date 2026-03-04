@@ -73,6 +73,8 @@ const props = defineProps({
     type: Object,
     default: () => ({
       tags: { include: [], exclude: [] },
+      tagw: { include: [], exclude: [] },
+      lang: { include: [], exclude: [] },
       duration: null,
       rating: null,
       age: "all",
@@ -108,11 +110,22 @@ watch(
 );
 
 const getPresetTags = (preset) => {
-  if (!preset?.params?.tags) return [];
-  return [
-    ...(preset.params.tags.include || []),
-    ...(preset.params.tags.exclude || []),
+  if (!preset?.params) return [];
+
+  const normalTags = [
+    ...(preset.params.tags?.include || []),
+    ...(preset.params.tags?.exclude || []),
   ];
+  const lowWishTags = [
+    ...(preset.params.tagw?.include || []),
+    ...(preset.params.tagw?.exclude || []),
+  ].map((tag) => `低愿力:${tag}`);
+  const langs = [
+    ...(preset.params.lang?.include || []),
+    ...(preset.params.lang?.exclude || []),
+  ].map((lang) => `语言:${String(lang).toUpperCase()}`);
+
+  return [...normalTags, ...lowWishTags, ...langs];
 };
 
 const togglePreset = (name) => {
@@ -159,6 +172,19 @@ const savePreset = () => {
       tags: props.currentParams.tags
         ? JSON.parse(JSON.stringify(props.currentParams.tags))
         : { include: [], exclude: [] },
+      tagw: props.currentParams.tagw
+        ? JSON.parse(JSON.stringify(props.currentParams.tagw))
+        : { include: [], exclude: [] },
+      lang: props.currentParams.lang
+        ? {
+            include: (props.currentParams.lang.include || []).map((lang) =>
+              String(lang).toUpperCase(),
+            ),
+            exclude: (props.currentParams.lang.exclude || []).map((lang) =>
+              String(lang).toUpperCase(),
+            ),
+          }
+        : { include: [], exclude: [] },
       duration: props.currentParams.duration
         ? JSON.parse(JSON.stringify(props.currentParams.duration))
         : null,
@@ -198,6 +224,19 @@ const updatePreset = (preset) => {
         tags: props.currentParams.tags
           ? JSON.parse(JSON.stringify(props.currentParams.tags))
           : { include: [], exclude: [] },
+        tagw: props.currentParams.tagw
+          ? JSON.parse(JSON.stringify(props.currentParams.tagw))
+          : { include: [], exclude: [] },
+        lang: props.currentParams.lang
+          ? {
+              include: (props.currentParams.lang.include || []).map((lang) =>
+                String(lang).toUpperCase(),
+              ),
+              exclude: (props.currentParams.lang.exclude || []).map((lang) =>
+                String(lang).toUpperCase(),
+              ),
+            }
+          : { include: [], exclude: [] },
         duration: props.currentParams.duration
           ? JSON.parse(JSON.stringify(props.currentParams.duration))
           : null,
@@ -223,6 +262,8 @@ const updateParent = () => {
 const mergePresets = () => {
   const result = {
     tags: { include: [], exclude: [] },
+    tagw: { include: [], exclude: [] },
+    lang: { include: [], exclude: [] },
     duration: null,
     rating: null,
     age: "all",
@@ -244,8 +285,34 @@ const mergePresets = () => {
         if (!result.tags.exclude.includes(t)) result.tags.exclude.push(t);
       });
     }
-    if (p.duration?.value != null) result.duration = { ...p.duration };
-    if (p.rating?.value != null) result.rating = { ...p.rating };
+    if (p.tagw?.include?.length) {
+      p.tagw.include.forEach((t) => {
+        if (!result.tagw.include.includes(t)) result.tagw.include.push(t);
+      });
+    }
+    if (p.tagw?.exclude?.length) {
+      p.tagw.exclude.forEach((t) => {
+        if (!result.tagw.exclude.includes(t)) result.tagw.exclude.push(t);
+      });
+    }
+    if (p.lang?.include?.length) {
+      p.lang.include.forEach((lang) => {
+        const normalized = String(lang).toUpperCase();
+        if (!result.lang.include.includes(normalized))
+          result.lang.include.push(normalized);
+      });
+    }
+    if (p.lang?.exclude?.length) {
+      p.lang.exclude.forEach((lang) => {
+        const normalized = String(lang).toUpperCase();
+        if (!result.lang.exclude.includes(normalized))
+          result.lang.exclude.push(normalized);
+      });
+    }
+    if (p.duration?.value !== null && p.duration?.value !== undefined)
+      result.duration = { ...p.duration };
+    if (p.rating?.value !== null && p.rating?.value !== undefined)
+      result.rating = { ...p.rating };
     if (p.age && p.age !== "all") result.age = p.age;
   });
 

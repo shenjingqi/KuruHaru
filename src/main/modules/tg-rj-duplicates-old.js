@@ -6,9 +6,7 @@
 
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
-import { ipcMain, app } from "electron";
-import fs from "fs";
-import path from "path";
+import { ipcMain } from "electron";
 import { getConfig } from "./config";
 
 // 日志工具
@@ -282,7 +280,7 @@ export function setupRjDuplicatesIPC() {
   for (const handler of handlers) {
     try {
       ipcMain.removeHandler(handler);
-    } catch (e) {
+    } catch {
       // 忽略错误
     }
   }
