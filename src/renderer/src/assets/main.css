@@ -10,13 +10,21 @@
 html,
 body,
 #app {
+  width: 100%;
   height: 100%;
+  margin: 0;
   font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
 }
 
 body {
-  background: #e8e8e8;
+  background: #edf1f7;
   color: #18191c;
+}
+
+#app {
+  border-radius: 12px;
+  overflow: hidden;
+  background: #edf1f7;
 }
 
 /* 滚动条样式 */

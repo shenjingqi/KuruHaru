@@ -24,6 +24,14 @@ const api = {
   removeListener: (channel, func) => ipcRenderer.removeListener(channel, func),
   removeAllListeners: (channel) => ipcRenderer.removeAllListeners(channel),
 
+  windowControls: {
+    supported: process.platform === "win32",
+    minimize: () => ipcRenderer.invoke("window-minimize"),
+    toggleMaximize: () => ipcRenderer.invoke("window-toggle-maximize"),
+    close: () => ipcRenderer.invoke("window-close"),
+    isMaximized: () => ipcRenderer.invoke("window-is-maximized"),
+  },
+
   // 配置与文件
   loadConfig: () => ipcRenderer.invoke("get-config"),
   saveConfig: (config) => ipcRenderer.invoke("save-config", config),
@@ -97,6 +105,14 @@ const api = {
   },
   tgGetStatistics: () => ipcRenderer.invoke("tg-get-statistics"),
 
+  // Telegram 搜索 Bot
+  tgBotStart: () => ipcRenderer.invoke("tg-bot-start"),
+  tgBotStop: () => ipcRenderer.invoke("tg-bot-stop"),
+  tgBotStatus: () => ipcRenderer.invoke("tg-bot-status"),
+  tgBotSearch: (rjCode) => ipcRenderer.invoke("tg-bot-search", rjCode),
+  tgBotSyncHistory: (options) =>
+    ipcRenderer.invoke("tg-bot-sync-history", options),
+
   // 最近活动（新增）
   tgScanRecentActivity: () => ipcRenderer.invoke("tg-scan-recent-activity"),
   tgReadRecentActivity: () => ipcRenderer.invoke("tg-read-recent-activity"),
@@ -105,6 +121,10 @@ const api = {
   tgFindRaishunyaDate: () => ipcRenderer.invoke("tg-find-raishunya-date"),
   tgGetRJFilesByRange: (options) =>
     ipcRenderer.invoke("tg-get-rj-files-by-range", options),
+  tgScanRjDuplicates: (options) =>
+    ipcRenderer.invoke("tg-scan-rj-duplicates", options),
+  tgDeleteDuplicateMessages: (messageIds) =>
+    ipcRenderer.invoke("tg-delete-duplicate-messages", messageIds),
 
   // 🟢 日志监听保护 - 移除旧监听器后再注册
   onLogUpdate: (callback) => {

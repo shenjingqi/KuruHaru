@@ -9,6 +9,11 @@ import { setupAsmrIPC } from "./modules/asmr-localization";
 import { setupWhisperIPC } from "./modules/whisper";
 import { setupTelegramIPC } from "./utils/telegram-login";
 import { setupTgHistoryIPC } from "./modules/tg-recent-activity";
+import {
+  setupTgSearchBotIPC,
+  triggerStartupHistorySync,
+} from "./modules/tg-search-bot";
+import { setupRjDuplicatesIPC } from "./modules/tg-rj-duplicates";
 import { setupConfigIPC, getConfig, saveConfig } from "./modules/config";
 import { scanForArchives } from "./utils";
 import { createLogSender } from "./utils/logger";
@@ -21,6 +26,64 @@ const logger = createLogSender("app");
 
 // 托盘图标
 let tray = null;
+
+function getWindowChromeOptions() {
+  if (process.platform === "win32") {
+    return {
+      titleBarStyle: "hidden",
+      titleBarOverlay: false,
+      roundedCorners: true,
+    };
+  }
+
+  return {};
+}
+
+function getAliveMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return null;
+  }
+
+  return mainWindow;
+}
+
+function registerWindowControlIPC() {
+  ipcMain.handle("window-minimize", () => {
+    const win = getAliveMainWindow();
+    if (!win) return false;
+
+    win.minimize();
+    return true;
+  });
+
+  ipcMain.handle("window-toggle-maximize", () => {
+    const win = getAliveMainWindow();
+    if (!win) return false;
+
+    if (win.isMaximized()) {
+      win.unmaximize();
+    } else {
+      win.maximize();
+    }
+
+    return win.isMaximized();
+  });
+
+  ipcMain.handle("window-close", () => {
+    const win = getAliveMainWindow();
+    if (!win) return false;
+
+    win.close();
+    return true;
+  });
+
+  ipcMain.handle("window-is-maximized", () => {
+    const win = getAliveMainWindow();
+    if (!win) return false;
+
+    return win.isMaximized();
+  });
+}
 
 // 应用系统设置
 function applySystemSettings() {
@@ -141,6 +204,7 @@ function createWindow() {
     autoHideMenuBar: true,
     skipTaskbar: false,
     icon: icon,
+    ...getWindowChromeOptions(),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       sandbox: false,
@@ -204,6 +268,8 @@ function createWindow() {
 
   return mainWindow;
 }
+
+registerWindowControlIPC();
 
 // 注册通用文件选择接口
 ipcMain.handle("dialog:openFile", async (_event, options = {}) => {
@@ -571,7 +637,20 @@ app.whenReady().then(() => {
   setupWhisperIPC();
   setupTelegramIPC();
   setupTgHistoryIPC();
+  setupTgSearchBotIPC();
+  setupRjDuplicatesIPC();
   setupConfigIPC();
+
+  // 4. 启动后默认执行一次 TG 索引同步（异步，不阻塞应用启动）
+  setTimeout(() => {
+    triggerStartupHistorySync().catch((error) => {
+      logger.error(
+        "[tg-search-bot] 启动自动同步任务异常",
+        error?.message || error,
+      );
+    });
+  }, 1500);
+
   logger.info("所有功能模块加载完成");
 
   app.on("activate", () => {
