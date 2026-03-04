@@ -97,8 +97,8 @@
       <div class="card-body">
         <n-data-table
           :columns="columns"
-          :data="scanResults"
-          :row-key="(row) => row.userMessage.messageId"
+          :data="sortedScanResults"
+          :row-key="getRowKey"
           :checked-row-keys="selectedRowKeys"
           :row-class-name="getRowClassName"
           :pagination="{ pageSize: 20, showSizePicker: true }"
@@ -143,7 +143,6 @@
 <script setup>
 import { ref, computed, onMounted, h } from "vue";
 import { useMessage, useDialog } from "naive-ui";
-import { CheckCircleOutlined, ExclamationCircleOutlined } from "@vicons/antd";
 
 const message = useMessage();
 const dialog = useDialog();
@@ -166,13 +165,173 @@ const statistics = ref({
   deletedCount: 0,
 });
 
+function toMessageId(rawValue) {
+  const normalized = Number(rawValue);
+  if (!Number.isInteger(normalized) || normalized <= 0) {
+    return null;
+  }
+  return normalized;
+}
+
+function toPeerId(rawValue) {
+  if (rawValue === null || rawValue === undefined) {
+    return null;
+  }
+
+  if (typeof rawValue === "number") {
+    return Number.isFinite(rawValue) ? String(Math.trunc(rawValue)) : null;
+  }
+
+  if (typeof rawValue === "bigint") {
+    return rawValue.toString();
+  }
+
+  if (typeof rawValue === "string") {
+    const trimmed = rawValue.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  if (typeof rawValue === "object") {
+    if ("value" in rawValue) {
+      return toPeerId(rawValue.value);
+    }
+    if ("userId" in rawValue) {
+      return toPeerId(rawValue.userId);
+    }
+    if ("channelId" in rawValue) {
+      return toPeerId(rawValue.channelId);
+    }
+    if ("chatId" in rawValue) {
+      return toPeerId(rawValue.chatId);
+    }
+  }
+
+  return null;
+}
+
+function getMessageId(messageData) {
+  if (!messageData) {
+    return null;
+  }
+  return toMessageId(messageData.messageId ?? messageData.id);
+}
+
+function getMessageIdText(messageData) {
+  const messageId = getMessageId(messageData);
+  return messageId === null ? "未知" : String(messageId);
+}
+
+function getSenderId(messageData) {
+  if (!messageData) {
+    return null;
+  }
+
+  return toPeerId(
+    messageData.senderInfo?.senderId ??
+      messageData.senderId ??
+      messageData.fromId,
+  );
+}
+
+function getSenderIdText(messageData) {
+  const senderId = getSenderId(messageData);
+  return senderId === null ? "未知" : senderId;
+}
+
+function getSenderName(messageData) {
+  if (!messageData) {
+    return null;
+  }
+
+  const senderName =
+    messageData.senderInfo?.name ||
+    messageData.senderInfo?.username ||
+    messageData.postAuthor;
+
+  if (typeof senderName !== "string") {
+    return null;
+  }
+
+  const normalized = senderName.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function getSenderNameText(messageData) {
+  return getSenderName(messageData) || "未知";
+}
+
+function getMessageTimestamp(messageData) {
+  if (!messageData?.date) {
+    return 0;
+  }
+
+  const timestamp = new Date(messageData.date).getTime();
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function getRowKey(row) {
+  const userMessageId = getMessageId(row.userMessage);
+  if (userMessageId !== null) {
+    return userMessageId;
+  }
+
+  const botMessageId = getMessageId(row.botMessage);
+  if (botMessageId !== null) {
+    return `bot-${botMessageId}`;
+  }
+
+  return `${row.rjCode || "unknown"}-${row.associationMethod || "none"}-${new Date(
+    row.userMessage?.date || 0,
+  ).getTime()}`;
+}
+
+function collectMessageIds(rows) {
+  const messageIds = rows
+    .map((row) => [getMessageId(row.userMessage), getMessageId(row.botMessage)])
+    .flat()
+    .filter((messageId) => messageId !== null);
+
+  return [...new Set(messageIds)];
+}
+
+const selectedRowKeySet = computed(() => new Set(selectedRowKeys.value));
+
 // 计算属性：标记为删除但未选中的行
 const duplicatesToDelete = computed(() => {
-  return scanResults.value.filter(
-    (row) =>
+  return scanResults.value.filter((row) => {
+    const userMessageId = getMessageId(row.userMessage);
+    return (
       row.keepStatus === "delete" &&
-      !selectedRowKeys.value.includes(row.userMessage.messageId),
-  );
+      userMessageId !== null &&
+      !selectedRowKeySet.value.has(userMessageId)
+    );
+  });
+});
+
+const sortedScanResults = computed(() => {
+  return [...scanResults.value].sort((leftRow, rightRow) => {
+    const leftIsDuplicate = leftRow.isDuplicate ? 1 : 0;
+    const rightIsDuplicate = rightRow.isDuplicate ? 1 : 0;
+    if (leftIsDuplicate !== rightIsDuplicate) {
+      return rightIsDuplicate - leftIsDuplicate;
+    }
+
+    const leftNeedsDelete = leftRow.keepStatus === "delete" ? 1 : 0;
+    const rightNeedsDelete = rightRow.keepStatus === "delete" ? 1 : 0;
+    if (leftNeedsDelete !== rightNeedsDelete) {
+      return rightNeedsDelete - leftNeedsDelete;
+    }
+
+    const leftTime = getMessageTimestamp(leftRow.userMessage);
+    const rightTime = getMessageTimestamp(rightRow.userMessage);
+    if (leftTime !== rightTime) {
+      return rightTime - leftTime;
+    }
+
+    return String(leftRow.rjCode || "").localeCompare(
+      String(rightRow.rjCode || ""),
+    );
+  });
 });
 
 // 表格列配置
@@ -207,8 +366,18 @@ const columns = [
       return h("div", null, [
         h(
           "div",
+          { style: { fontSize: "12px", color: "#666", fontWeight: "500" } },
+          `发送者: ${getSenderNameText(row.userMessage)}`,
+        ),
+        h(
+          "div",
           { style: { fontSize: "12px", color: "#666" } },
-          `ID: ${row.userMessage.messageId}`,
+          `ID: ${getMessageIdText(row.userMessage)}`,
+        ),
+        h(
+          "div",
+          { style: { fontSize: "12px", color: "#999" } },
+          `发送者ID: ${getSenderIdText(row.userMessage)}`,
         ),
         h(
           "div",
@@ -229,8 +398,18 @@ const columns = [
       return h("div", null, [
         h(
           "div",
+          { style: { fontSize: "12px", color: "#666", fontWeight: "500" } },
+          `发送者: ${getSenderNameText(row.botMessage)}`,
+        ),
+        h(
+          "div",
           { style: { fontSize: "12px", color: "#666" } },
-          `ID: ${row.botMessage.messageId}`,
+          `ID: ${getMessageIdText(row.botMessage)}`,
+        ),
+        h(
+          "div",
+          { style: { fontSize: "12px", color: "#999" } },
+          `发送者ID: ${getSenderIdText(row.botMessage)}`,
         ),
         h(
           "div",
@@ -297,12 +476,88 @@ function getRowClassName(row) {
 
 // 处理选择变化
 function handleSelectionChange(keys) {
-  selectedRowKeys.value = keys;
+  selectedRowKeys.value = keys
+    .map((key) => toMessageId(key))
+    .filter((key) => key !== null);
 }
 
 // 清空选择
 function clearSelection() {
   selectedRowKeys.value = [];
+}
+
+function getDeleteFailureText(result) {
+  const firstError = Array.isArray(result?.errors) ? result.errors[0] : null;
+  if (!firstError) {
+    return result?.error || "未知错误";
+  }
+
+  const reason = firstError.error || firstError.message || "未知错误";
+  const code =
+    firstError.code !== undefined && firstError.code !== null
+      ? ` (code=${firstError.code})`
+      : "";
+
+  return `${reason}${code}`;
+}
+
+function applyDeletedMessageIds(deletedMessageIds) {
+  const deletedIds = new Set(
+    (Array.isArray(deletedMessageIds) ? deletedMessageIds : [])
+      .map((id) => toMessageId(id))
+      .filter((id) => id !== null),
+  );
+
+  if (deletedIds.size === 0) {
+    return;
+  }
+
+  scanResults.value = scanResults.value.filter((row) => {
+    const userMessageId = getMessageId(row.userMessage);
+    const botMessageId = getMessageId(row.botMessage);
+
+    return (
+      (userMessageId === null || !deletedIds.has(userMessageId)) &&
+      (botMessageId === null || !deletedIds.has(botMessageId))
+    );
+  });
+
+  selectedRowKeys.value = [];
+  statistics.value.messagesToDelete = scanResults.value.filter(
+    (row) => row.keepStatus === "delete",
+  ).length;
+}
+
+function confirmDeleteAction(options) {
+  return new Promise((resolve) => {
+    let settled = false;
+
+    const settle = (value) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve(value);
+    };
+
+    dialog.warning({
+      ...options,
+      onPositiveClick: () => {
+        settle(true);
+        return true;
+      },
+      onNegativeClick: () => {
+        settle(false);
+        return true;
+      },
+      onClose: () => {
+        settle(false);
+      },
+      onMaskClick: () => {
+        settle(false);
+      },
+    });
+  });
 }
 
 // 扫描操作
@@ -315,12 +570,35 @@ async function handleScan() {
   selectedRowKeys.value = [];
 
   try {
+    console.info("[RJ重复检测] tg-scan-rj-duplicates 请求", {
+      limit: scanLimit.value,
+    });
+
     const result = await window.api.tgScanRjDuplicates({
       limit: scanLimit.value,
     });
 
+    console.info("[RJ重复检测] tg-scan-rj-duplicates 响应", {
+      success: result?.success,
+      duplicateCount: result?.duplicates?.length ?? 0,
+      statistics: result?.statistics,
+      sample: Array.isArray(result?.duplicates)
+        ? result.duplicates.slice(0, 3).map((row) => ({
+            rjCode: row.rjCode,
+            userMessageId: getMessageId(row.userMessage),
+            userSenderId: getSenderId(row.userMessage),
+            userSenderName: getSenderName(row.userMessage),
+            botMessageId: getMessageId(row.botMessage),
+            botSenderId: getSenderId(row.botMessage),
+            botSenderName: getSenderName(row.botMessage),
+          }))
+        : [],
+    });
+
     if (result.success) {
-      scanResults.value = result.duplicates;
+      scanResults.value = Array.isArray(result.duplicates)
+        ? result.duplicates
+        : [];
       statistics.value = result.statistics;
       message.success(
         `扫描完成，找到 ${result.statistics.duplicateRJs} 个重复RJ号`,
@@ -340,18 +618,14 @@ async function handleScan() {
 
 // 批量删除所有标记为删除的消息
 async function handleBatchDelete() {
-  const messageIds = duplicatesToDelete.value
-    .map((row) =>
-      [row.userMessage.messageId, row.botMessage?.messageId].filter(Boolean),
-    )
-    .flat();
+  const messageIds = collectMessageIds(duplicatesToDelete.value);
 
   if (messageIds.length === 0) {
     message.warning("没有需要删除的消息");
     return;
   }
 
-  const confirmed = await dialog.warning({
+  const confirmed = await confirmDeleteAction({
     title: "确认删除",
     content: `确定要删除 ${duplicatesToDelete.value.length} 个待删除配对中的所有消息吗？此操作不可恢复。`,
     positiveText: "删除",
@@ -362,29 +636,35 @@ async function handleBatchDelete() {
 
   isDeleting.value = true;
   try {
+    console.info("[RJ重复检测] tg-delete-duplicate-messages 请求", {
+      scene: "batch",
+      pairCount: duplicatesToDelete.value.length,
+      messageIds,
+    });
+
     const result = await window.api.tgDeleteDuplicateMessages(messageIds);
 
-    if (result.success) {
-      statistics.value.deletedCount += result.deletedCount;
-      message.success(`成功删除 ${result.deletedCount} 条消息`);
+    console.info("[RJ重复检测] tg-delete-duplicate-messages 响应", {
+      scene: "batch",
+      success: result?.success,
+      deletedCount: result?.deletedCount,
+      errors: result?.errors,
+    });
 
-      // 从扫描结果中移除已删除的消息
-      const deletedIds = new Set(messageIds);
-      scanResults.value = scanResults.value.filter(
-        (row) =>
-          !deletedIds.has(row.userMessage.messageId) &&
-          (!row.botMessage || !deletedIds.has(row.botMessage.messageId)),
+    const deletedCount = Number(result?.deletedCount || 0);
+    if (deletedCount > 0) {
+      statistics.value.deletedCount += deletedCount;
+      applyDeletedMessageIds(result?.deletedMessageIds || []);
+    }
+
+    if (result?.success) {
+      message.success(`成功删除 ${deletedCount} 条消息`);
+    } else if (result?.partial) {
+      message.warning(
+        `部分删除成功：成功 ${deletedCount} 条，失败 ${result?.errors?.length || 0} 条。失败原因：${getDeleteFailureText(result)}`,
       );
-
-      // 清空选择
-      selectedRowKeys.value = [];
-
-      // 更新统计
-      statistics.value.messagesToDelete = scanResults.value.filter(
-        (r) => r.keepStatus === "delete",
-      ).length;
     } else {
-      message.error(`删除失败: ${result.error}`);
+      message.error(`删除失败：${getDeleteFailureText(result)}`);
     }
   } catch (error) {
     message.error(`删除失败: ${error.message}`);
@@ -396,21 +676,17 @@ async function handleBatchDelete() {
 // 删除选中的消息
 async function handleSelectedDelete() {
   const selectedData = scanResults.value.filter((row) =>
-    selectedRowKeys.value.includes(row.userMessage.messageId),
+    selectedRowKeySet.value.has(getMessageId(row.userMessage)),
   );
 
-  const messageIds = selectedData
-    .map((row) =>
-      [row.userMessage.messageId, row.botMessage?.messageId].filter(Boolean),
-    )
-    .flat();
+  const messageIds = collectMessageIds(selectedData);
 
   if (messageIds.length === 0) {
     message.warning("没有选中的消息");
     return;
   }
 
-  const confirmed = await dialog.warning({
+  const confirmed = await confirmDeleteAction({
     title: "确认删除",
     content: `确定要删除选中的 ${selectedData.length} 个配对中的所有消息吗？此操作不可恢复。`,
     positiveText: "删除",
@@ -421,29 +697,35 @@ async function handleSelectedDelete() {
 
   isDeleting.value = true;
   try {
+    console.info("[RJ重复检测] tg-delete-duplicate-messages 请求", {
+      scene: "selected",
+      selectedPairs: selectedData.length,
+      messageIds,
+    });
+
     const result = await window.api.tgDeleteDuplicateMessages(messageIds);
 
-    if (result.success) {
-      statistics.value.deletedCount += result.deletedCount;
-      message.success(`成功删除 ${result.deletedCount} 条消息`);
+    console.info("[RJ重复检测] tg-delete-duplicate-messages 响应", {
+      scene: "selected",
+      success: result?.success,
+      deletedCount: result?.deletedCount,
+      errors: result?.errors,
+    });
 
-      // 从扫描结果中移除已删除的消息
-      const deletedIds = new Set(messageIds);
-      scanResults.value = scanResults.value.filter(
-        (row) =>
-          !deletedIds.has(row.userMessage.messageId) &&
-          (!row.botMessage || !deletedIds.has(row.botMessage.messageId)),
+    const deletedCount = Number(result?.deletedCount || 0);
+    if (deletedCount > 0) {
+      statistics.value.deletedCount += deletedCount;
+      applyDeletedMessageIds(result?.deletedMessageIds || []);
+    }
+
+    if (result?.success) {
+      message.success(`成功删除 ${deletedCount} 条消息`);
+    } else if (result?.partial) {
+      message.warning(
+        `部分删除成功：成功 ${deletedCount} 条，失败 ${result?.errors?.length || 0} 条。失败原因：${getDeleteFailureText(result)}`,
       );
-
-      // 清空选择
-      selectedRowKeys.value = [];
-
-      // 更新统计
-      statistics.value.messagesToDelete = scanResults.value.filter(
-        (r) => r.keepStatus === "delete",
-      ).length;
     } else {
-      message.error(`删除失败: ${result.error}`);
+      message.error(`删除失败：${getDeleteFailureText(result)}`);
     }
   } catch (error) {
     message.error(`删除失败: ${error.message}`);
