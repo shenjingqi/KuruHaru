@@ -28,6 +28,7 @@
 - 关联前统计日志新增 `channelWithRJ/originWithRJ/channel` 字段，便于快速判断是“发送者分类变化”还是“关联算法失效”
 - 修复确认弹窗误删：`删除选中/一键删除` 改为 Promise 确认流，只有点“删除”才会执行，不再出现未确认自动删除
 - 删除链路新增频道镜像删除：当消息来源为频道发送者且存在 `fwdFrom.channelPost/replyToTopId` 映射时，会同步删除频道侧对应消息
+- RJ重复检测改为**仅使用 `tg.channel` 作为扫描与删除目标**，不再回退 `tg.discussion`，确保范围严格限定在频道
 
 ## 影响文件
 

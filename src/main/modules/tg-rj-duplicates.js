@@ -671,14 +671,24 @@ function associateUserBotMessages(messages, config) {
 async function scanRjDuplicates(options) {
   try {
     const config = await getConfig();
-    const chatIdStr = config.tg.discussion || config.tg.channel;
-    if (!chatIdStr) throw new Error("未配置讨论组或频道 ID");
+    const channelIdStr = config.tg.channel;
+    if (!channelIdStr) throw new Error("未配置频道 ID");
+
+    const discussionIdStr =
+      typeof config.tg.discussion === "string"
+        ? config.tg.discussion.trim()
+        : String(config.tg.discussion || "").trim();
+    if (discussionIdStr && discussionIdStr !== String(channelIdStr).trim()) {
+      logger.info(
+        `[接口日志] 仅频道模式已启用，扫描时忽略讨论组 ID=${discussionIdStr}`,
+      );
+    }
 
     const limit = Number(options?.limit);
     const scanLimit = Number.isInteger(limit) && limit > 0 ? limit : 1000;
 
     const telegramClient = await getConnectedClient();
-    const entity = await resolveEntity(telegramClient, chatIdStr);
+    const entity = await resolveEntity(telegramClient, channelIdStr);
 
     logger.info(`开始扫描最近 ${scanLimit} 条消息中的重复 RJ 号`);
 
@@ -941,8 +951,18 @@ async function scanRjDuplicates(options) {
 async function deleteDuplicateMessages(messageIds) {
   try {
     const config = await getConfig();
-    const chatIdStr = config.tg.discussion || config.tg.channel;
-    if (!chatIdStr) throw new Error("未配置讨论组或频道 ID");
+    const channelIdStr = config.tg.channel;
+    if (!channelIdStr) throw new Error("未配置频道 ID");
+
+    const discussionIdStr =
+      typeof config.tg.discussion === "string"
+        ? config.tg.discussion.trim()
+        : String(config.tg.discussion || "").trim();
+    if (discussionIdStr && discussionIdStr !== String(channelIdStr).trim()) {
+      logger.info(
+        `[接口日志] 仅频道模式已启用，删除时忽略讨论组 ID=${discussionIdStr}`,
+      );
+    }
 
     const normalizedMessageIds = normalizeMessageIdList(messageIds);
 
@@ -961,12 +981,12 @@ async function deleteDuplicateMessages(messageIds) {
     }
 
     const telegramClient = await getConnectedClient();
-    const entity = await resolveEntity(telegramClient, chatIdStr);
+    const entity = await resolveEntity(telegramClient, channelIdStr);
     const entityType = getEntityTypeLabel(entity);
-    const configuredChatId = normalizePeerId(chatIdStr);
+    const configuredChatId = normalizePeerId(channelIdStr);
 
     logger.info(
-      `[接口日志] 开始删除 ${normalizedMessageIds.length} 条消息，目标实体=${entityType}, chatId=${chatIdStr}`,
+      `[接口日志] 开始删除 ${normalizedMessageIds.length} 条消息，目标实体=${entityType}, channelId=${channelIdStr}`,
     );
 
     let deletedCount = 0;
