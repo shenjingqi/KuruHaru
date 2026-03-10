@@ -1,0 +1,1558 @@
+:root {
+  --app-accent: #adb571;
+  --sys-success-bg: #eaf7f0;
+  --sys-success-text: #0f6a3b;
+  --sys-success-border: #a9dec2;
+  --sys-info-bg: #eaf3ff;
+  --sys-info-text: #0f4c9a;
+  --sys-info-border: #afcbf5;
+  --sys-warning-bg: #fff6e6;
+  --sys-warning-text: #8a5300;
+  --sys-warning-border: #f2cd8a;
+  --sys-error-bg: #fdecec;
+  --sys-error-text: #9b1c1c;
+  --sys-error-border: #f2b2b2;
+}
+
+:root[data-app-theme="dark"] {
+  --sys-success-bg: #173226;
+  --sys-success-text: #77d9a4;
+  --sys-success-border: #2d6e4b;
+  --sys-info-bg: #182d49;
+  --sys-info-text: #8ec2ff;
+  --sys-info-border: #32547d;
+  --sys-warning-bg: #3a2b12;
+  --sys-warning-text: #ffcc73;
+  --sys-warning-border: #6e5329;
+  --sys-error-bg: #3a1b1b;
+  --sys-error-text: #ff9b9b;
+  --sys-error-border: #7a3636;
+}
+
+#app .app-shell {
+  --page-surface-bg: color-mix(
+    in srgb,
+    var(--surface-1, #f7f4ea) 94%,
+    #fffdf5 6%
+  );
+  --page-header-bg: color-mix(
+    in srgb,
+    var(--surface-1, #f7f4ea) 90%,
+    #efe8d4 10%
+  );
+  --page-panel-bg: color-mix(
+    in srgb,
+    var(--surface-1, #fcfaf3) 96%,
+    #fffdf7 4%
+  );
+  --page-panel-strong-bg: color-mix(
+    in srgb,
+    var(--surface-2, #f1eddf) 88%,
+    #fffdf7 12%
+  );
+  --page-surface-border: rgba(190, 191, 162, 0.88);
+  --page-shadow: 0 16px 28px rgba(65, 59, 36, 0.05);
+  --page-shadow-subtle: 0 10px 18px rgba(65, 59, 36, 0.04);
+  --page-text-strong: #1f2118;
+  --page-text-muted: #5d614e;
+  --page-text-soft: #85896f;
+  --page-divider: color-mix(
+    in srgb,
+    var(--page-surface-border) 76%,
+    transparent
+  );
+  --page-control-bg: color-mix(in srgb, var(--page-panel-bg) 88%, #ece9d8 12%);
+  --page-control-border: color-mix(
+    in srgb,
+    var(--page-surface-border) 90%,
+    transparent
+  );
+  --page-control-hover: color-mix(
+    in srgb,
+    var(--page-panel-bg) 74%,
+    #ffffff 26%
+  );
+  --page-control-active: color-mix(
+    in srgb,
+    var(--page-panel-bg) 68%,
+    #d6d8be 32%
+  );
+  --page-selection-bg: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent)) 14%,
+    #f4f2e7 86%
+  );
+  --page-selection-border: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent)) 26%,
+    transparent
+  );
+}
+
+#app .page-container {
+  color: var(--page-text-strong) !important;
+}
+
+#app .page-header,
+#app .page-header-simple {
+  background: var(--page-header-bg) !important;
+  border: 1px solid var(--page-surface-border) !important;
+  border-radius: 16px !important;
+  box-shadow: var(--page-shadow-subtle);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+#app .card,
+#app .content-box,
+#app .status-card,
+#app .stat-card,
+#app .tool-card,
+#app .split-left,
+#app .split-right,
+#app .status-bar,
+#app .files-container,
+#app .log-panel,
+#app .config-section,
+#app .results-section,
+#app .filter-section {
+  background: var(--page-panel-bg) !important;
+  border: 1px solid var(--page-surface-border) !important;
+  border-radius: 16px !important;
+  box-shadow: var(--page-shadow-subtle);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+#app .status-card,
+#app .stat-card {
+  background: var(--page-panel-strong-bg) !important;
+}
+
+#app .page-title,
+#app .section-title {
+  color: var(--page-text-strong) !important;
+  font-weight: 600 !important;
+}
+
+#app .page-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent)) 72%,
+    var(--page-text-soft) 28%
+  ) !important;
+}
+
+#app .page-header-main,
+#app .header-copy,
+#app .section-head-copy {
+  min-width: 0;
+}
+
+#app .page-header-subtitle,
+#app .section-summary,
+#app .card-caption,
+#app .form-hint,
+#app .path-hint,
+#app .section-caption {
+  color: var(--page-text-muted) !important;
+}
+
+#app .page-header-subtitle,
+#app .section-summary,
+#app .card-caption {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+#app .page-header-meta,
+#app .header-chip-row,
+#app .section-head-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+#app .header-chip,
+#app .info-chip,
+#app .summary-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--page-control-border);
+  background: color-mix(in srgb, var(--page-control-bg) 84%, #ffffff 16%);
+  color: var(--page-text-muted) !important;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+#app .header-chip.accent,
+#app .summary-chip.accent {
+  background: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent)) 82%,
+    #000000 18%
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent)) 58%,
+    transparent
+  ) !important;
+  color: #ffffff !important;
+  box-shadow: 0 8px 18px
+    color-mix(in srgb, var(--accent, var(--app-accent)) 18%, transparent);
+}
+
+#app .header-chip.success,
+#app .summary-chip.success {
+  background: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent)) 74%,
+    #111111 26%
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent)) 56%,
+    transparent
+  ) !important;
+  color: #ffffff !important;
+}
+
+#app .section-head-copy {
+  flex: 1;
+}
+
+#app .section-meta {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--page-text-soft) !important;
+}
+
+#app .form-label,
+#app .stat-label,
+#app .file-name,
+#app .status-info,
+#app .toggle-label,
+#app .path-hint {
+  color: var(--page-text-muted) !important;
+}
+
+#app .stat-number,
+#app .status-name,
+#app .range-value,
+#app .time {
+  color: var(--page-text-strong) !important;
+}
+
+#app .time,
+#app .empty-state,
+#app .empty-icon {
+  color: var(--page-text-muted) !important;
+}
+
+#app .btn-primary {
+  background: var(--accent, var(--app-accent, #adb571)) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent, #adb571)) 88%,
+    #ffffff 12%
+  ) !important;
+  color: #fff !important;
+  box-shadow: 0 10px 20px
+    color-mix(in srgb, var(--accent, var(--app-accent)) 18%, transparent);
+}
+
+#app .btn-primary:hover:not(:disabled) {
+  background: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent, #adb571)) 88%,
+    #000000 12%
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent, #adb571)) 84%,
+    #000000 16%
+  ) !important;
+}
+
+#app .btn-secondary,
+#app .browse-btn,
+#app .toggle-btn,
+#app .nav-group-pill,
+#app .nav-group-header {
+  background: var(--page-control-bg) !important;
+  border-color: var(--page-control-border) !important;
+  color: var(--page-text-strong) !important;
+}
+
+#app .btn-secondary:hover:not(:disabled),
+#app .browse-btn:hover:not(:disabled),
+#app .nav-group-pill:hover,
+#app .nav-group-header:hover {
+  background: var(--page-control-hover) !important;
+}
+
+#app .input,
+#app .select,
+#app input[type="text"],
+#app input[type="number"],
+#app input[type="password"],
+#app textarea,
+#app select {
+  background: var(--page-control-bg) !important;
+  border: 1px solid var(--page-control-border) !important;
+  color: var(--page-text-strong) !important;
+}
+
+#app .input::placeholder,
+#app input::placeholder,
+#app textarea::placeholder {
+  color: var(--page-text-soft) !important;
+}
+
+#app .input:focus,
+#app .select:focus,
+#app input:focus,
+#app textarea:focus,
+#app select:focus {
+  border-color: var(--accent, var(--app-accent, #adb571)) !important;
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--accent, var(--app-accent)) 14%, transparent) !important;
+  outline: none;
+}
+
+#app .history-item,
+#app .list-item,
+#app .row-item,
+#app .divider {
+  border-color: var(--page-divider) !important;
+}
+
+#app .code-badge {
+  background: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent, #adb571)) 68%,
+    #1c1f18 32%
+  ) !important;
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--accent, var(--app-accent, #adb571)) 44%,
+      transparent
+    ) !important;
+  color: #ffffff !important;
+}
+
+#app .status-tag.online,
+#app .status-badge.online {
+  background: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent, #adb571)) 80%,
+    #111111 20%
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent, #adb571)) 58%,
+    transparent
+  ) !important;
+  color: #ffffff !important;
+  box-shadow: 0 8px 18px
+    color-mix(
+      in srgb,
+      var(--accent, var(--app-accent, #adb571)) 16%,
+      transparent
+    );
+}
+
+#app .status-tag.offline,
+#app .status-badge.offline {
+  background: rgba(118, 118, 118, 0.12) !important;
+  border-color: rgba(118, 118, 118, 0.22) !important;
+  color: #505050 !important;
+}
+
+.app-shell.window-dark {
+  --page-surface-bg: rgba(27, 29, 23, var(--surface-opacity, 0.94));
+  --page-header-bg: rgba(36, 39, 30, var(--header-opacity, 0.92));
+  --page-panel-bg: rgba(35, 38, 30, var(--surface-opacity, 0.94));
+  --page-panel-strong-bg: rgba(43, 46, 36, var(--surface-strong-opacity, 0.96));
+  --page-surface-border: rgba(173, 181, 113, var(--surface-border-opacity, 1));
+  --page-shadow: 0 18px 30px rgba(0, 0, 0, 0.16);
+  --page-shadow-subtle: 0 14px 24px rgba(0, 0, 0, 0.14);
+  --page-text-strong: #ffffff;
+  --page-text-muted: #ffffff;
+  --page-text-soft: #ffffff;
+  --page-control-bg: rgba(52, 55, 44, var(--control-opacity, 0.96));
+  --page-control-hover: rgba(
+    45,
+    55,
+    69,
+    calc(var(--control-opacity, 0.96) + 0.08)
+  );
+  --page-control-active: rgba(
+    53,
+    66,
+    82,
+    calc(var(--control-opacity, 0.96) + 0.12)
+  );
+  --page-selection-bg: rgba(
+    104,
+    112,
+    68,
+    calc(var(--surface-strong-opacity, 0.96) + 0.04)
+  );
+  --page-selection-border: rgba(173, 181, 113, 0.42);
+}
+
+.app-shell.window-dark .page-container,
+.app-shell.window-dark .page-container h1,
+.app-shell.window-dark .page-container h2,
+.app-shell.window-dark .page-container h3,
+.app-shell.window-dark .page-container h4,
+.app-shell.window-dark .page-container h5,
+.app-shell.window-dark .page-container h6,
+.app-shell.window-dark .page-container p,
+.app-shell.window-dark .page-container span,
+.app-shell.window-dark .page-container label,
+.app-shell.window-dark .page-container li,
+.app-shell.window-dark .page-container td,
+.app-shell.window-dark .page-container th,
+.app-shell.window-dark .page-container strong,
+.app-shell.window-dark .page-container small {
+  color: #ffffff !important;
+}
+
+.app-shell.window-dark .page-container {
+  color: var(--page-text-strong) !important;
+}
+
+.app-shell.window-dark .page-title,
+.app-shell.window-dark .section-title {
+  color: var(--page-text-strong) !important;
+}
+
+.app-shell.window-system-blur.window-dark .page-header,
+.app-shell.window-system-blur.window-dark .page-header-simple,
+.app-shell.window-system-blur.window-dark .card,
+.app-shell.window-system-blur.window-dark .content-box,
+.app-shell.window-system-blur.window-dark .status-card,
+.app-shell.window-system-blur.window-dark .stat-card,
+.app-shell.window-system-blur.window-dark .tool-card,
+.app-shell.window-system-blur.window-dark .split-left,
+.app-shell.window-system-blur.window-dark .split-right,
+.app-shell.window-system-blur.window-dark .status-bar,
+.app-shell.window-system-blur.window-dark .files-container,
+.app-shell.window-system-blur.window-dark .log-panel,
+.app-shell.window-system-blur.window-dark .config-section,
+.app-shell.window-system-blur.window-dark .results-section,
+.app-shell.window-system-blur.window-dark .filter-section,
+.app-shell.window-gpu-blur.window-dark .page-header,
+.app-shell.window-gpu-blur.window-dark .page-header-simple,
+.app-shell.window-gpu-blur.window-dark .card,
+.app-shell.window-gpu-blur.window-dark .content-box,
+.app-shell.window-gpu-blur.window-dark .status-card,
+.app-shell.window-gpu-blur.window-dark .stat-card,
+.app-shell.window-gpu-blur.window-dark .tool-card,
+.app-shell.window-gpu-blur.window-dark .split-left,
+.app-shell.window-gpu-blur.window-dark .split-right,
+.app-shell.window-gpu-blur.window-dark .status-bar,
+.app-shell.window-gpu-blur.window-dark .files-container,
+.app-shell.window-gpu-blur.window-dark .log-panel,
+.app-shell.window-gpu-blur.window-dark .config-section,
+.app-shell.window-gpu-blur.window-dark .results-section,
+.app-shell.window-gpu-blur.window-dark .filter-section {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 10px 24px rgba(0, 0, 0, 0.16) !important;
+}
+
+.app-shell.window-system-blur .page-header,
+.app-shell.window-system-blur .page-header-simple,
+.app-shell.window-system-blur .card,
+.app-shell.window-system-blur .content-box,
+.app-shell.window-system-blur .status-card,
+.app-shell.window-system-blur .stat-card,
+.app-shell.window-system-blur .tool-card,
+.app-shell.window-system-blur .split-left,
+.app-shell.window-system-blur .split-right,
+.app-shell.window-system-blur .status-bar,
+.app-shell.window-system-blur .files-container,
+.app-shell.window-system-blur .log-panel,
+.app-shell.window-system-blur .config-section,
+.app-shell.window-system-blur .results-section,
+.app-shell.window-system-blur .filter-section {
+  backdrop-filter: blur(calc(var(--panel-blur) * 0.7)) saturate(112%);
+  -webkit-backdrop-filter: blur(calc(var(--panel-blur) * 0.7)) saturate(112%);
+}
+
+.app-shell.window-gpu-blur .page-header,
+.app-shell.window-gpu-blur .page-header-simple,
+.app-shell.window-gpu-blur .card,
+.app-shell.window-gpu-blur .content-box,
+.app-shell.window-gpu-blur .status-card,
+.app-shell.window-gpu-blur .stat-card,
+.app-shell.window-gpu-blur .tool-card,
+.app-shell.window-gpu-blur .split-left,
+.app-shell.window-gpu-blur .split-right,
+.app-shell.window-gpu-blur .status-bar,
+.app-shell.window-gpu-blur .files-container,
+.app-shell.window-gpu-blur .log-panel,
+.app-shell.window-gpu-blur .config-section,
+.app-shell.window-gpu-blur .results-section,
+.app-shell.window-gpu-blur .filter-section {
+  backdrop-filter: blur(calc(var(--panel-blur) * 1.08)) saturate(126%);
+  -webkit-backdrop-filter: blur(calc(var(--panel-blur) * 1.08)) saturate(126%);
+}
+
+.app-shell.window-system-blur.window-dark .page-header,
+.app-shell.window-system-blur.window-dark .page-header-simple,
+.app-shell.window-system-blur.window-dark .card,
+.app-shell.window-system-blur.window-dark .content-box,
+.app-shell.window-system-blur.window-dark .status-card,
+.app-shell.window-system-blur.window-dark .stat-card,
+.app-shell.window-system-blur.window-dark .tool-card,
+.app-shell.window-system-blur.window-dark .split-left,
+.app-shell.window-system-blur.window-dark .split-right,
+.app-shell.window-system-blur.window-dark .status-bar,
+.app-shell.window-system-blur.window-dark .files-container,
+.app-shell.window-system-blur.window-dark .log-panel,
+.app-shell.window-system-blur.window-dark .config-section,
+.app-shell.window-system-blur.window-dark .results-section,
+.app-shell.window-system-blur.window-dark .filter-section {
+  background: rgba(31, 38, 48, 0.78) !important;
+}
+
+.app-shell.window-gpu-blur.window-dark .page-header,
+.app-shell.window-gpu-blur.window-dark .page-header-simple,
+.app-shell.window-gpu-blur.window-dark .card,
+.app-shell.window-gpu-blur.window-dark .content-box,
+.app-shell.window-gpu-blur.window-dark .status-card,
+.app-shell.window-gpu-blur.window-dark .stat-card,
+.app-shell.window-gpu-blur.window-dark .tool-card,
+.app-shell.window-gpu-blur.window-dark .split-left,
+.app-shell.window-gpu-blur.window-dark .split-right,
+.app-shell.window-gpu-blur.window-dark .status-bar,
+.app-shell.window-gpu-blur.window-dark .files-container,
+.app-shell.window-gpu-blur.window-dark .log-panel,
+.app-shell.window-gpu-blur.window-dark .config-section,
+.app-shell.window-gpu-blur.window-dark .results-section,
+.app-shell.window-gpu-blur.window-dark .filter-section {
+  background: rgba(28, 35, 46, 0.58) !important;
+}
+
+.app-shell.window-dark .status-tag.offline,
+.app-shell.window-dark .status-badge.offline {
+  background: rgba(148, 163, 184, 0.12) !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+  color: #ffffff !important;
+}
+
+.app-shell.window-dark .page-header,
+.app-shell.window-dark .page-header-simple,
+.app-shell.window-dark .card,
+.app-shell.window-dark .content-box,
+.app-shell.window-dark .status-card,
+.app-shell.window-dark .stat-card,
+.app-shell.window-dark .tool-card,
+.app-shell.window-dark .split-left,
+.app-shell.window-dark .split-right,
+.app-shell.window-dark .status-bar,
+.app-shell.window-dark .files-container,
+.app-shell.window-dark .log-panel,
+.app-shell.window-dark .config-section,
+.app-shell.window-dark .results-section,
+.app-shell.window-dark .filter-section {
+  box-shadow: none !important;
+}
+
+.app-shell.window-dark .btn-secondary,
+.app-shell.window-dark .browse-btn,
+.app-shell.window-dark .toggle-btn,
+.app-shell.window-dark .page-btn,
+.app-shell.window-dark .cancel-btn,
+.app-shell.window-dark .nav-group-pill,
+.app-shell.window-dark .nav-group-header {
+  background: var(--page-control-bg) !important;
+  border-color: var(--page-surface-border) !important;
+  color: var(--page-text-strong) !important;
+}
+
+.app-shell.window-dark .page-eyebrow {
+  color: #ffffff !important;
+}
+
+.app-shell.window-dark .page-header-subtitle,
+.app-shell.window-dark .section-summary,
+.app-shell.window-dark .card-caption,
+.app-shell.window-dark .form-hint,
+.app-shell.window-dark .path-hint,
+.app-shell.window-dark .section-caption,
+.app-shell.window-dark .section-meta,
+.app-shell.window-dark .stat-label,
+.app-shell.window-dark .time,
+.app-shell.window-dark .file-date,
+.app-shell.window-dark .file-size,
+.app-shell.window-dark .page-info,
+.app-shell.window-dark .toggle-label {
+  color: var(--page-text-muted) !important;
+  font-weight: 500 !important;
+}
+
+.app-shell.window-dark .header-chip,
+.app-shell.window-dark .info-chip,
+.app-shell.window-dark .summary-chip {
+  background: color-mix(
+    in srgb,
+    var(--page-control-bg) 84%,
+    #ffffff 8%
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--page-surface-border) 92%,
+    transparent
+  ) !important;
+  color: var(--page-text-muted) !important;
+}
+
+.app-shell.window-dark .header-chip.accent,
+.app-shell.window-dark .summary-chip.accent {
+  background: #5e6642 !important;
+  border-color: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent)) 36%,
+    transparent
+  ) !important;
+  color: #f5fbff !important;
+}
+
+.app-shell.window-dark .input,
+.app-shell.window-dark .select,
+.app-shell.window-dark input[type="text"],
+.app-shell.window-dark input[type="number"],
+.app-shell.window-dark input[type="password"],
+.app-shell.window-dark textarea,
+.app-shell.window-dark select {
+  color: var(--page-text-strong) !important;
+}
+
+/* Naive UI: system prompt theming (Message / Notification / Dialog) */
+.n-message-container .n-message,
+.n-notification-container .n-notification,
+.n-dialog-container .n-dialog {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.n-message-container .n-message[class*="success"],
+.n-notification-container .n-notification[class*="success"],
+.n-dialog-container .n-dialog[class*="success"] {
+  background: var(--sys-success-bg) !important;
+  color: var(--sys-success-text) !important;
+  border: 1px solid var(--sys-success-border) !important;
+}
+
+.n-message-container .n-message[class*="info"],
+.n-notification-container .n-notification[class*="info"],
+.n-dialog-container .n-dialog[class*="info"] {
+  background: var(--sys-info-bg) !important;
+  color: var(--sys-info-text) !important;
+  border: 1px solid var(--sys-info-border) !important;
+}
+
+.n-message-container .n-message[class*="warning"],
+.n-notification-container .n-notification[class*="warning"],
+.n-dialog-container .n-dialog[class*="warning"] {
+  background: var(--sys-warning-bg) !important;
+  color: var(--sys-warning-text) !important;
+  border: 1px solid var(--sys-warning-border) !important;
+}
+
+.n-message-container .n-message[class*="error"],
+.n-notification-container .n-notification[class*="error"],
+.n-dialog-container .n-dialog[class*="error"] {
+  background: var(--sys-error-bg) !important;
+  color: var(--sys-error-text) !important;
+  border: 1px solid var(--sys-error-border) !important;
+}
+
+.app-shell.window-dark .page-title,
+.app-shell.window-dark .section-title,
+.app-shell.window-dark .status-name,
+.app-shell.window-dark .file-name,
+.app-shell.window-dark .stat-number,
+.app-shell.window-dark .range-value,
+.app-shell.window-dark .input,
+.app-shell.window-dark .select,
+.app-shell.window-dark input,
+.app-shell.window-dark textarea,
+.app-shell.window-dark select {
+  color: #ffffff !important;
+}
+
+.app-shell.window-dark .page-header-subtitle,
+.app-shell.window-dark .section-summary,
+.app-shell.window-dark .card-caption,
+.app-shell.window-dark .form-hint,
+.app-shell.window-dark .path-hint,
+.app-shell.window-dark .section-caption,
+.app-shell.window-dark .section-meta,
+.app-shell.window-dark .stat-label,
+.app-shell.window-dark .time,
+.app-shell.window-dark .file-date,
+.app-shell.window-dark .file-size,
+.app-shell.window-dark .page-info,
+.app-shell.window-dark .toggle-label,
+.app-shell.window-dark .status-info {
+  color: #ffffff !important;
+}
+
+/* Final dark-mode contrast overrides: favor crisp white text over soft gray tokens. */
+.app-shell.window-dark .page-title,
+.app-shell.window-dark .section-title,
+.app-shell.window-dark .status-name,
+.app-shell.window-dark .file-name,
+.app-shell.window-dark .stat-number,
+.app-shell.window-dark .range-value,
+.app-shell.window-dark .input,
+.app-shell.window-dark .select,
+.app-shell.window-dark input,
+.app-shell.window-dark textarea,
+.app-shell.window-dark select,
+.app-shell.window-dark .title,
+.app-shell.window-dark .label {
+  color: #ffffff !important;
+}
+
+.app-shell.window-dark .page-header-subtitle,
+.app-shell.window-dark .section-summary,
+.app-shell.window-dark .card-caption,
+.app-shell.window-dark .form-hint,
+.app-shell.window-dark .path-hint,
+.app-shell.window-dark .section-caption,
+.app-shell.window-dark .section-meta,
+.app-shell.window-dark .stat-label,
+.app-shell.window-dark .time,
+.app-shell.window-dark .file-date,
+.app-shell.window-dark .file-size,
+.app-shell.window-dark .page-info,
+.app-shell.window-dark .toggle-label,
+.app-shell.window-dark .status-info,
+.app-shell.window-dark .nav-text,
+.app-shell.window-dark .nav-group-title,
+.app-shell.window-dark .nav-quick-title,
+.app-shell.window-dark .group-flyout-title,
+.app-shell.window-dark .submenu-item,
+.app-shell.window-dark .form-label {
+  color: #ffffff !important;
+}
+
+.app-shell.window-dark .header-chip,
+.app-shell.window-dark .info-chip,
+.app-shell.window-dark .summary-chip {
+  background: #2a333f !important;
+  border-color: #465363 !important;
+  color: #ffffff !important;
+}
+
+.app-shell.window-dark .header-chip.accent,
+.app-shell.window-dark .summary-chip.accent {
+  background: #184359 !important;
+  border-color: #adb571 !important;
+  color: #ffffff !important;
+}
+
+.app-shell.window-dark .input::placeholder,
+.app-shell.window-dark textarea::placeholder,
+.app-shell.window-dark select::placeholder {
+  color: #ffffff !important;
+}
+
+.app-shell.window-dark .sidebar,
+.app-shell.window-dark .sidebar *,
+.app-shell.window-dark .page-container,
+.app-shell.window-dark .page-container *,
+.app-shell.window-dark .app-titlebar,
+.app-shell.window-dark .app-titlebar * {
+  color: #ffffff !important;
+}
+
+.app-shell.window-dark .nav-item.active,
+.app-shell.window-dark .nav-item.active .nav-text,
+.app-shell.window-dark .nav-item.active .nav-icon,
+.app-shell.window-dark .submenu-item.active,
+.app-shell.window-dark .submenu-item.active .submenu-item-icon,
+.app-shell.window-dark .nav-group-header.active,
+.app-shell.window-dark .nav-group-pill.active,
+.app-shell.window-dark .header-chip.accent,
+.app-shell.window-dark .summary-chip.accent,
+.app-shell.window-dark .code-badge,
+.app-shell.window-dark .status-tag.online,
+.app-shell.window-dark .status-badge.online {
+  color: var(--accent, var(--app-accent, #adb571)) !important;
+}
+
+.app-shell.window-dark .btn-primary,
+.app-shell.window-dark .btn-primary *,
+.app-shell.window-dark .status-badge.online,
+.app-shell.window-dark .status-badge.offline,
+.app-shell.window-dark .header-chip,
+.app-shell.window-dark .summary-chip,
+.app-shell.window-dark .header-chip.accent,
+.app-shell.window-dark .summary-chip.accent {
+  color: #ffffff !important;
+}
+
+/* Olive interaction language */
+#app .header-chip,
+#app .info-chip,
+#app .summary-chip,
+#app .status-tag.offline,
+#app .status-badge.offline,
+#app .skip-badge {
+  background: color-mix(
+    in srgb,
+    var(--page-control-bg) 88%,
+    rgba(255, 253, 245, 0.12) 12%
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--page-surface-border) 76%,
+    transparent
+  ) !important;
+  color: var(--page-text-strong) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+#app .header-chip.accent,
+#app .summary-chip.accent,
+#app .code-badge,
+#app .status-tag.online,
+#app .status-badge.online {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent, var(--app-accent)) 92%, #cbd39c 8%),
+    color-mix(in srgb, var(--accent, var(--app-accent)) 72%, #7f8750 28%)
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent)) 58%,
+    transparent
+  ) !important;
+  color: #fffdf4 !important;
+  box-shadow: 0 10px 20px
+    color-mix(in srgb, var(--accent, var(--app-accent)) 20%, transparent);
+}
+
+#app .header-chip.success,
+#app .summary-chip.success,
+#app .badge-semantic-success {
+  background: color-mix(in srgb, #6f7c4a 78%, #1f2518 22%) !important;
+  border-color: color-mix(in srgb, #a9bf7e 46%, transparent) !important;
+  color: #fffdf4 !important;
+}
+
+#app .badge-semantic-warning {
+  background: color-mix(in srgb, #8c7442 78%, #231c13 22%) !important;
+  border-color: color-mix(in srgb, #cfb178 46%, transparent) !important;
+  color: #fffdf4 !important;
+}
+
+#app .badge-semantic-error {
+  background: color-mix(in srgb, #7e4d4d 78%, #221414 22%) !important;
+  border-color: color-mix(in srgb, #c98b8b 42%, transparent) !important;
+  color: #fffdf4 !important;
+}
+
+#app .page-header .section-title-icon,
+#app .card .section-title-icon,
+#app .section-icon,
+#app .status-icon,
+#app .nav-icon,
+#app .nav-group-icon,
+#app .submenu-item-icon,
+#app .nav-item-quick .nav-icon {
+  color: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent)) 88%,
+    #d8dfab 12%
+  ) !important;
+}
+
+#app .empty-icon,
+#app .toggle-btn,
+#app .search-icon,
+#app .clear-btn,
+#app .clear-all-btn,
+#app .update-btn,
+#app .delete-btn {
+  color: color-mix(
+    in srgb,
+    var(--page-text-muted) 76%,
+    var(--accent, var(--app-accent)) 24%
+  ) !important;
+}
+
+#app .list-item.selected,
+#app .row-item.selected,
+#app .file-item.selected,
+#app .history-item.selected {
+  background: linear-gradient(
+    135deg,
+    color-mix(
+      in srgb,
+      var(--accent, var(--app-accent)) 24%,
+      var(--page-panel-bg) 76%
+    ),
+    color-mix(
+      in srgb,
+      var(--accent, var(--app-accent)) 12%,
+      rgba(0, 0, 0, 0.06)
+    )
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent)) 40%,
+    transparent
+  ) !important;
+  box-shadow: 0 12px 22px
+    color-mix(in srgb, var(--accent, var(--app-accent)) 16%, transparent) !important;
+}
+
+#app .btn-secondary:hover:not(:disabled),
+#app .browse-btn:hover:not(:disabled),
+#app .nav-group-pill:hover,
+#app .nav-group-header:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent)) 30%,
+    transparent
+  ) !important;
+}
+
+#app .btn-secondary:active,
+#app .browse-btn:active,
+#app .page-btn:active,
+#app .cancel-btn:active {
+  background: var(--page-control-active) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent)) 38%,
+    transparent
+  ) !important;
+}
+
+/* Final Olive component system */
+#app .page-container {
+  --olive-primary-fg: #fffdf4;
+  --olive-icon-primary: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent)) 88%,
+    #d8dfab 12%
+  );
+  --olive-icon-neutral: color-mix(
+    in srgb,
+    var(--page-text-muted) 72%,
+    var(--accent, var(--app-accent)) 28%
+  );
+  --olive-badge-secondary-bg: color-mix(
+    in srgb,
+    var(--page-control-bg) 88%,
+    rgba(255, 253, 245, 0.12) 12%
+  );
+  --olive-badge-secondary-border: color-mix(
+    in srgb,
+    var(--page-surface-border) 76%,
+    transparent
+  );
+  --olive-badge-primary-bg: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent, var(--app-accent)) 92%, #cbd39c 8%),
+    color-mix(in srgb, var(--accent, var(--app-accent)) 72%, #7f8750 28%)
+  );
+  --olive-badge-primary-border: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent)) 58%,
+    transparent
+  );
+  --olive-success-bg: color-mix(in srgb, #6f7c4a 78%, #1f2518 22%);
+  --olive-success-border: color-mix(in srgb, #a9bf7e 46%, transparent);
+  --olive-warning-bg: color-mix(in srgb, #8c7442 78%, #231c13 22%);
+  --olive-warning-border: color-mix(in srgb, #cfb178 46%, transparent);
+  --olive-error-bg: color-mix(in srgb, #7e4d4d 78%, #221414 22%);
+  --olive-error-border: color-mix(in srgb, #c98b8b 42%, transparent);
+}
+
+/* Icon tiers */
+#app .page-header .section-title-icon,
+#app .card .section-title-icon,
+#app .section-icon,
+#app .status-icon,
+#app .stat-icon,
+#app .nav-icon,
+#app .nav-group-icon,
+#app .submenu-item-icon,
+#app .nav-item-quick .nav-icon {
+  color: var(--olive-icon-primary) !important;
+}
+
+#app .empty-icon,
+#app .toggle-btn,
+#app .search-icon,
+#app .clear-btn,
+#app .clear-all-btn,
+#app .update-btn,
+#app .delete-btn,
+#app .result-link,
+#app .connected-status,
+#app .disconnected-status {
+  color: var(--olive-icon-neutral) !important;
+}
+
+#app .btn-primary .n-icon,
+#app .btn-primary .nav-icon,
+#app .btn-danger .n-icon,
+#app .cancel-btn .n-icon,
+#app .header-chip.accent .n-icon,
+#app .summary-chip.accent .n-icon,
+#app .code-badge .n-icon,
+#app .status-badge.online .n-icon,
+#app .status-tag.online .n-icon,
+#app .nav-item.active .nav-icon,
+#app .nav-group-header.active .nav-group-icon,
+#app .nav-group-pill.active .nav-icon,
+#app .submenu-item.active .submenu-item-icon {
+  color: var(--olive-primary-fg) !important;
+}
+
+/* Badge tiers */
+#app .header-chip,
+#app .info-chip,
+#app .summary-chip,
+#app .status-tag.offline,
+#app .status-badge.offline,
+#app .skip-badge,
+#app .connected-status,
+#app .disconnected-status {
+  background: var(--olive-badge-secondary-bg) !important;
+  border-color: var(--olive-badge-secondary-border) !important;
+  color: var(--page-text-strong) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+#app .header-chip.accent,
+#app .summary-chip.accent,
+#app .code-badge,
+#app .current-badge,
+#app .status-tag.online,
+#app .status-badge.online {
+  background: var(--olive-badge-primary-bg) !important;
+  border-color: var(--olive-badge-primary-border) !important;
+  color: var(--olive-primary-fg) !important;
+  box-shadow: 0 10px 20px
+    color-mix(in srgb, var(--accent, var(--app-accent)) 20%, transparent);
+}
+
+#app .detail-success,
+#app .badge-semantic-success {
+  background: var(--olive-success-bg) !important;
+  border-color: var(--olive-success-border) !important;
+  color: var(--olive-primary-fg) !important;
+}
+
+#app .detail-skipped,
+#app .badge-semantic-warning {
+  background: var(--olive-warning-bg) !important;
+  border-color: var(--olive-warning-border) !important;
+  color: var(--olive-primary-fg) !important;
+}
+
+#app .detail-failed,
+#app .badge-semantic-error {
+  background: var(--olive-error-bg) !important;
+  border-color: var(--olive-error-border) !important;
+  color: var(--olive-primary-fg) !important;
+}
+
+/* Button tiers */
+#app .btn-primary,
+#app .search-btn.primary,
+#app .action-btn.primary,
+#app .tg-search-bot-theme .n-button--primary-type {
+  min-height: 40px;
+  border-radius: 12px !important;
+  border: 1px solid
+    color-mix(in srgb, var(--accent, var(--app-accent)) 56%, transparent) !important;
+  background: var(--olive-badge-primary-bg) !important;
+  color: var(--olive-primary-fg) !important;
+  box-shadow: 0 12px 24px
+    color-mix(in srgb, var(--accent, var(--app-accent)) 18%, transparent) !important;
+  transition:
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease !important;
+}
+
+#app .btn-primary:hover:not(:disabled),
+#app .search-btn.primary:hover:not(:disabled),
+#app .action-btn.primary:hover:not(:disabled),
+#app .tg-search-bot-theme .n-button--primary-type:hover {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent, var(--app-accent)) 96%, #d6de9f 4%),
+    color-mix(in srgb, var(--accent, var(--app-accent)) 74%, #737b4c 26%)
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent)) 62%,
+    transparent
+  ) !important;
+  transform: translateY(-1px);
+}
+
+#app .btn-primary:active,
+#app .search-btn.primary:active,
+#app .action-btn.primary:active,
+#app .tg-search-bot-theme .n-button--primary-type:active {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent, var(--app-accent)) 78%, #626947 22%),
+    color-mix(in srgb, var(--accent, var(--app-accent)) 60%, #565d3f 40%)
+  ) !important;
+  transform: translateY(0);
+}
+
+#app .btn-secondary,
+#app .browse-btn,
+#app .page-btn,
+#app .reset-btn,
+#app .action-btn.secondary,
+#app .search-btn.secondary,
+#app .tg-search-bot-theme .n-button,
+#app .workflow-designer-theme .btn-secondary {
+  min-height: 40px;
+  border-radius: 12px !important;
+  border: 1px solid var(--page-control-border) !important;
+  background: color-mix(
+    in srgb,
+    var(--page-control-bg) 92%,
+    rgba(255, 253, 245, 0.08) 8%
+  ) !important;
+  color: var(--page-text-strong) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  transition:
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease !important;
+}
+
+#app .btn-secondary:hover:not(:disabled),
+#app .browse-btn:hover:not(:disabled),
+#app .page-btn:hover:not(:disabled),
+#app .reset-btn:hover:not(:disabled),
+#app .action-btn.secondary:hover:not(:disabled),
+#app .search-btn.secondary:hover:not(:disabled),
+#app .tg-search-bot-theme .n-button:hover,
+#app .workflow-designer-theme .btn-secondary:hover:not(:disabled) {
+  background: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent)) 10%,
+    var(--page-control-hover) 90%
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent)) 30%,
+    transparent
+  ) !important;
+  transform: translateY(-1px);
+}
+
+#app .btn-secondary:active,
+#app .browse-btn:active,
+#app .page-btn:active,
+#app .reset-btn:active,
+#app .action-btn.secondary:active,
+#app .search-btn.secondary:active,
+#app .workflow-designer-theme .btn-secondary:active {
+  background: var(--page-control-active) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent)) 38%,
+    transparent
+  ) !important;
+  transform: translateY(0);
+}
+
+#app .btn-danger,
+#app .cancel-btn,
+#app .action-btn.danger {
+  min-height: 40px;
+  border-radius: 12px !important;
+  border: 1px solid var(--olive-error-border) !important;
+  background: var(--olive-error-bg) !important;
+  color: var(--olive-primary-fg) !important;
+  box-shadow: 0 10px 20px rgba(126, 77, 77, 0.22) !important;
+  transition:
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease !important;
+}
+
+#app .btn-danger:hover:not(:disabled),
+#app .cancel-btn:hover:not(:disabled),
+#app .action-btn.danger:hover:not(:disabled) {
+  background: color-mix(
+    in srgb,
+    var(--olive-error-bg) 86%,
+    #9b5c5c 14%
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--olive-error-border) 72%,
+    transparent
+  ) !important;
+  transform: translateY(-1px);
+}
+
+#app .btn-danger:active,
+#app .cancel-btn:active,
+#app .action-btn.danger:active {
+  background: color-mix(
+    in srgb,
+    var(--olive-error-bg) 72%,
+    #6d4040 28%
+  ) !important;
+  transform: translateY(0);
+}
+
+#app .btn-primary:disabled,
+#app .btn-secondary:disabled,
+#app .btn-danger:disabled,
+#app .browse-btn:disabled,
+#app .page-btn:disabled,
+#app .cancel-btn:disabled,
+#app .reset-btn:disabled,
+#app .action-btn:disabled,
+#app .search-btn:disabled {
+  opacity: 0.52;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+/* Olive system: badges */
+#app .badge-success,
+#app .badge-info,
+#app .badge-warning,
+#app .new-badge,
+#app .current-badge,
+#app .skip-badge,
+#app .status-badge,
+#app .status-tag,
+#app .header-chip,
+#app .summary-chip,
+#app .info-chip,
+#app .code-badge,
+#app .connected-status,
+#app .disconnected-status,
+#app .detail-success,
+#app .detail-skipped,
+#app .detail-failed {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+#app .badge-success,
+#app .new-badge,
+#app .current-badge,
+#app .status-badge.online,
+#app .status-tag.online,
+#app .header-chip.accent,
+#app .summary-chip.accent,
+#app .code-badge,
+#app .connected-status {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent, var(--app-accent)) 92%, #cbd39c 8%),
+    color-mix(in srgb, var(--accent, var(--app-accent)) 72%, #7f8750 28%)
+  ) !important;
+  border: 1px solid
+    color-mix(in srgb, var(--accent, var(--app-accent)) 58%, transparent) !important;
+  color: #fffdf4 !important;
+  box-shadow: 0 10px 20px
+    color-mix(in srgb, var(--accent, var(--app-accent)) 20%, transparent) !important;
+}
+
+#app .badge-info,
+#app .summary-chip,
+#app .header-chip,
+#app .info-chip,
+#app .status-badge.offline,
+#app .status-tag.offline,
+#app .skip-badge,
+#app .disconnected-status {
+  background: color-mix(
+    in srgb,
+    var(--page-control-bg) 88%,
+    rgba(255, 253, 245, 0.12) 12%
+  ) !important;
+  border: 1px solid
+    color-mix(in srgb, var(--page-surface-border) 76%, transparent) !important;
+  color: var(--page-text-strong) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+#app .badge-warning,
+#app .detail-skipped {
+  background: color-mix(in srgb, #8c7442 78%, #231c13 22%) !important;
+  border: 1px solid color-mix(in srgb, #cfb178 46%, transparent) !important;
+  color: #fffdf4 !important;
+}
+
+#app .detail-success {
+  background: color-mix(in srgb, #6f7c4a 78%, #1f2518 22%) !important;
+  border: 1px solid color-mix(in srgb, #a9bf7e 46%, transparent) !important;
+  color: #fffdf4 !important;
+}
+
+#app .detail-failed {
+  background: color-mix(in srgb, #7e4d4d 78%, #221414 22%) !important;
+  border: 1px solid color-mix(in srgb, #c98b8b 42%, transparent) !important;
+  color: #fffdf4 !important;
+}
+
+/* Olive system: icon tiers */
+#app .nav-icon,
+#app .nav-group-icon,
+#app .submenu-item-icon,
+#app .section-title-icon,
+#app .section-icon,
+#app .status-icon,
+#app .stat-icon,
+#app .source-icon,
+#app .tool-icon,
+#app .item-icon,
+#app .result-icon,
+#app .card-icon {
+  color: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent)) 88%,
+    #d8dfab 12%
+  ) !important;
+}
+
+#app .empty-icon,
+#app .search-icon,
+#app .clear-btn,
+#app .clear-all-btn,
+#app .update-btn,
+#app .delete-btn,
+#app .toggle-btn,
+#app .drag-icon,
+#app .hint-icon,
+#app .help-icon,
+#app .meta-icon {
+  color: color-mix(
+    in srgb,
+    var(--page-text-muted) 72%,
+    var(--accent, var(--app-accent)) 28%
+  ) !important;
+}
+
+#app .nav-item.active .nav-icon,
+#app .nav-group-header.active .nav-group-icon,
+#app .nav-group-pill.active .nav-icon,
+#app .submenu-item.active .submenu-item-icon,
+#app .btn-primary .nav-icon,
+#app .btn-primary .section-icon,
+#app .btn-danger .section-icon,
+#app .cancel-btn .section-icon,
+#app .header-chip.accent .section-icon,
+#app .summary-chip.accent .section-icon,
+#app .code-badge .section-icon,
+#app .status-badge.online .status-icon,
+#app .status-tag.online .status-icon {
+  color: #fffdf4 !important;
+}
+
+/* Olive system: buttons */
+#app .btn-primary,
+#app .search-btn.primary,
+#app .action-btn.primary,
+#app .tg-search-bot-theme .n-button--primary-type,
+#app .btn-large {
+  min-height: 40px;
+  border-radius: 12px !important;
+  border: 1px solid
+    color-mix(in srgb, var(--accent, var(--app-accent)) 56%, transparent) !important;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent, var(--app-accent)) 92%, #cbd39c 8%),
+    color-mix(in srgb, var(--accent, var(--app-accent)) 72%, #7f8750 28%)
+  ) !important;
+  color: #fffdf4 !important;
+  box-shadow: 0 12px 24px
+    color-mix(in srgb, var(--accent, var(--app-accent)) 18%, transparent) !important;
+}
+
+#app .btn-primary:hover:not(:disabled),
+#app .search-btn.primary:hover:not(:disabled),
+#app .action-btn.primary:hover:not(:disabled),
+#app .tg-search-bot-theme .n-button--primary-type:hover,
+#app .btn-large:hover:not(:disabled) {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent, var(--app-accent)) 96%, #d6de9f 4%),
+    color-mix(in srgb, var(--accent, var(--app-accent)) 74%, #737b4c 26%)
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent)) 62%,
+    transparent
+  ) !important;
+  transform: translateY(-1px);
+}
+
+#app .btn-primary:active,
+#app .search-btn.primary:active,
+#app .action-btn.primary:active,
+#app .tg-search-bot-theme .n-button--primary-type:active,
+#app .btn-large:active {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent, var(--app-accent)) 78%, #626947 22%),
+    color-mix(in srgb, var(--accent, var(--app-accent)) 60%, #565d3f 40%)
+  ) !important;
+  transform: translateY(0);
+}
+
+#app .btn-secondary,
+#app .browse-btn,
+#app .page-btn,
+#app .reset-btn,
+#app .action-btn.secondary,
+#app .search-btn.secondary,
+#app .tg-search-bot-theme .n-button,
+#app .workflow-designer-theme .btn-secondary,
+#app .btn-warning,
+#app .btn-small {
+  min-height: 36px;
+  border-radius: 12px !important;
+  border: 1px solid var(--page-control-border) !important;
+  background: color-mix(
+    in srgb,
+    var(--page-control-bg) 92%,
+    rgba(255, 253, 245, 0.08) 8%
+  ) !important;
+  color: var(--page-text-strong) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03) !important;
+}
+
+#app .btn-secondary:hover:not(:disabled),
+#app .browse-btn:hover:not(:disabled),
+#app .page-btn:hover:not(:disabled),
+#app .reset-btn:hover:not(:disabled),
+#app .action-btn.secondary:hover:not(:disabled),
+#app .search-btn.secondary:hover:not(:disabled),
+#app .tg-search-bot-theme .n-button:hover,
+#app .workflow-designer-theme .btn-secondary:hover:not(:disabled),
+#app .btn-warning:hover:not(:disabled),
+#app .btn-small:hover:not(:disabled) {
+  background: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent)) 10%,
+    var(--page-control-hover) 90%
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent)) 30%,
+    transparent
+  ) !important;
+  transform: translateY(-1px);
+}
+
+#app .btn-secondary:active,
+#app .browse-btn:active,
+#app .page-btn:active,
+#app .reset-btn:active,
+#app .action-btn.secondary:active,
+#app .search-btn.secondary:active,
+#app .workflow-designer-theme .btn-secondary:active,
+#app .btn-warning:active,
+#app .btn-small:active {
+  background: var(--page-control-active) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--accent, var(--app-accent)) 38%,
+    transparent
+  ) !important;
+  transform: translateY(0);
+}
+
+#app .btn-danger,
+#app .cancel-btn,
+#app .action-btn.danger {
+  min-height: 40px;
+  border-radius: 12px !important;
+  border: 1px solid color-mix(in srgb, #c98b8b 42%, transparent) !important;
+  background: color-mix(in srgb, #7e4d4d 78%, #221414 22%) !important;
+  color: #fffdf4 !important;
+  box-shadow: 0 10px 20px rgba(126, 77, 77, 0.22) !important;
+}
+
+#app .btn-danger:hover:not(:disabled),
+#app .cancel-btn:hover:not(:disabled),
+#app .action-btn.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, #8b5959 82%, #221414 18%) !important;
+  border-color: color-mix(in srgb, #d7a0a0 56%, transparent) !important;
+  transform: translateY(-1px);
+}
+
+#app .btn-danger:active,
+#app .cancel-btn:active,
+#app .action-btn.danger:active {
+  background: color-mix(in srgb, #6d4040 82%, #1b1010 18%) !important;
+  transform: translateY(0);
+}
+
+#app .btn-primary:disabled,
+#app .btn-secondary:disabled,
+#app .btn-danger:disabled,
+#app .browse-btn:disabled,
+#app .page-btn:disabled,
+#app .cancel-btn:disabled,
+#app .reset-btn:disabled,
+#app .action-btn:disabled,
+#app .search-btn:disabled,
+#app .btn-warning:disabled,
+#app .btn-small:disabled {
+  opacity: 0.52;
+  box-shadow: none !important;
+  transform: none !important;
+}

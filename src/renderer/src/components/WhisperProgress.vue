@@ -36,104 +36,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from "vue";
-import { useWhisperStore } from "../stores/whisper";
+import { useWhisperProgressWorkflow } from "../composables/useWhisperProgressWorkflow";
 
+// 仅向父层抛出关闭意图，父层决定是隐藏弹窗还是销毁任务视图。
 const emit = defineEmits(["close"]);
-const store = useWhisperStore();
-const logRef = ref(null);
-
-const overallProgress = computed(() => {
-  if (store.totalFiles > 0) {
-    return Math.round((store.processedCount / store.totalFiles) * 100);
-  }
-  return 0;
-});
-
-const statusText = computed(() => {
-  if (store.totalFiles > 0) {
-    return `正在翻译 (${store.processedCount}/${store.totalFiles})`;
-  }
-  return "正在翻译...";
-});
-
-const formatTime = (ms) => {
-  const s = Math.floor(ms / 1000);
-  const m = Math.floor(s / 60);
-  const h = Math.floor(m / 60);
-  return `${h.toString().padStart(2, "0")}:${(m % 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
-};
-
-const stopTask = () => {
-  window.api.stopTask();
-  store.stopTask();
-  store.addLog("[系统] 用户请求停止翻译");
-};
-
-const scrollToBottom = () => {
-  nextTick(() => {
-    if (logRef.value) {
-      logRef.value.scrollTop = logRef.value.scrollHeight;
-    }
-  });
-};
-
-// 保存监听器引用
-let logHandler = null;
-let taskHandler = null;
-
-onMounted(() => {
-  logHandler = (data) => {
-    const msg = typeof data === "string" ? data : data?.msg || "";
-    const type = typeof data === "object" ? data?.type : "whisper";
-
-    if (type === "whisper-progress") {
-      if (data.progress !== undefined) store.setProgress(data.progress);
-      if (data.currentFile !== undefined && data.totalFiles !== undefined) {
-        store.setFileInfo(data.file || "", data.currentFile, data.totalFiles);
-      }
-      return;
-    }
-
-    if (type === "whisper") {
-      store.addLog(msg);
-      const translateMatch = msg.match(/正在翻译[（(](\d+)\/(\d+)[）)]/);
-      if (translateMatch) {
-        store.processedCount = parseInt(translateMatch[1]);
-        store.totalFiles = parseInt(translateMatch[2]);
-      }
-      const fileMatch = msg.match(/Processing[:\s]+(.+)/i);
-      if (fileMatch) {
-        store.currentFile = fileMatch[1].trim().split(/[/\\]/).pop();
-        if (store.processedCount < store.totalFiles) store.processedCount++;
-      }
-      scrollToBottom();
-    }
-  };
-
-  taskHandler = () => {
-    store.stopTask();
-    store.processedCount = store.totalFiles;
-    store.addLog("[系统] 翻译任务完成");
-    store.addLog(`[系统] 总耗时: ${formatTime(store.elapsedTime)}`);
-    scrollToBottom();
-  };
-
-  window.api.onLogUpdate(logHandler);
-  window.api.onTaskFinished(taskHandler);
-});
-
-onUnmounted(() => {
-  // 清除所有监听器
-  if (logHandler) {
-    window.api.removeListener("log-update", logHandler);
-    logHandler = null;
-  }
-  if (taskHandler) {
-    window.api.removeListener("task-finished", taskHandler);
-    taskHandler = null;
-  }
-});
+// 进度计算、状态文案、日志滚动与停止任务入口统一由 workflow 封装。
+const { store, logRef, overallProgress, statusText, formatTime, stopTask } =
+  useWhisperProgressWorkflow();
 </script>
 
 <style scoped>
@@ -143,7 +52,7 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 16px;
   padding: 20px;
-  background: #fafafa;
+  background: #f7f2e8;
 }
 
 .progress-section {
@@ -157,7 +66,7 @@ onUnmounted(() => {
 }
 
 .file-name {
-  color: #8b5cf6;
+  color: #adb571;
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -167,19 +76,19 @@ onUnmounted(() => {
 
 .percentage {
   font-weight: 600;
-  color: #262626;
+  color: #26251f;
 }
 
 .progress-track {
   height: 8px;
-  background: #e5e5e5;
+  background: #d8d0bb;
   border-radius: 4px;
   overflow: hidden;
 }
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #8b5cf6, #a78bfa);
+  background: linear-gradient(90deg, #adb571, #2283d8);
   transition: width 0.3s ease;
 }
 
@@ -188,9 +97,9 @@ onUnmounted(() => {
   justify-content: space-between;
   margin-top: 8px;
   font-size: 13px;
-  color: #525252;
+  color: #66614f;
   padding-top: 8px;
-  border-top: 1px solid #e5e5e5;
+  border-top: 1px solid #d8d0bb;
 }
 
 .log-section {
@@ -207,7 +116,7 @@ onUnmounted(() => {
   overflow-y: auto;
   font-family: monospace;
   font-size: 13px;
-  background: #fafafa;
+  background: #f7f2e8;
   border-radius: 8px;
   padding: 12px;
 }
@@ -231,7 +140,7 @@ onUnmounted(() => {
 }
 
 .log-body::-webkit-scrollbar-thumb {
-  background: #e5e5e5;
+  background: #d8d0bb;
   border-radius: 3px;
 }
 
@@ -245,7 +154,7 @@ onUnmounted(() => {
   padding: 14px;
   border: none;
   border-radius: 8px;
-  background: #8b5cf6;
+  background: #adb571;
   color: #fff;
   font-weight: 500;
   cursor: pointer;
@@ -261,8 +170,8 @@ onUnmounted(() => {
   padding: 14px;
   border: none;
   border-radius: 8px;
-  background: #f5f5f5;
-  color: #525252;
+  background: #f2ede0;
+  color: #66614f;
   font-weight: 500;
   cursor: pointer;
 }
@@ -270,6 +179,6 @@ onUnmounted(() => {
 .card {
   background: #fff;
   border-radius: 12px;
-  border: 1px solid #e5e5e5;
+  border: 1px solid #d8d0bb;
 }
 </style>

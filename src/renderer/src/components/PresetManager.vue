@@ -66,7 +66,8 @@
   </div>
 </template>
 <script setup>
-import { ref, watch, onMounted } from "vue";
+import { usePresetManagerWorkflow } from "../composables/usePresetManagerWorkflow";
+
 const props = defineProps({
   presetsData: { type: Array, default: () => [] },
   currentParams: {
@@ -83,291 +84,35 @@ const props = defineProps({
 });
 const emit = defineEmits(["update:active", "apply", "save"]);
 
-const presetName = ref("");
-const presets = ref([]);
-const activePresets = ref([]);
-
-// 加载预设时通知父组件
-const emitPresetsUpdate = () => {
-  emit("save", { presets: presets.value });
-};
-
-// 同步presetsData：只在初始时加载
-watch(
-  () => props.presetsData,
-  (val) => {
-    if (
-      val &&
-      Array.isArray(val) &&
-      val.length > 0 &&
-      presets.value.length === 0
-    ) {
-      presets.value = val;
-      emitPresetsUpdate();
-    }
-  },
-  { immediate: true },
-);
-
-const getPresetTags = (preset) => {
-  if (!preset?.params) return [];
-
-  const normalTags = [
-    ...(preset.params.tags?.include || []),
-    ...(preset.params.tags?.exclude || []),
-  ];
-  const lowWishTags = [
-    ...(preset.params.tagw?.include || []),
-    ...(preset.params.tagw?.exclude || []),
-  ].map((tag) => `低愿力:${tag}`);
-  const langs = [
-    ...(preset.params.lang?.include || []),
-    ...(preset.params.lang?.exclude || []),
-  ].map((lang) => `语言:${String(lang).toUpperCase()}`);
-
-  return [...normalTags, ...lowWishTags, ...langs];
-};
-
-const togglePreset = (name) => {
-  const idx = activePresets.value.indexOf(name);
-  if (idx >= 0) {
-    activePresets.value.splice(idx, 1);
-  } else {
-    activePresets.value.push(name);
-  }
-  updateParent();
-};
-
-const loadPreset = (preset) => {
-  if (preset?.params) {
-    emit("apply", preset.params);
-  }
-};
-
-const deletePreset = (index) => {
-  const name = presets.value[index].name;
-  presets.value.splice(index, 1);
-  const idx = activePresets.value.indexOf(name);
-  if (idx >= 0) activePresets.value.splice(idx, 1);
-  saveToStorage();
-  updateParent();
-};
-
-const savePreset = () => {
-  if (!presetName.value.trim()) return;
-
-  const existingIndex = presets.value.findIndex(
-    (p) => p.name === presetName.value.trim(),
-  );
-
-  // 确保 age 保存为字符串
-  const ageValue = props.currentParams.age;
-  const ageStr =
-    typeof ageValue === "string" ? ageValue : ageValue?.age || "all";
-
-  // 深拷贝当前参数，确保保存的是完整的对象
-  const newPreset = {
-    name: presetName.value.trim(),
-    params: {
-      tags: props.currentParams.tags
-        ? JSON.parse(JSON.stringify(props.currentParams.tags))
-        : { include: [], exclude: [] },
-      tagw: props.currentParams.tagw
-        ? JSON.parse(JSON.stringify(props.currentParams.tagw))
-        : { include: [], exclude: [] },
-      lang: props.currentParams.lang
-        ? {
-            include: (props.currentParams.lang.include || []).map((lang) =>
-              String(lang).toUpperCase(),
-            ),
-            exclude: (props.currentParams.lang.exclude || []).map((lang) =>
-              String(lang).toUpperCase(),
-            ),
-          }
-        : { include: [], exclude: [] },
-      duration: props.currentParams.duration
-        ? JSON.parse(JSON.stringify(props.currentParams.duration))
-        : null,
-      rating: props.currentParams.rating
-        ? JSON.parse(JSON.stringify(props.currentParams.rating))
-        : null,
-      age: ageStr,
-    },
-  };
-
-  if (existingIndex >= 0) {
-    if (confirm(`预设"${presetName.value}"已存在，是否更新？`)) {
-      presets.value[existingIndex] = newPreset;
-    } else {
-      return;
-    }
-  } else {
-    presets.value.push(newPreset);
-  }
-
-  saveToStorage();
-  emit("save", { presets: presets.value });
-  presetName.value = "";
-};
-
-const updatePreset = (preset) => {
-  const index = presets.value.findIndex((p) => p.name === preset.name);
-  if (index >= 0) {
-    // 确保 age 保存为字符串
-    const ageValue = props.currentParams.age;
-    const ageStr =
-      typeof ageValue === "string" ? ageValue : ageValue?.age || "all";
-
-    presets.value[index] = {
-      name: preset.name,
-      params: {
-        tags: props.currentParams.tags
-          ? JSON.parse(JSON.stringify(props.currentParams.tags))
-          : { include: [], exclude: [] },
-        tagw: props.currentParams.tagw
-          ? JSON.parse(JSON.stringify(props.currentParams.tagw))
-          : { include: [], exclude: [] },
-        lang: props.currentParams.lang
-          ? {
-              include: (props.currentParams.lang.include || []).map((lang) =>
-                String(lang).toUpperCase(),
-              ),
-              exclude: (props.currentParams.lang.exclude || []).map((lang) =>
-                String(lang).toUpperCase(),
-              ),
-            }
-          : { include: [], exclude: [] },
-        duration: props.currentParams.duration
-          ? JSON.parse(JSON.stringify(props.currentParams.duration))
-          : null,
-        rating: props.currentParams.rating
-          ? JSON.parse(JSON.stringify(props.currentParams.rating))
-          : null,
-        age: ageStr,
-      },
-    };
-    saveToStorage();
-    emit("save", { presets: presets.value });
-  }
-};
-
-const updateParent = () => {
-  const merged = mergePresets();
-  emit("update:active", {
-    presets: [...activePresets.value],
-    params: merged,
-  });
-};
-
-const mergePresets = () => {
-  const result = {
-    tags: { include: [], exclude: [] },
-    tagw: { include: [], exclude: [] },
-    lang: { include: [], exclude: [] },
-    duration: null,
-    rating: null,
-    age: "all",
-  };
-
-  activePresets.value.forEach((name) => {
-    const preset = presets.value.find((p) => p.name === name);
-    if (!preset?.params) return;
-
-    const p = preset.params;
-
-    if (p.tags?.include?.length) {
-      p.tags.include.forEach((t) => {
-        if (!result.tags.include.includes(t)) result.tags.include.push(t);
-      });
-    }
-    if (p.tags?.exclude?.length) {
-      p.tags.exclude.forEach((t) => {
-        if (!result.tags.exclude.includes(t)) result.tags.exclude.push(t);
-      });
-    }
-    if (p.tagw?.include?.length) {
-      p.tagw.include.forEach((t) => {
-        if (!result.tagw.include.includes(t)) result.tagw.include.push(t);
-      });
-    }
-    if (p.tagw?.exclude?.length) {
-      p.tagw.exclude.forEach((t) => {
-        if (!result.tagw.exclude.includes(t)) result.tagw.exclude.push(t);
-      });
-    }
-    if (p.lang?.include?.length) {
-      p.lang.include.forEach((lang) => {
-        const normalized = String(lang).toUpperCase();
-        if (!result.lang.include.includes(normalized))
-          result.lang.include.push(normalized);
-      });
-    }
-    if (p.lang?.exclude?.length) {
-      p.lang.exclude.forEach((lang) => {
-        const normalized = String(lang).toUpperCase();
-        if (!result.lang.exclude.includes(normalized))
-          result.lang.exclude.push(normalized);
-      });
-    }
-    if (p.duration?.value !== null && p.duration?.value !== undefined)
-      result.duration = { ...p.duration };
-    if (p.rating?.value !== null && p.rating?.value !== undefined)
-      result.rating = { ...p.rating };
-    if (p.age && p.age !== "all") result.age = p.age;
-  });
-
-  return result;
-};
-
-const saveToStorage = () => {
-  try {
-    const data = JSON.stringify(presets.value);
-    localStorage.setItem("searchPresets", data);
-  } catch (e) {
-    console.error("保存失败", e);
-  }
-};
-
-onMounted(() => {
-  // 优先从localStorage加载
-  try {
-    const saved = localStorage.getItem("searchPresets");
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        // 清理旧数据格式
-        parsed.forEach((preset) => {
-          if (preset.params?.age && typeof preset.params.age !== "string") {
-            preset.params.age = preset.params.age?.age || "all";
-          }
-        });
-        presets.value = parsed;
-        emitPresetsUpdate();
-        return;
-      }
-    }
-  } catch (e) {
-    console.error("加载失败", e);
-  }
-  // localStorage没有数据，从父组件加载
-  if (props.presetsData && props.presetsData.length > 0) {
-    presets.value = props.presetsData;
-    emitPresetsUpdate();
-  }
-});
+const {
+  presetName,
+  presets,
+  activePresets,
+  getPresetTags,
+  togglePreset,
+  loadPreset,
+  deletePreset,
+  savePreset,
+  updatePreset,
+} = usePresetManagerWorkflow({ props, emit });
 </script>
 <style scoped>
 .preset-manager {
-  background: #f8f9fa;
-  border-radius: 12px;
+  background: color-mix(
+    in srgb,
+    var(--comp-surface-1) 92%,
+    rgba(255, 253, 245, 0.08) 8%
+  );
+  border: 1px solid var(--comp-border);
+  border-radius: 16px;
   padding: 16px;
 }
 .preset-header {
   margin-bottom: 12px;
 }
 .label {
-  font-weight: 600;
-  color: #333;
+  font-weight: 700;
+  color: var(--comp-text);
 }
 .preset-save {
   display: flex;
@@ -376,75 +121,110 @@ onMounted(() => {
 }
 .preset-input {
   flex: 1;
+  min-height: 40px;
   padding: 8px 12px;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
+  border: 1px solid var(--comp-control-border);
+  border-radius: 12px;
   outline: none;
   font-size: 13px;
+  background: color-mix(
+    in srgb,
+    var(--comp-control-bg) 92%,
+    rgba(255, 253, 245, 0.08) 8%
+  );
+  color: var(--comp-text);
+}
+.preset-input::placeholder {
+  color: var(--comp-muted);
 }
 .save-btn {
+  min-height: 40px;
   padding: 8px 16px;
-  background: #1890ff;
-  color: #fff;
-  border: none;
-  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--comp-accent) 56%, transparent);
+  border-radius: 12px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--comp-accent) 92%, #cbd39c 8%),
+    color-mix(in srgb, var(--comp-accent) 72%, #7f8750 28%)
+  );
+  color: #fffdf4;
   cursor: pointer;
   font-size: 13px;
+  font-weight: 700;
 }
 .save-btn:disabled {
-  background: #ccc;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 .preset-list {
-  max-height: 200px;
+  max-height: 220px;
   overflow-y: auto;
 }
 .preset-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
-  background: #fff;
-  border-radius: 8px;
-  margin-bottom: 4px;
+  padding: 10px 12px;
+  background: color-mix(
+    in srgb,
+    var(--comp-control-bg) 88%,
+    rgba(255, 253, 245, 0.08) 8%
+  );
+  border: 1px solid transparent;
+  border-radius: 12px;
+  margin-bottom: 6px;
 }
 .preset-item.active {
-  background: #e6f7ff;
-  border: 1px solid #1890ff;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--comp-accent) 22%, transparent),
+    color-mix(in srgb, var(--comp-accent) 12%, rgba(0, 0, 0, 0.06))
+  );
+  border-color: color-mix(in srgb, var(--comp-accent) 42%, transparent);
+  box-shadow: 0 10px 20px
+    color-mix(in srgb, var(--comp-accent) 16%, transparent);
 }
 .preset-checkbox {
   display: flex;
   align-items: center;
 }
+.preset-checkbox input {
+  accent-color: var(--comp-accent);
+}
 .preset-name {
   flex: 1;
   font-size: 14px;
-  color: #333;
+  color: var(--comp-text);
   cursor: pointer;
 }
 .preset-name:hover {
-  color: #1890ff;
+  color: var(--comp-accent);
 }
 .preset-tags {
   display: flex;
   gap: 4px;
-  max-width: 100px;
+  max-width: 120px;
   overflow: hidden;
 }
 .mini-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
   padding: 2px 6px;
-  background: #f0f0f0;
-  border-radius: 4px;
+  background: color-mix(
+    in srgb,
+    var(--comp-control-bg) 88%,
+    rgba(255, 253, 245, 0.08) 8%
+  );
+  border: 1px solid color-mix(in srgb, var(--comp-border) 70%, transparent);
+  border-radius: 999px;
   font-size: 10px;
-  color: #666;
+  color: var(--comp-muted);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 60px;
 }
 .more-tags {
   font-size: 10px;
-  color: #999;
+  color: var(--comp-muted);
 }
 .preset-actions {
   display: flex;
@@ -452,22 +232,29 @@ onMounted(() => {
 }
 .update-btn,
 .delete-btn {
-  background: none;
   border: none;
   cursor: pointer;
   font-size: 14px;
-  padding: 4px;
-  border-radius: 4px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  background: transparent;
+}
+.update-btn {
+  color: color-mix(in srgb, var(--comp-accent) 82%, #d8dfab 18%);
 }
 .update-btn:hover {
-  background: #e6f7ff;
+  background: color-mix(in srgb, var(--comp-accent) 12%, transparent);
+}
+.delete-btn {
+  color: color-mix(in srgb, var(--comp-muted) 74%, #b68484 26%);
 }
 .delete-btn:hover {
-  background: #fff2f0;
+  background: color-mix(in srgb, #7e4d4d 18%, transparent);
+  color: #fff1f1;
 }
 .preset-empty {
   text-align: center;
-  color: #999;
+  color: var(--comp-muted);
   padding: 20px 0;
   font-size: 13px;
 }

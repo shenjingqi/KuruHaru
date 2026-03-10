@@ -6,6 +6,7 @@
 
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
+import { createSilentGramJsLogger } from "../utils/gramjs-logger";
 import { ipcMain } from "electron";
 import { getConfig } from "./config";
 
@@ -33,7 +34,7 @@ async function getConnectedClient() {
   }
 
   if (!isConnected || !telegramClient) {
-    logger.info("正在初始化 Telegram 客户端连接...");
+    logger.debug("正在初始化 Telegram 客户端连接...");
     telegramClient = new TelegramClient(
       new StringSession(session),
       Number(apiId),
@@ -41,12 +42,13 @@ async function getConnectedClient() {
       {
         connectionRetries: 2,
         useWSS: false,
+        baseLogger: createSilentGramJsLogger(),
       },
     );
     telegramClient.setLogLevel("none");
     await telegramClient.connect();
     isConnected = true;
-    logger.info("Telegram 客户端已连接");
+    logger.debug("Telegram 客户端已连接");
   }
   return telegramClient;
 }
@@ -273,7 +275,7 @@ async function deleteDuplicateMessages(messageIds) {
 // ==========================================
 
 export function setupRjDuplicatesIPC() {
-  console.log("[tg-rj-duplicates] 正在初始化 IPC 处理器...");
+  logger.debug("[tg-rj-duplicates] initializing IPC handlers...");
 
   const handlers = ["tg-scan-rj-duplicates", "tg-delete-duplicate-messages"];
 
@@ -287,17 +289,17 @@ export function setupRjDuplicatesIPC() {
 
   // 扫描重复 RJ 号
   ipcMain.handle("tg-scan-rj-duplicates", async (event, options) => {
-    logger.info("IPC: tg-scan-rj-duplicates");
+    logger.debug("IPC: tg-scan-rj-duplicates");
     return await scanRjDuplicates(options);
   });
 
   // 删除重复消息
   ipcMain.handle("tg-delete-duplicate-messages", async (event, messageIds) => {
-    logger.info(
+    logger.debug(
       `IPC: tg-delete-duplicate-messages - 删除 ${messageIds.length} 条消息`,
     );
     return await deleteDuplicateMessages(messageIds);
   });
 
-  console.log("[tg-rj-duplicates] 所有 IPC 处理器注册完成!");
+  logger.debug("[tg-rj-duplicates] IPC handlers registered");
 }

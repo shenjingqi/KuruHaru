@@ -1,7 +1,7 @@
 # Docs 单入口导航（Single-Agent Quick Find）
 
 > 状态: ✅ 可用  
-> 最后更新: 2026-03-04
+> 最后更新: 2026-03-05
 
 本文件是文档系统的**唯一入口**。单智能体工作时，按下列顺序阅读即可快速建立上下文。
 
@@ -26,7 +26,11 @@
 
 - `docs/design-docs/business-background.md` / `business-boundary.md`：业务背景与边界。
 - `docs/design-docs/design-decisions.md`：关键设计决策历史。
+- `docs/design-docs/js-architecture-breakthrough.md`：JS 架构升级与设计突破建议。
 - `docs/design-docs/feature-*.md`：特性级实现留存。
+- `docs/exec-plans/README.md`：执行计划索引（active/completed 总览）。
+- `docs/exec-plans/completed/2026-03-04-无边框窗口设计方案.md`：桌面无边框重构归档。
+- `docs/exec-plans/completed/2026-03-04-页面与JS分阶段重构方案.md`：页面与主链路 JS 重构归档。
 
 ---
 

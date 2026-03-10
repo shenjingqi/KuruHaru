@@ -47,3 +47,20 @@ npm run build:win
 ```
 
 打包后的应用将使用默认路径，不包含任何敏感信息。
+
+## 新增系统外观与代理配置（2026-03-05）
+
+`system` 节点新增以下字段：
+
+- `theme`: `auto | light | dark`（明暗模式）
+- `proxyUrl`: 全局代理地址（ASMR/TG 默认代理）
+- `windowOpacity`: 窗口透明度（建议 0.55 - 1）
+- `blurEnabled`: 是否启用毛玻璃
+- `blurIntensity`: 毛玻璃强度（0 - 40）
+- `accentColor`: 主题强调色（`#RRGGBB`）
+## 日志等级默认行为（2026-03-07）
+
+- `logging.level` 默认值为 `info`
+- 窗口/托盘/UI 外观/应用生命周期这类无关业务流程的日志默认归入 `debug`
+- 业务执行结果（例如清理数据、Bot 真正启动结果）继续保留在 `info` 以上级别
+- 只有需要排查启动流程、窗口行为或系统集成问题时，才建议临时切换到 `debug`

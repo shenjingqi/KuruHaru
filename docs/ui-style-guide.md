@@ -1,7 +1,7 @@
 # Vue 组件风格指南
 
 > 状态: ✅ 稳定  
-> 最后更新: 2026-02-27
+> 最后更新: 2026-03-05
 
 本文档定义 KuruHaru 项目的 Vue 组件风格规范。
 
@@ -302,8 +302,52 @@ function handleDelete() {
 
 ---
 
+## 9. 桌面壳层规范（无边框圆角）
+
+### 9.1 窗口壳层
+
+- 主容器统一使用圆角壳层（默认 `18px`），窗口最大化时自动降为 `0`。
+- 仅在自定义边框模式下启用透明背景与毛玻璃效果。
+- 壳层必须响应窗口状态类名：
+  - `window-custom-frame`
+  - `window-system-frame`
+  - `window-maximized`
+  - `window-blurred`
+  - `window-dark`
+
+### 9.2 标题栏
+
+- 标题栏必须保留 `-webkit-app-region: drag` 区域。
+- 所有可点击控件（最小化/最大化/关闭）必须声明 `-webkit-app-region: no-drag`。
+- 双击标题栏切换最大化状态（Windows）。
+
+### 9.3 视觉与动效
+
+- 采用玻璃化层次：`backdrop-filter + 半透明背景 + 细边框 + 柔和阴影`。
+- 左侧导航与主内容区使用不同透明度层级，避免视觉混在一起。
+- 至少保留三类动效：
+  - 壳层入场
+  - 导航/内容渐入
+  - 组折叠展开过渡（`group-collapse`）
+
+### 9.4 字体与图标（WPF 对齐）
+
+- 桌面壳层字体必须优先使用：
+  - `"Segoe UI Variable Text"`
+  - `"Segoe UI Variable"`
+  - `"Segoe UI"`
+  - `"Microsoft YaHei UI"`
+- 导航图标统一走 Fluent 体系（`@vicons/fluent`），禁止在导航中使用 emoji 作为主图标。
+- 导航图标映射统一维护在 `src/renderer/src/modules/navigation/icons.js`，页面只消费 icon key，不直接散落具体图标组件。
+- 页面卡片/标题/边框的统一视觉由 `src/renderer/src/assets/page-skin.css` 维护，业务页面禁止再次引入紫色主题色。
+
+---
+
 ## 文档更新日志
 
 | 日期       | 变更     |
 | ---------- | -------- |
+| 2026-03-05 | 新增页面层统一皮肤规范（page-skin.css） |
+| 2026-03-05 | 新增字体与图标规范（Segoe Variable + Fluent Icons） |
+| 2026-03-05 | 新增桌面壳层规范（无边框圆角 + 毛玻璃 + 动效） |
 | 2026-02-27 | 初始版本 |

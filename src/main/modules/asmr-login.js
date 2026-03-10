@@ -15,6 +15,11 @@ import { getHttpClient } from "./httpClient";
 // 创建日志发送器
 const logger = createLogSender("asmr");
 
+const resolveAsmrProxyUrl = () => {
+  const config = getConfig();
+  return config?.system?.proxyUrl || config?.asmr?.proxyUrl || "";
+};
+
 /**
  * 验证登录参数（第一步：只验证用户名和密码）
  * @param {Object} params - 登录参数 {username, password}
@@ -126,9 +131,16 @@ export async function loginStep1(params) {
     logger.info("第一步：正在登录 ASMR.ONE 获取 token...");
 
     // 创建 HTTP 客户端
-    const PROXY_URL = "http://127.0.0.1:7890";
-    logger.info("使用代理连接:", PROXY_URL);
-    const client = getHttpClient({ timeout: 30000, proxyUrl: PROXY_URL });
+    const proxyUrl = resolveAsmrProxyUrl();
+    if (proxyUrl) {
+      logger.info("使用代理连接:", proxyUrl);
+    } else {
+      logger.info("未配置代理，使用直连");
+    }
+    const client = getHttpClient({
+      timeout: 30000,
+      proxyUrl: proxyUrl || null,
+    });
 
     // 使用重试机制发送登录请求
     const response = await withRetry(
@@ -251,8 +263,8 @@ export async function loginStep1(params) {
  */
 async function fetchCloudWorksAsync(token, playlistId) {
   // 创建 HTTP 客户端
-  const PROXY_URL = "http://127.0.0.1:7890";
-  const client = getHttpClient({ timeout: 30000, proxyUrl: PROXY_URL });
+  const proxyUrl = resolveAsmrProxyUrl();
+  const client = getHttpClient({ timeout: 30000, proxyUrl: proxyUrl || null });
 
   const headers = {
     Authorization: `Bearer ${token}`,

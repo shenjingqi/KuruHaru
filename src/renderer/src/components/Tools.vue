@@ -1,5 +1,5 @@
 <template>
-  <div class="page-container">
+  <div class="page-container tools-theme">
     <div class="page-header">
       <h2 class="page-title">工具箱</h2>
     </div>
@@ -210,195 +210,34 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
+import { useToolsWorkflow } from "../composables/useToolsWorkflow";
 
-// 提取文件名功能
-const sourceDir = ref("");
-const outputPath = ref("");
-const outputFileName = ref("filelist.txt");
-const isProcessing = ref(false);
-const extractResult = ref("");
-
-// 数据清洗功能
-const mainFile = ref("");
-const compareDir = ref("");
-const isCleaning = ref(false);
-const cleanResult = ref("");
-const deletedCodes = ref([]);
-const shouldDeleteFiles = ref(false); // 是否实际删除文件
-
-// 打包字幕功能
-const zipMediaPath = ref("");
-const zipOutputPath = ref("");
-const isZipping = ref(false);
-const zipResult = ref("");
-
-onMounted(async () => {
-  const result = await window.api.invoke("get-config");
-  const cfg = result?.data || result;
-  if (cfg?.paths?.toolOutputDir) {
-    outputPath.value = cfg.paths.toolOutputDir;
-    zipOutputPath.value = cfg.paths.toolOutputDir;
-  }
-  if (cfg?.whisper?.targetPath) {
-    zipMediaPath.value = cfg.whisper.targetPath;
-  }
-});
-
-// 提取文件名相关
-const selectSourceDir = async () => {
-  const res = await window.api.dialogOpenDirectory();
-  if (res && res.filePath) {
-    sourceDir.value = res.filePath;
-    if (!outputPath.value) {
-      outputPath.value = res.filePath;
-    }
-  }
-};
-
-const selectOutputPath = async () => {
-  const res = await window.api.dialogOpenDirectory();
-  if (res && res.filePath) {
-    outputPath.value = res.filePath;
-  }
-};
-
-const extractFileNames = async () => {
-  if (!sourceDir.value) return;
-
-  isProcessing.value = true;
-  extractResult.value = "";
-
-  try {
-    const res = await window.api.invoke("extract-file-names", {
-      sourceDir: sourceDir.value,
-      outputDir: outputPath.value || sourceDir.value,
-      fileName: outputFileName.value || "filelist.txt",
-    });
-
-    if (res.success) {
-      extractResult.value = `✅ 完成！${res.fileCount} 个文件名已写入 ${res.outputPath}`;
-      // 保存源目录和输出路径到配置文件夹下的 config.json
-      await window.api.invoke("save-custom-paths", {
-        sourceDir: sourceDir.value,
-        toolOutputDir: outputPath.value || sourceDir.value,
-      });
-    } else {
-      extractResult.value = `❌ 失败: ${res.msg}`;
-    }
-  } catch (e) {
-    extractResult.value = `❌ 错误: ${e.message}`;
-  } finally {
-    isProcessing.value = false;
-  }
-};
-
-// 数据清洗相关
-const selectMainFile = async () => {
-  const res = await window.api.dialogOpenFile({
-    type: "file",
-    filters: [{ name: "TXT", extensions: ["txt"] }],
-  });
-  if (res && res.filePath) {
-    mainFile.value = res.filePath;
-  }
-};
-
-const selectCompareDir = async () => {
-  const res = await window.api.dialogOpenDirectory();
-  if (res && res.filePath) {
-    compareDir.value = res.filePath;
-  }
-};
-
-const cleanData = async () => {
-  if (!mainFile.value || !compareDir.value) return;
-
-  isCleaning.value = true;
-  cleanResult.value = "";
-  deletedCodes.value = [];
-
-  try {
-    console.log("[cleanData] 发送请求:", {
-      mainFile: mainFile.value,
-      compareDir: compareDir.value,
-      deleteFiles: shouldDeleteFiles.value,
-      shouldDeleteFilesType: typeof shouldDeleteFiles.value,
-    });
-
-    const res = await window.api.invoke("clean-data", {
-      mainFile: mainFile.value,
-      compareDir: compareDir.value,
-      deleteFiles: shouldDeleteFiles.value === true, // 确保是布尔值
-    });
-
-    console.log("[cleanData] 收到响应:", res);
-
-    if (res.success) {
-      const actionText = res.actuallyDeleted ? "已删除" : "预览";
-      cleanResult.value = `✅ ${actionText}完成！扫描 ${res.zipFileCount} 个zip文件，发现 ${res.deletedCount} 个重复文件，保留 ${res.cleanedCount} 个`;
-      deletedCodes.value = res.deletedCodes || [];
-    } else {
-      cleanResult.value = `❌ 失败: ${res.msg}`;
-    }
-  } catch (e) {
-    cleanResult.value = `❌ 错误: ${e.message}`;
-  } finally {
-    isCleaning.value = false;
-  }
-};
-
-// 打包字幕相关
-const selectZipMediaPath = async () => {
-  const res = await window.api.dialogOpenDirectory();
-  if (res && res.filePath) {
-    zipMediaPath.value = res.filePath;
-  }
-};
-
-const selectZipOutputPath = async () => {
-  const res = await window.api.dialogOpenDirectory();
-  if (res && res.filePath) {
-    zipOutputPath.value = res.filePath;
-  }
-};
-
-const startZipSubtitles = async () => {
-  if (!zipMediaPath.value) return;
-
-  isZipping.value = true;
-  zipResult.value = "";
-
-  try {
-    const res = await window.api.invoke("zip-subtitles", {
-      targetPath: zipMediaPath.value,
-      outputDir: zipOutputPath.value || zipMediaPath.value,
-    });
-
-    if (res.success) {
-      // 🟢 显示打包摘要和详细信息
-      let summary = `✅ ${res.msg}\n\n`;
-      if (res.results && res.results.length > 0) {
-        summary += "详细结果:\n";
-        res.results.forEach((r, i) => {
-          summary += `${i + 1}. ${r}\n`;
-        });
-      }
-      zipResult.value = summary;
-      // 保存路径到配置
-      await window.api.invoke("save-custom-paths", {
-        whisperTargetPath: zipMediaPath.value,
-        toolOutputDir: zipOutputPath.value || zipMediaPath.value,
-      });
-    } else {
-      zipResult.value = `❌ 失败: ${res.msg || "未知错误"}`;
-    }
-  } catch (e) {
-    zipResult.value = `❌ 错误: ${e.message}`;
-  } finally {
-    isZipping.value = false;
-  }
-};
+const {
+  sourceDir,
+  outputPath,
+  outputFileName,
+  isProcessing,
+  extractResult,
+  mainFile,
+  compareDir,
+  isCleaning,
+  cleanResult,
+  deletedCodes,
+  shouldDeleteFiles,
+  zipMediaPath,
+  zipOutputPath,
+  isZipping,
+  zipResult,
+  selectSourceDir,
+  selectOutputPath,
+  extractFileNames,
+  selectMainFile,
+  selectCompareDir,
+  cleanData,
+  selectZipMediaPath,
+  selectZipOutputPath,
+  startZipSubtitles,
+} = useToolsWorkflow();
 </script>
 
 <style scoped>
@@ -421,7 +260,7 @@ const startZipSubtitles = async () => {
   margin: 0;
   font-size: 20px;
   font-weight: 600;
-  color: #262626;
+  color: #26251f;
 }
 
 .tools-grid {
@@ -449,12 +288,12 @@ const startZipSubtitles = async () => {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
-  color: #262626;
+  color: #26251f;
 }
 
 .tool-desc {
   font-size: 14px;
-  color: #737373;
+  color: #86806f;
   margin: 0 0 20px;
 }
 
@@ -480,7 +319,7 @@ const startZipSubtitles = async () => {
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: #525252;
+  color: #66614f;
   cursor: pointer;
 }
 
@@ -493,7 +332,7 @@ const startZipSubtitles = async () => {
 .form-label {
   font-size: 13px;
   font-weight: 500;
-  color: #525252;
+  color: #66614f;
 }
 
 .input-wrap {
@@ -505,20 +344,20 @@ const startZipSubtitles = async () => {
   flex: 1;
   padding: 10px 14px;
   border-radius: 8px;
-  border: 1px solid #e5e5e5;
+  border: 1px solid #d8d0bb;
   background: #fff;
   font-size: 14px;
   outline: none;
-  color: #262626;
+  color: #26251f;
 }
 
 .input:focus {
-  border-color: #8b5cf6;
+  border-color: #adb571;
 }
 
 .input:readonly {
-  background: #fafafa;
-  color: #737373;
+  background: #f7f2e8;
+  color: #86806f;
 }
 
 .btn-primary {
@@ -530,11 +369,11 @@ const startZipSubtitles = async () => {
   font-size: 14px;
   font-weight: 500;
   transition: all 0.2s ease;
-  background: #8b5cf6;
+  background: #adb571;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: #7c3aed;
+  background: #0d5da3;
 }
 
 .btn-primary:disabled {
@@ -551,23 +390,23 @@ const startZipSubtitles = async () => {
   border-radius: 8px;
   border: none;
   cursor: pointer;
-  color: #525252;
+  color: #66614f;
   font-size: 14px;
   font-weight: 500;
-  background: #f5f5f5;
+  background: #f2ede0;
   white-space: nowrap;
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background: #e5e5e5;
+  background: #d8d0bb;
 }
 
 .result-box {
   padding: 12px;
-  background: #fafafa;
+  background: #f7f2e8;
   border-radius: 8px;
   font-size: 13px;
-  color: #525252;
+  color: #66614f;
   max-height: 200px;
   overflow-y: auto;
 }
@@ -587,7 +426,7 @@ const startZipSubtitles = async () => {
 }
 
 .result-box::-webkit-scrollbar-thumb {
-  background: #e5e5e5;
+  background: #d8d0bb;
   border-radius: 3px;
 }
 
@@ -598,6 +437,6 @@ const startZipSubtitles = async () => {
 .card {
   background: #fff;
   border-radius: 12px;
-  border: 1px solid #e5e5e5;
+  border: 1px solid #d8d0bb;
 }
 </style>

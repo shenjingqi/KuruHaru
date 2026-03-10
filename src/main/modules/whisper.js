@@ -4,9 +4,98 @@ import path from "path";
 import fs from "fs";
 import archiver from "archiver";
 import { createLogSender } from "../utils/logger";
+import { buildInfoCacheFromWorkCodes } from "./tg-info-cache";
 
 // 创建日志发送器
 const logger = createLogSender("whisper");
+const WORK_CODE_REGEX = /(?:RJ|VJ|BJ)\d{6,8}/gi;
+const MAX_AUTO_INFO_CACHE_CODES = 5000;
+
+function extractWorkCodesFromText(rawText) {
+  if (!rawText) return [];
+  const matches = String(rawText).toUpperCase().match(WORK_CODE_REGEX) || [];
+  return [...new Set(matches)];
+}
+
+async function collectWorkCodesFromFolder(
+  targetPath,
+  maxCount = MAX_AUTO_INFO_CACHE_CODES,
+) {
+  const normalizedTargetPath = String(targetPath || "").trim();
+  if (!normalizedTargetPath || !fs.existsSync(normalizedTargetPath)) {
+    return [];
+  }
+
+  const found = new Set(extractWorkCodesFromText(normalizedTargetPath));
+  const pendingDirs = [normalizedTargetPath];
+
+  while (pendingDirs.length > 0 && found.size < maxCount) {
+    const currentDir = pendingDirs.shift();
+    if (!currentDir) {
+      continue;
+    }
+
+    let entries = [];
+    try {
+      entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const entryName = String(entry?.name || "");
+      const matches = extractWorkCodesFromText(entryName);
+      for (const code of matches) {
+        found.add(code);
+        if (found.size >= maxCount) {
+          break;
+        }
+      }
+
+      if (found.size >= maxCount) {
+        break;
+      }
+
+      if (entry.isDirectory()) {
+        pendingDirs.push(path.join(currentDir, entryName));
+      }
+    }
+  }
+
+  return [...found];
+}
+
+async function warmInfoCacheFromTranslateTarget(targetPath, event) {
+  const codes = await collectWorkCodesFromFolder(targetPath);
+  if (!codes.length) {
+    logger.info("[whisper] 翻译前缓存: 目录中未发现 RJ/VJ/BJ 编号");
+    return;
+  }
+
+  logger.info(`[whisper] 翻译前缓存: 检测到 ${codes.length} 个编号，开始预热`);
+
+  if (event?.sender && !event.sender.isDestroyed()) {
+    event.sender.send("log-update", {
+      type: "whisper",
+      msg: `翻译前缓存：检测到 ${codes.length} 个 RJ/VJ/BJ 编号，正在写入作品缓存`,
+    });
+  }
+
+  const result = await buildInfoCacheFromWorkCodes(codes, {
+    refreshExisting: false,
+  });
+
+  if (!result?.success) {
+    const errorMessage = result?.error || "未知错误";
+    logger.warn(`[whisper] 翻译前缓存失败: ${errorMessage}`);
+    return;
+  }
+
+  const stats = result.stats || {};
+  logger.info(
+    `[whisper] 翻译前缓存完成 input=${stats.inputCodes || codes.length} fetched=${stats.fetched || 0} skipped=${stats.skippedExisting || 0} failed=${stats.failed || 0}`,
+  );
+}
 
 export function setupWhisperIPC() {
   let pythonProcess = null;
@@ -217,19 +306,19 @@ export function setupWhisperIPC() {
     }
 
     logger.info("收到 start-task 事件");
-    logger.info("config 参数原始值: " + JSON.stringify(config));
-    logger.info("config 类型: " + typeof config);
-    logger.info("config 是否为 null: " + (config === null));
-    logger.info("config 是否为 undefined: " + (config === undefined));
-    logger.info(
+    logger.debug("config 参数原始值: " + JSON.stringify(config));
+    logger.debug("config 类型: " + typeof config);
+    logger.debug("config 是否为 null: " + (config === null));
+    logger.debug("config 是否为 undefined: " + (config === undefined));
+    logger.debug(
       "config 键值: " + (config ? Object.keys(config).join(",") : "N/A"),
     );
 
     const targetPath = config?.targetPath || "";
     const subFormats = config?.subFormats || [];
 
-    logger.info("提取的 targetPath: " + targetPath);
-    logger.info("提取的 subFormats: " + JSON.stringify(subFormats));
+    logger.debug("提取的 targetPath: " + targetPath);
+    logger.debug("提取的 subFormats: " + JSON.stringify(subFormats));
 
     // 验证必要参数
     if (!exePath) {
@@ -254,6 +343,10 @@ export function setupWhisperIPC() {
       return;
     }
 
+    warmInfoCacheFromTranslateTarget(targetPath, event).catch((error) => {
+      logger.warn(`[whisper] 翻译前缓存异常: ${error?.message || error}`);
+    });
+
     // 确保只传入用户选择的格式
     const formats =
       Array.isArray(subFormats) && subFormats.length > 0
@@ -270,7 +363,7 @@ export function setupWhisperIPC() {
 
     // 使用 shell:true + 命令行字符串，避免参数解析问题
     const command = exePath + " " + args.join(" ");
-    logger.info("完整命令字符串: " + command);
+    logger.debug("完整命令字符串: " + command);
 
     const spawnOptions = {
       shell: true,
@@ -279,7 +372,7 @@ export function setupWhisperIPC() {
     };
 
     try {
-      logger.info("[SPAWN] 准备启动进程...");
+      logger.debug("[SPAWN] 准备启动进程...");
 
       let spawnError = null;
       try {
@@ -301,7 +394,7 @@ export function setupWhisperIPC() {
         return;
       }
 
-      logger.info(
+      logger.debug(
         "[SPAWN] 进程对象已创建, pid: " +
           (pythonProcess ? pythonProcess.pid : "null"),
       );
@@ -324,8 +417,8 @@ export function setupWhisperIPC() {
       let processedFiles = 0;
       let lastLogLine = ""; // 用于去重
 
-      logger.info("[DEBUG] stdout exists: " + !!pythonProcess.stdout);
-      logger.info("[DEBUG] stderr exists: " + !!pythonProcess.stderr);
+      logger.debug("[DEBUG] stdout exists: " + !!pythonProcess.stdout);
+      logger.debug("[DEBUG] stderr exists: " + !!pythonProcess.stderr);
 
       // 从 stderr 解析进度和日志
       const parseStderrLine = (line) => {
@@ -447,11 +540,11 @@ export function setupWhisperIPC() {
       // 5秒后检查进程是否还在运行（用于调试）
       setTimeout(() => {
         if (pythonProcess && !pythonProcess.killed) {
-          logger.info(
+          logger.debug(
             "[DEBUG] 5秒后检查 - 进程仍运行中, pid: " + pythonProcess.pid,
           );
-          logger.info("[DEBUG] 进程是否已退出: " + pythonProcess.killed);
-          logger.info("[DEBUG] 进程退出码: " + pythonProcess.exitCode);
+          logger.debug("[DEBUG] 进程是否已退出: " + pythonProcess.killed);
+          logger.debug("[DEBUG] 进程退出码: " + pythonProcess.exitCode);
         }
       }, 5000);
     } catch (err) {

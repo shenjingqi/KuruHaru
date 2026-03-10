@@ -1,4 +1,4 @@
-/* 基础重置 */
+/* ???? */
 *,
 *::before,
 *::after {
@@ -7,52 +7,73 @@
   padding: 0;
 }
 
+:root {
+  --font-ui:
+    "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI",
+    "Microsoft YaHei UI", "PingFang SC", sans-serif;
+  --scrollbar-thumb: rgba(122, 137, 161, 0.52);
+  --scrollbar-thumb-hover: rgba(99, 116, 141, 0.72);
+}
+
 html,
 body,
 #app {
   width: 100%;
   height: 100%;
+  min-height: 100%;
   margin: 0;
-  font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+  overflow: hidden;
+  font-family: var(--font-ui);
+  font-weight: 400;
 }
 
 body {
-  background: #edf1f7;
+  background: linear-gradient(180deg, #eef2f7 0%, #f6f8fb 100%);
   color: #18191c;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html[data-app-theme="dark"] body {
+  background: linear-gradient(180deg, #182131 0%, #1e293d 100%);
+  color: #e8edf5;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
 }
 
 #app {
-  border-radius: 12px;
-  overflow: hidden;
-  background: #edf1f7;
+  background: inherit;
 }
 
-/* 滚动条样式 */
+/* ????????????????????? */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
+  width: 8px !important;
+  height: 8px !important;
   background: transparent;
 }
 
+::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
 ::-webkit-scrollbar-thumb {
-  background: #c9ccd0;
-  border-radius: 4px;
+  background: var(--scrollbar-thumb) !important;
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box !important;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #a0a4a8;
-}
-
-/* 过渡动画 */
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
+  background: var(--scrollbar-thumb-hover) !important;
 }

@@ -1,4 +1,6 @@
 import "./assets/main.css";
+import "./assets/page-skin.css";
+import "./assets/component-themes.css";
 
 import { createApp } from "vue";
 import { createPinia } from "pinia";

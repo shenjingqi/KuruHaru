@@ -1,7 +1,7 @@
 # ARCHITECTURE.md — KuruHaru 项目架构
 
 > 状态: 🔄 持续更新  
-> 最后更新: 2026-03-04
+> 最后更新: 2026-03-05
 
 > 单智能体快速入口：`docs/README.md`
 
@@ -28,6 +28,7 @@ Renderer (Vue 3 + Pinia + Naive UI)
 | Renderer     | `src/renderer/src/`    | UI 展示、状态管理、用户交互             |
 | Preload      | `src/preload/index.js` | 将安全 API 暴露给 `window.api`          |
 | Main Runtime | `src/main/index.js`    | 窗口生命周期、托盘、IPC 装配            |
+| Workflow Runtime | `src/main/workflow-runtime/` | 工作流定义校验、节点调度、运行态管理 |
 | Modules      | `src/main/modules/`    | 业务逻辑（ASMR/TG/Whisper/配置）        |
 | Utils        | `src/main/utils/`      | 通用工具（日志、错误、重试、TG 登录等） |
 
@@ -80,6 +81,7 @@ Renderer (Vue 3 + Pinia + Naive UI)
 
 - 请求/响应：`dialog:openFile`、`get-config`、`tg-scan-recent-activity`
 - 事件推送：`start-task`/`stop-task`、`log-update`、`task-finished`
+- 工作流运行事件：`workflow-run-event`（携带 `runId` 的节点与运行态事件）
 
 ---
 
@@ -92,6 +94,11 @@ Renderer (Vue 3 + Pinia + Naive UI)
 3. 若都不可用，回退到 `DEFAULT_CONFIG`
 
 补充：项目目录下 `config/config.json` 会参与 `configDir` 发现流程。
+
+配置保存行为（2026-03-05 对齐）：
+
+- `saveConfig` 支持路径字段显式清空（如 `""` / `null`），不再忽略空值更新。
+- 当本次保存修改了 `paths.configDir`，会直接写入新目录下的 `config.json`，并同步更新 `<userData>/config.json` 中的 `paths.configDir` 引导指针。
 
 配置字段真相源：`src/main/modules/config.js` 中的 `DEFAULT_CONFIG`。
 

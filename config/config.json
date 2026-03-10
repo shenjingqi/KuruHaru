@@ -11,14 +11,16 @@
     "phone": "",
     "session": "",
     "discussion": "",
-    "channel": ""
+    "channel": "",
+    "proxyUrl": ""
   },
   "asmr": {
     "username": "",
     "password": "",
     "token": "",
     "playlistId": "",
-    "rememberMe": false
+    "rememberMe": false,
+    "proxyUrl": ""
   },
   "paths": {
     "configDir": "",
@@ -40,7 +42,9 @@
   "whisper": {
     "exePath": "",
     "targetPath": "",
-    "subFormats": ["lrc"]
+    "subFormats": [
+      "lrc"
+    ]
   },
   "logging": {
     "level": "info",
@@ -51,6 +55,12 @@
     "language": "zh",
     "autoStart": false,
     "minimizeToTray": true,
-    "saveCustomPaths": true
+    "saveCustomPaths": true,
+    "proxyUrl": "",
+    "windowOpacity": 1,
+    "blurEnabled": true,
+    "blurIntensity": 8,
+    "blurRenderMode": "system",
+    "accentColor": "#adb571"
   }
 }

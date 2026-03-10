@@ -8,6 +8,7 @@
 import { computed } from "vue";
 
 const props = defineProps({
+  // 通过统一 props 协议映射到响应式栅格 class，兼容默认/偏移/断点三类配置。
   cols: { type: [String, Number], default: "auto" },
   span: { type: [String, Number], default: null },
   offset: { type: [String, Number], default: 0 },
@@ -17,6 +18,7 @@ const props = defineProps({
 });
 
 const colClass = computed(() => {
+  // 先确定基础列宽，再叠加 span/offset 与断点覆盖，最终返回 class 字符串。
   const classes = [];
   if (typeof props.cols === "number") {
     classes.push("col-span-" + props.cols);

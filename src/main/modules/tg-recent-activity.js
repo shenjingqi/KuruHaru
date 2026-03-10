@@ -9,10 +9,21 @@
 
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
+import { createSilentGramJsLogger } from "../utils/gramjs-logger";
 import { ipcMain, app } from "electron";
 import fs from "fs";
 import path from "path";
 import { getConfig, getDataDir } from "./config"; // 确保 config 模块路径正确
+import {
+  createAnchorFromMessage,
+  formatFile,
+  getFileName,
+  isReferenceFile,
+  isValidRJFile,
+  removeDuplicates,
+} from "./tg-recent-activity-core/message-files";
+import { parseRjListFromContent } from "./tg-recent-activity-core/rj-list-parser";
+import { normalizePeerEntityInput } from "./tg-common-core/peer-entity";
 
 // ==========================================
 // 全局配置与状态
@@ -22,10 +33,6 @@ import { createLogSender } from "../utils/logger";
 
 // 日志工具
 const logger = createLogSender("tg-recent-activity");
-
-// 【关键配置】整合包体积阈值：150MB
-// 大于此文件的消息会被视为"新基准"，触发列表重置
-const ANCHOR_SIZE_THRESHOLD = 150 * 1024 * 1024;
 
 let telegramClient = null;
 let isConnected = false;
@@ -45,19 +52,7 @@ const DIALOGS_CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
  * 优化：添加对话列表缓存，减少重复 API 调用
  */
 async function resolveEntity(_client, chatIdInput) {
-  let peerId = chatIdInput;
-
-  // 1. 尝试将 ID 转为 BigInt (如果输入是字符串形式的数字)
-  if (typeof chatIdInput === "string" || typeof chatIdInput === "number") {
-    const cleanId = String(chatIdInput).trim();
-    try {
-      if (/^-?\d+$/.test(cleanId)) {
-        peerId = BigInt(cleanId);
-      }
-    } catch {
-      peerId = cleanId;
-    }
-  }
+  const peerId = normalizePeerEntityInput(chatIdInput);
 
   // 2. 尝试直接获取 (利用 GramJS 本地缓存)
   try {
@@ -74,12 +69,12 @@ async function resolveEntity(_client, chatIdInput) {
   // 4. 刷新对话列表 (使用缓存或获取新的)
   try {
     if (!isCacheValid) {
-      logger.info("[resolveEntity] 刷新对话列表缓存");
+      logger.debug("[resolveEntity] 刷新对话列表缓存");
       await telegramClient.getDialogs({ limit: 100 });
       cachedDialogs = true;
       cachedDialogsTime = now;
     } else {
-      logger.info("[resolveEntity] 使用缓存的对话列表");
+      logger.debug("[resolveEntity] 使用缓存的对话列表");
     }
     return await telegramClient.getEntity(peerId);
   } catch (e) {
@@ -104,7 +99,7 @@ async function getConnectedClient() {
   }
 
   if (!isConnected || !telegramClient) {
-    logger.info("正在初始化 Telegram 客户端连接...");
+    logger.debug("正在初始化 Telegram 客户端连接...");
     telegramClient = new TelegramClient(
       new StringSession(session),
       Number(apiId),
@@ -112,141 +107,16 @@ async function getConnectedClient() {
       {
         connectionRetries: 2,
         useWSS: false,
+        baseLogger: createSilentGramJsLogger(),
       },
     );
     // 禁用默认日志输出
     telegramClient.setLogLevel("none");
     await telegramClient.connect();
     isConnected = true;
-    logger.info("Telegram 客户端已连接");
+    logger.debug("Telegram 客户端已连接");
   }
   return telegramClient;
-}
-
-/**
- * 判断是否为基准文件（整合包）
- * 逻辑：只要体积大于 150MB，就认为是新版本的整合包
- */
-function isReferenceFile(msgOrDoc) {
-  let size = 0;
-
-  // 处理 document 对象 (GramJS document 结构)
-  if (msgOrDoc.size && typeof msgOrDoc.size === "number") {
-    size = msgOrDoc.size;
-  }
-  // 处理 message 对象 (包含 document)
-  else if (msgOrDoc.document) {
-    size = msgOrDoc.document.size;
-  }
-  // 处理手动构造的普通对象
-  else if (msgOrDoc.fileSize) {
-    size = msgOrDoc.fileSize;
-  }
-
-  return size >= ANCHOR_SIZE_THRESHOLD;
-}
-
-/**
- * 辅助：获取文件名
- */
-function getFileName(fileDocument) {
-  if (!fileDocument) return "unknown";
-
-  // 优先从 attributes 中查找文件名
-  if (fileDocument.attributes) {
-    const nameAttr = fileDocument.attributes.find(
-      (a) => a.className === "DocumentAttributeFilename",
-    );
-    if (nameAttr && nameAttr.fileName) {
-      return nameAttr.fileName;
-    }
-  }
-  if (fileDocument.name) return fileDocument.name;
-  return "unknown.dat";
-}
-
-/**
- * 辅助：从文件名/文本提取 RJ 号
- */
-function extractRJCode(str) {
-  if (!str) return null;
-  // 提取 RJ/VJ/BJ + 数字 (6-8位)
-  const match = str.match(/(RJ|VJ|BJ)\d{6,8}/i);
-  return match ? match[0].toUpperCase() : null;
-}
-
-function extractRJCodeFromMsg(msg) {
-  const text = msg.text || msg.caption || "";
-  return extractRJCode(text);
-}
-
-/**
- * 辅助：判断是否是有效的资源文件
- */
-function isValidRJFile(msg) {
-  const file = msg.document || msg; // 兼容直接传 document 或 message
-  const fileName = getFileName(file);
-
-  // 1. 检查文件名后缀 (只保留压缩包)
-  const supportedExtensions = /\.(zip|rar|7z|tar|gz|tgz|tar\.gz)$/i;
-  if (!supportedExtensions.test(fileName)) {
-    return false;
-  }
-
-  // 2. 检查文件大小 (只下载小于2MB的文件)
-  const fileSize = file.size || 0;
-  const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
-  if (fileSize >= MAX_FILE_SIZE) {
-    return false;
-  }
-
-  // 3. (可选) 如果你只想看 RJ 号文件，取消下面注释
-  // if (!extractRJCode(fileName) && !extractRJCodeFromMsg(msg)) return false;
-
-  return true;
-}
-
-/**
- * 辅助：格式化文件信息为统一结构
- */
-function formatFile(msg) {
-  const file = msg.document;
-  const fileName = getFileName(file);
-  const RJCode = extractRJCode(fileName) || extractRJCodeFromMsg(msg);
-
-  const formattedFile = {
-    id: RJCode || fileName, // 优先用 RJ 号做 ID
-    messageId: msg.id, // Telegram 消息 ID
-    tgMessageId: msg.id, // 兼容字段
-    date: new Date(msg.date * 1000).toISOString(),
-    timestamp: msg.date * 1000,
-    name: fileName, // 文件名（前端期望的字段）
-    fileName: fileName, // 兼容字段
-    fileSize: file.size,
-    rjCode: RJCode,
-    source: "telegram",
-  };
-
-  logger.debug(
-    `[formatFile] Formatted file: name=${formattedFile.name}, id=${formattedFile.id}`,
-  );
-
-  return formattedFile;
-}
-
-/**
- * 辅助：去除重复文件
- */
-function removeDuplicates(files) {
-  const map = new Map();
-  for (const file of files) {
-    // 使用 tgMessageId 作为唯一键 (最准确)
-    const key = file.tgMessageId || file.id;
-    if (!map.has(key)) {
-      map.set(key, file);
-    }
-  }
-  return Array.from(map.values());
 }
 
 // ==========================================
@@ -258,7 +128,7 @@ function removeDuplicates(files) {
  * 【场景】只在本地没有数据、或清空缓存后首次运行时调用
  */
 async function findLatestAnchorAndFill() {
-  logger.info("[初始化] 本地为空，正在倒序回溯寻找最近的整合包(>150MB)...");
+  logger.debug("[初始化] 本地为空，正在倒序回溯寻找最近的整合包(>150MB)...");
 
   const BACKWARD_LIMIT = 10000; // 限制回溯最近 10000 条消息，避免卡死
   const tempFiles = [];
@@ -290,17 +160,17 @@ async function findLatestAnchorAndFill() {
         logger.info(
           `[初始化] 找到基准整合包: ID ${msg.id}, 大小: ${(msg.document.size / 1024 / 1024).toFixed(2)}MB, 文件名: ${fileName}`,
         );
-        foundAnchor = {
-          messageId: msg.id,
-          date: new Date(msg.date * 1000).toISOString(),
-          RJCode: extractRJCode(fileName) || "Unknown",
-        };
+        foundAnchor = createAnchorFromMessage(msg);
         break; // 关键：找到最新的一个大包就停止，不再往历史找
       }
 
       // 2. 还没找到基准，先把路过的有效 RJ 文件收集起来
       if (isValidRJFile(msg)) {
-        tempFiles.push(formatFile(msg));
+        const formattedFile = formatFile(msg);
+        logger.debug(
+          `[formatFile] Formatted file: name=${formattedFile.name}, id=${formattedFile.id}`,
+        );
+        tempFiles.push(formattedFile);
       }
     }
 
@@ -391,7 +261,7 @@ export async function scanAndSaveRecentActivity() {
     // 分支 1：如果本地无记录，执行"倒序初始化"
     // =========================================================
     if (!localData.metadata.lastScannedId) {
-      logger.info("[状态] 全新环境或缓存丢失，执行回溯初始化...");
+      logger.debug("[状态] 全新环境或缓存丢失，执行回溯初始化...");
       const initData = await findLatestAnchorAndFill(telegramClient);
       saveRecentActivity(config.paths.uploadHistoryDir, initData);
       return { success: true, data: initData };
@@ -427,12 +297,7 @@ export async function scanAndSaveRecentActivity() {
         );
 
         // 1. 更新基准信息
-        const fileName = getFileName(msg.document);
-        localData.metadata.anchor = {
-          messageId: msg.id,
-          date: new Date(msg.date * 1000).toISOString(),
-          RJCode: extractRJCode(fileName) || "Unknown",
-        };
+        localData.metadata.anchor = createAnchorFromMessage(msg);
 
         // 2. 关键：清空历史列表，重新计数！
         localData.files = [];
@@ -449,7 +314,11 @@ export async function scanAndSaveRecentActivity() {
 
       // Check B: 有效资源文件
       if (isValidRJFile(msg)) {
-        newFilesBuffer.push(formatFile(msg));
+        const formattedFile = formatFile(msg);
+        logger.debug(
+          `[formatFile] Formatted file: name=${formattedFile.name}, id=${formattedFile.id}`,
+        );
+        newFilesBuffer.push(formattedFile);
         hasChanges = true;
 
         // 修复：只在找到有效文件时更新扫描进度
@@ -617,7 +486,7 @@ export function saveRecentActivityLog() {
 // ==========================================
 
 export function setupTgHistoryIPC() {
-  console.log("[tg-recent-activity] 正在初始化 IPC 处理器...");
+  logger.debug("[tg-recent-activity] initializing IPC handlers...");
 
   // 先移除已存在的处理器，避免热重载时重复注册
   const handlers = [
@@ -633,18 +502,18 @@ export function setupTgHistoryIPC() {
   for (const handler of handlers) {
     try {
       ipcMain.removeHandler(handler);
-      console.log(`[tg-recent-activity] 已移除旧的处理器: ${handler}`);
+      logger.debug(`[tg-recent-activity] removed previous handler: ${handler}`);
     } catch {
       // 处理器不存在，忽略错误
     }
   }
 
-  console.log("[tg-recent-activity] 正在注册新的 IPC 处理器...");
-  console.log("[tg-recent-activity] 正在注册 tg-scan-recent-activity...");
+  logger.debug("[tg-recent-activity] registering IPC handlers...");
+  logger.debug("[tg-recent-activity] registering tg-scan-recent-activity...");
 
   // 1. 扫描最近活动 (前端点击刷新时调用)
   ipcMain.handle("tg-scan-recent-activity", async () => {
-    logger.info("IPC: tg-scan-recent-activity");
+    logger.debug("IPC: tg-scan-recent-activity");
     return await scanAndSaveRecentActivity();
   });
 
@@ -713,14 +582,14 @@ export function setupTgHistoryIPC() {
     const targetDir = config.paths?.uploadHistoryDir || getDataDir();
     const targetPath = path.join(targetDir, cacheFile);
 
-    console.log("[clear-cache] 尝试删除:", targetPath);
+    logger.debug(`[clear-cache] delete attempt: ${targetPath}`);
 
     if (fs.existsSync(targetPath)) {
       fs.unlinkSync(targetPath);
-      console.log("[clear-cache] 删除成功:", targetPath);
+      logger.debug(`[clear-cache] deleted: ${targetPath}`);
       return { success: true };
     }
-    console.log("[clear-cache] 文件不存在:", targetPath);
+    logger.debug(`[clear-cache] file not found: ${targetPath}`);
     return { success: false, error: "File not found" };
   });
 
@@ -731,25 +600,14 @@ export function setupTgHistoryIPC() {
 
   // 6. 读取RJ号列表文件
   ipcMain.handle("read-rj-list", async (event, { path }) => {
-    console.log("[tg-recent-activity] ✓ 所有 IPC 处理器注册完成!");
+    logger.debug("[tg-recent-activity] IPC handlers registered");
     try {
       if (!path || !fs.existsSync(path)) {
         return { success: false, error: "文件不存在" };
       }
 
       const content = fs.readFileSync(path, "utf-8");
-      const lines = content.split("\n").filter((l) => l.trim());
-      const rjList = [];
-
-      lines.forEach((line) => {
-        // 提取RJ号（可能格式: RJ123456, rj123456, 123456）
-        const match = line.match(/RJ?(\d+)/i);
-        if (match) {
-          rjList.push(match[1]);
-        } else if (/^\d+$/.test(line.trim())) {
-          rjList.push(line.trim());
-        }
-      });
+      const rjList = parseRjListFromContent(content);
 
       return { success: true, data: rjList, count: rjList.length };
     } catch (e) {

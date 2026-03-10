@@ -1,15 +1,15 @@
 <template>
   <div class="rating-picker">
     <div class="picker-header">
-      <span class="label">⭐ 评分筛选</span>
+      <span class="label">评分筛选</span>
       <span class="hint">(留空表示不限制)</span>
     </div>
     <div class="mode-selector">
       <label :class="{ active: mode === 'greater' }"
-        ><input v-model="mode" type="radio" value="greater" /> 📈 高于</label
+        ><input v-model="mode" type="radio" value="greater" /> 高于</label
       >
       <label :class="{ active: mode === 'less' }"
-        ><input v-model="mode" type="radio" value="less" /> 📉 低于</label
+        ><input v-model="mode" type="radio" value="less" /> 低于</label
       >
     </div>
     <div class="slider-container">
@@ -20,6 +20,7 @@
         max="5"
         step="0.1"
         class="rating-slider"
+        :style="ratingSliderStyle"
         @input="onSliderChange"
       />
       <div class="slider-labels">
@@ -69,6 +70,17 @@ const emit = defineEmits(["update:modelValue"]);
 const mode = ref(props.modelValue.mode || "greater");
 const sliderValue = ref(4.5);
 const inputValue = ref(4.5);
+const ratingSliderStyle = computed(() => {
+  const currentValue = Number(sliderValue.value);
+  const safeValue = Number.isFinite(currentValue) ? currentValue : 0;
+  const clamped = Math.min(5, Math.max(0, safeValue));
+  const progress = ((clamped / 5) * 100).toFixed(2);
+  return {
+    background: `linear-gradient(90deg, rgba(173,181,113,0.98) 0%, rgba(205,214,141,0.98) ${progress}%, rgba(132,137,118,0.28) ${progress}%, rgba(132,137,118,0.28) 100%)`,
+    "--slider-track-glow": "rgba(173,181,113,0.24)",
+    "--slider-thumb-glow": "rgba(173,181,113,0.44)",
+  };
+});
 const presets = [
   { label: "3.0", value: 3.0 },
   { label: "4.0", value: 4.0 },
@@ -80,16 +92,19 @@ const hasValue = computed(
   () => inputValue.value !== null && inputValue.value !== "",
 );
 const onSliderChange = () => {
+  // 滑块结果统一保留 1 位小数，避免输入框与滑块出现精度漂移。
   inputValue.value = parseFloat(Number(sliderValue.value).toFixed(1));
   emitUpdate();
 };
 const onInputChange = () => {
   if (inputValue.value !== null) {
+    // 手动输入时将值限制在评分区间 [0, 5]，再映射回滑块位置。
     sliderValue.value = Math.min(Math.max(inputValue.value, 0), 5);
   }
   emitUpdate();
 };
 const setPreset = (value) => {
+  // 预设按钮与手动输入共享同一更新路径，保持对外事件一致。
   inputValue.value = value;
   sliderValue.value = value;
   emitUpdate();
@@ -99,9 +114,11 @@ const clearValue = () => {
   sliderValue.value = 0;
   emitUpdate();
 };
+// 组件只在这里对外发出 modelValue，便于维护单一数据出口。
 const emitUpdate = () => {
   emit("update:modelValue", { value: inputValue.value, mode: mode.value });
 };
+// 父级回灌（如切换预设）时，重建本地编辑态。
 watch(
   () => props.modelValue,
   (nv) => {
@@ -116,129 +133,236 @@ watch(
 </script>
 <style scoped>
 .rating-picker {
-  background: #f8f9fa;
-  border-radius: 12px;
-  padding: 16px;
+  background: color-mix(
+    in srgb,
+    var(--comp-surface-1) 92%,
+    rgba(255, 253, 245, 0.08) 8%
+  );
+  border: 1px solid var(--comp-border);
+  border-radius: 18px;
+  padding: 18px;
 }
 .picker-header {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 .label {
-  font-weight: 600;
-  color: #333;
+  font-weight: 700;
+  color: var(--comp-text);
 }
 .hint {
   font-size: 12px;
-  color: #999;
+  color: var(--comp-muted);
 }
-.mode-selector {
+.mode-selector,
+.quick-select {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   margin-bottom: 16px;
 }
-.mode-selector label {
+.mode-selector label,
+.preset-btn {
   flex: 1;
+  min-height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 10px;
-  background: #fff;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
+  padding: 10px 12px;
+  background: color-mix(
+    in srgb,
+    var(--comp-control-bg) 88%,
+    rgba(255, 253, 245, 0.08) 8%
+  );
+  border: 1px solid var(--comp-control-border);
+  border-radius: 14px;
   cursor: pointer;
+  color: var(--comp-text);
+  transition: all 0.18s ease;
 }
-.mode-selector label.active {
-  border-color: #1890ff;
-  background: #e6f7ff;
-  color: #1890ff;
+.mode-selector label:hover,
+.preset-btn:hover {
+  border-color: color-mix(in srgb, var(--comp-accent) 30%, transparent);
+}
+.mode-selector label.active,
+.preset-btn.active {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--comp-accent) 90%, #cbd39c 10%),
+    color-mix(in srgb, var(--comp-accent) 72%, #7f8750 28%)
+  );
+  border-color: color-mix(in srgb, var(--comp-accent) 58%, transparent);
+  color: #fffdf4;
+  box-shadow: 0 12px 22px
+    color-mix(in srgb, var(--comp-accent) 16%, transparent);
 }
 .slider-container {
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 .rating-slider {
   width: 100%;
-  height: 6px;
+  height: 10px;
   -webkit-appearance: none;
-  background: linear-gradient(to right, #52c41a, #52c41a);
-  border-radius: 3px;
+  appearance: none;
+  border: none;
+  border-radius: 999px;
+  background-size: 100% 100%;
+  box-shadow:
+    inset 0 0 0 1px rgba(205, 214, 141, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 8px 16px
+      color-mix(
+        in srgb,
+        var(--slider-track-glow, rgba(173, 181, 113, 0.24)) 38%,
+        transparent
+      );
+  cursor: pointer;
+}
+.rating-slider:hover {
+  box-shadow:
+    inset 0 0 0 1px rgba(205, 214, 141, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 10px 18px
+      color-mix(
+        in srgb,
+        var(--slider-track-glow, rgba(173, 181, 113, 0.24)) 52%,
+        transparent
+      );
 }
 .rating-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 20px;
-  height: 20px;
-  background: #1890ff;
+  width: 18px;
+  height: 18px;
+  margin-top: -4px;
   border-radius: 50%;
-  cursor: pointer;
+  border: 3px solid rgba(255, 253, 245, 0.94);
+  background: radial-gradient(
+    circle at 35% 35%,
+    #edf2ca 0%,
+    #adb571 58%,
+    #8f985f 100%
+  );
+  box-shadow:
+    0 0 0 5px
+      color-mix(
+        in srgb,
+        var(--slider-thumb-glow, rgba(173, 181, 113, 0.44)) 26%,
+        transparent
+      ),
+    0 10px 18px
+      color-mix(
+        in srgb,
+        var(--slider-thumb-glow, rgba(173, 181, 113, 0.44)) 44%,
+        transparent
+      ),
+    0 2px 6px rgba(0, 0, 0, 0.28);
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
+}
+.rating-slider:hover::-webkit-slider-thumb {
+  transform: scale(1.04);
+}
+.rating-slider::-moz-range-track {
+  height: 10px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+}
+.rating-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 253, 245, 0.94);
+  background: radial-gradient(
+    circle at 35% 35%,
+    #edf2ca 0%,
+    #adb571 58%,
+    #8f985f 100%
+  );
+  box-shadow:
+    0 0 0 5px
+      color-mix(
+        in srgb,
+        var(--slider-thumb-glow, rgba(173, 181, 113, 0.44)) 26%,
+        transparent
+      ),
+    0 10px 18px
+      color-mix(
+        in srgb,
+        var(--slider-thumb-glow, rgba(173, 181, 113, 0.44)) 44%,
+        transparent
+      ),
+    0 2px 6px rgba(0, 0, 0, 0.28);
 }
 .slider-labels {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 8px;
+  display: grid;
+  grid-template-columns: 48px 1fr 48px;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
   font-size: 12px;
-  color: #999;
+  font-weight: 600;
+  color: var(--comp-muted);
 }
 .current-value {
-  font-size: 18px;
-  font-weight: 600;
-  color: #1890ff;
+  justify-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 58px;
+  min-height: 30px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--comp-accent) 92%, #cbd39c 8%),
+    color-mix(in srgb, var(--comp-accent) 72%, #7f8750 28%)
+  );
+  color: #fffdf4;
+  box-shadow: 0 10px 18px
+    color-mix(in srgb, var(--comp-accent) 16%, transparent);
 }
 .input-container {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 .rating-input {
-  flex: 1;
-  padding: 10px 12px;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
+  min-height: 42px;
+  padding: 10px 14px;
+  border: 1px solid var(--comp-control-border);
+  border-radius: 14px;
   font-size: 16px;
   font-weight: 600;
   text-align: center;
   outline: none;
+  background: color-mix(
+    in srgb,
+    var(--comp-control-bg) 92%,
+    rgba(255, 253, 245, 0.08) 8%
+  );
+  color: var(--comp-text);
+}
+.rating-input::placeholder {
+  color: var(--comp-muted);
 }
 .unit {
-  font-size: 14px;
-  color: #666;
-}
-.quick-select {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.preset-btn {
-  flex: 1;
-  padding: 8px;
-  background: #fff;
-  border: 1px solid #e0e0e0;
-  border-radius: 6px;
-  font-size: 12px;
-  cursor: pointer;
-}
-.preset-btn:hover {
-  border-color: #1890ff;
-}
-.preset-btn.active {
-  background: #1890ff;
-  color: #fff;
-  border-color: #1890ff;
+  color: var(--comp-muted);
+  font-weight: 600;
 }
 .clear-btn {
   width: 100%;
+  min-height: 40px;
   padding: 10px;
-  background: #fff;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
-  color: #666;
+  background: color-mix(in srgb, #7e4d4d 78%, #221414 22%);
+  border: 1px solid color-mix(in srgb, #c98b8b 42%, transparent);
+  border-radius: 14px;
+  color: #fffdf4;
   cursor: pointer;
-}
-.clear-btn:hover {
-  border-color: #ff4d4f;
-  color: #ff4d4f;
 }
 </style>

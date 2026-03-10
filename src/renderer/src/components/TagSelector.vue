@@ -65,137 +65,101 @@
   </div>
 </template>
 <script setup>
-import { ref, onMounted, computed, watch } from "vue";
-import tagsData from "../../../../config/tags.json";
+import { useTagSelector } from "../composables/useTagSelector";
 
 const props = defineProps({
+  // 统一对外暴露 include/exclude，便于上层直接拼接高级搜索参数。
   modelValue: { type: Object, default: () => ({ include: [], exclude: [] }) },
+  // 通过标题/提示词实现复用：同一组件可承载普通标签和低愿力标签两种场景。
   title: { type: String, default: "🏷️ 标签选择" },
   hint: { type: String, default: "(可多选)" },
   searchPlaceholder: { type: String, default: "搜索标签..." },
 });
 const emit = defineEmits(["update:modelValue"]);
-const searchText = ref("");
-const excludeMode = ref(false);
-const selectedTags = ref([]);
-const excludedTags = ref([]);
 
-const syncFromModelValue = (value) => {
-  selectedTags.value = Array.isArray(value?.include) ? [...value.include] : [];
-  excludedTags.value = Array.isArray(value?.exclude) ? [...value.exclude] : [];
-};
-
-// 从 tags.json 导入标签数据
-const allTags = computed(() => {
-  return tagsData
-    .map((tag) => ({
-      id: tag.id,
-      name: tag.name,
-      count: tag.count,
-    }))
-    .sort((a, b) => b.count - a.count);
-});
-
-// 过滤后的标签
-const filteredTags = computed(() => {
-  if (!searchText.value) return allTags.value.slice(0, 50);
-  const query = searchText.value.toLowerCase();
-  return allTags.value
-    .filter((tag) => tag.name.toLowerCase().includes(query))
-    .slice(0, 50);
-});
-
-const toggleTag = (tag) => {
-  if (excludeMode.value) {
-    if (excludedTags.value.includes(tag))
-      excludedTags.value = excludedTags.value.filter((t) => t !== tag);
-    else {
-      excludedTags.value.push(tag);
-      selectedTags.value = selectedTags.value.filter((t) => t !== tag);
-    }
-  } else {
-    if (selectedTags.value.includes(tag))
-      selectedTags.value = selectedTags.value.filter((t) => t !== tag);
-    else {
-      selectedTags.value.push(tag);
-      excludedTags.value = excludedTags.value.filter((t) => t !== tag);
-    }
-  }
-  emitUpdate();
-};
-
-const clearAllTags = () => {
-  selectedTags.value = [];
-  excludedTags.value = [];
-  emitUpdate();
-};
-
-const removeSelectedTag = (tag) => {
-  selectedTags.value = selectedTags.value.filter((item) => item !== tag);
-  emitUpdate();
-};
-
-const removeExcludedTag = (tag) => {
-  excludedTags.value = excludedTags.value.filter((item) => item !== tag);
-  emitUpdate();
-};
-
-const emitUpdate = () => {
-  emit("update:modelValue", {
-    include: [...selectedTags.value],
-    exclude: [...excludedTags.value],
-  });
-};
-onMounted(() => {
-  syncFromModelValue(props.modelValue);
-});
-
-watch(
-  () => props.modelValue,
-  (value) => {
-    syncFromModelValue(value);
-  },
-  { deep: true },
-);
+// 选中、排除与搜索过滤逻辑全部由 composable 管理，组件仅负责渲染与事件透传。
+const {
+  searchText,
+  excludeMode,
+  selectedTags,
+  excludedTags,
+  allTags,
+  filteredTags,
+  toggleTag,
+  clearAllTags,
+  removeSelectedTag,
+  removeExcludedTag,
+} = useTagSelector({ props, emit });
 </script>
 <style scoped>
 .tag-selector {
-  background: #f8f9fa;
-  border-radius: 12px;
+  background: color-mix(
+    in srgb,
+    var(--comp-surface-1) 92%,
+    rgba(255, 253, 245, 0.08) 8%
+  );
+  border: 1px solid var(--comp-border);
+  border-radius: 16px;
   padding: 16px;
+  color: var(--comp-text);
 }
 .selector-header {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
   margin-bottom: 12px;
 }
 .label {
-  font-weight: 600;
-  color: #333;
+  font-weight: 700;
+  color: var(--comp-text);
 }
 .hint {
   font-size: 12px;
-  color: #999;
+  color: var(--comp-muted);
 }
 .search-box {
   display: flex;
   align-items: center;
-  background: #fff;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
-  padding: 8px 12px;
+  gap: 8px;
+  padding: 10px 12px;
+  background: color-mix(
+    in srgb,
+    var(--comp-control-bg) 92%,
+    rgba(255, 253, 245, 0.08) 8%
+  );
+  border: 1px solid var(--comp-control-border);
+  border-radius: 12px;
+  margin-bottom: 12px;
+}
+.search-icon,
+.clear-btn {
+  color: color-mix(in srgb, var(--comp-muted) 72%, var(--comp-accent) 28%);
 }
 .search-box input {
   flex: 1;
   border: none;
   outline: none;
+  background: transparent;
+  color: var(--comp-text);
+}
+.search-box input::placeholder {
+  color: var(--comp-muted);
+}
+.clear-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
 }
 .tags-container {
   max-height: 300px;
   overflow-y: auto;
-  background: #fff;
-  border-radius: 8px;
+  background: color-mix(
+    in srgb,
+    var(--comp-control-bg) 76%,
+    rgba(255, 253, 245, 0.1) 24%
+  );
+  border: 1px solid var(--comp-divider);
+  border-radius: 12px;
   padding: 12px;
 }
 .tags-grid {
@@ -204,31 +168,81 @@ watch(
   gap: 8px;
 }
 .tag-item {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-height: 34px;
   padding: 6px 12px;
-  background: #f0f0f0;
-  border-radius: 16px;
+  background: color-mix(
+    in srgb,
+    var(--comp-control-bg) 88%,
+    rgba(255, 253, 245, 0.08) 8%
+  );
+  border: 1px solid var(--comp-control-border);
+  border-radius: 999px;
   cursor: pointer;
+  color: var(--comp-text);
+  transition: all 0.18s ease;
+}
+.tag-item:hover {
+  background: color-mix(
+    in srgb,
+    var(--comp-accent) 10%,
+    var(--comp-control-hover) 90%
+  );
+  border-color: color-mix(in srgb, var(--comp-accent) 30%, transparent);
 }
 .tag-item.selected {
-  background: #e6f7ff;
-  border: 1px solid #1890ff;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--comp-accent) 92%, #cbd39c 8%),
+    color-mix(in srgb, var(--comp-accent) 72%, #7f8750 28%)
+  );
+  border-color: color-mix(in srgb, var(--comp-accent) 58%, transparent);
+  color: #fffdf4;
+  box-shadow: 0 10px 20px
+    color-mix(in srgb, var(--comp-accent) 20%, transparent);
 }
 .tag-item.excluded {
-  background: #fff2f0;
-  border: 1px solid #ff4d4f;
+  background: color-mix(in srgb, #7e4d4d 78%, #221414 22%);
+  border-color: color-mix(in srgb, #c98b8b 42%, transparent);
+  color: #fffdf4;
+}
+.tag-item input {
+  accent-color: var(--comp-accent);
 }
 .tag-count {
   font-size: 11px;
-  color: #999;
+  color: inherit;
+  opacity: 0.78;
 }
 .selected-tags {
-  background: #fff;
-  border-radius: 8px;
+  background: color-mix(
+    in srgb,
+    var(--comp-control-bg) 82%,
+    rgba(255, 253, 245, 0.1) 18%
+  );
+  border: 1px solid var(--comp-divider);
+  border-radius: 12px;
   padding: 12px;
   margin-top: 12px;
+}
+.selected-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.header-text {
+  font-size: 12px;
+  color: var(--comp-muted);
+}
+.clear-all-btn {
+  border: none;
+  background: transparent;
+  color: var(--comp-accent);
+  cursor: pointer;
+  font-size: 12px;
 }
 .tag-badges {
   display: flex;
@@ -236,17 +250,32 @@ watch(
   gap: 8px;
 }
 .tag-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
   padding: 4px 10px;
-  border-radius: 12px;
+  border-radius: 999px;
   font-size: 12px;
+  font-weight: 700;
 }
 .tag-badge.include {
-  background: #e6f7ff;
-  color: #1890ff;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--comp-accent) 92%, #cbd39c 8%),
+    color-mix(in srgb, var(--comp-accent) 72%, #7f8750 28%)
+  );
+  color: #fffdf4;
 }
 .tag-badge.exclude {
-  background: #fff2f0;
-  color: #ff4d4f;
+  background: color-mix(in srgb, #7e4d4d 78%, #221414 22%);
+  color: #fffdf4;
+}
+.tag-badge button {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
 }
 .exclude-toggle {
   display: flex;
@@ -254,6 +283,14 @@ watch(
   gap: 12px;
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px solid #e0e0e0;
+  border-top: 1px solid var(--comp-divider);
+  color: var(--comp-text);
+}
+.toggle-label {
+  font-size: 13px;
+  color: var(--comp-muted);
+}
+.exclude-toggle input {
+  accent-color: var(--comp-accent);
 }
 </style>

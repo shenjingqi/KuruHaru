@@ -1,5 +1,5 @@
 <template>
-  <div class="page-container">
+  <div class="page-container whisper-theme">
     <div class="page-header">
       <h2 class="page-title">音声翻译</h2>
       <div class="status-tag" :class="{ running: store.isBusy }">
@@ -80,156 +80,24 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import WhisperProgress from "./WhisperProgress.vue";
-import { useWhisperStore } from "../stores/whisper";
+import { useWhisperToolWorkflow } from "../composables/useWhisperToolWorkflow";
 
-const store = useWhisperStore();
-
-const localExePath = ref("");
-const targetPath = ref("");
-const subFormats = ref(["lrc", "srt", "vtt"]);
-const canStart = computed(() => localExePath.value && targetPath.value);
-
-const showProgressModal = ref(false);
-const showResultModal = ref(false);
-const resultData = ref({});
-
-const statusText = computed(() => {
-  if (store.isBusy) {
-    return "翻译中...";
-  }
-  return "准备就绪";
-});
-
-// 打开进度页面
-watch(
-  () => store.isBusy,
-  (busy) => {
-    if (busy) {
-      showProgressModal.value = true;
-    }
-  },
-);
-
-const getSafePayload = () => {
-  const formatsValue = subFormats.value;
-  const serializedFormats = (() => {
-    try {
-      const str = JSON.stringify(formatsValue);
-      return JSON.parse(str);
-    } catch {
-      return ["lrc"];
-    }
-  })();
-
-  return {
-    exePath: localExePath.value,
-    targetPath: targetPath.value,
-    subFormats: serializedFormats,
-  };
-};
-
-const sanitizePath = (val) => {
-  if (!val) return "";
-  if (typeof val === "string") return val;
-  if (Array.isArray(val)) return val[0] || "";
-  if (val.filePath) return val.filePath;
-  if (val.filePaths && val.filePaths.length > 0) return val.filePaths[0];
-  return "";
-};
-
-const selectExe = async () => {
-  const p = await window.api.selectFile("exe");
-  if (p) {
-    localExePath.value = sanitizePath(p);
-    saveWhisperConfig();
-  }
-};
-
-const selectTarget = async () => {
-  const p = await window.api.selectFile("dir");
-  if (p) {
-    targetPath.value = sanitizePath(p);
-    saveWhisperConfig();
-  }
-};
-
-const saveWhisperConfig = async () => {
-  const payload = getSafePayload();
-  console.log("[WhisperTool] 保存配置:", payload);
-  await window.api.invoke("save-config", { whisper: payload });
-  console.log("[WhisperTool] 配置保存完成");
-};
-
-// 任务完成处理器
-const taskFinishedHandler = () => {
-  store.stopTask();
-  store.setProgress(100);
-  resultData.value = {
-    success: true,
-    type: "translate",
-    title: "翻译任务结束",
-  };
-  showResultModal.value = true;
-};
-
-onMounted(async () => {
-  console.log("[WhisperTool] 组件挂载，开始加载配置");
-  const result = await window.api.invoke("get-config");
-  const cfg = result?.data || result;
-  console.log("[WhisperTool] 获取到的配置:", cfg?.whisper);
-  if (cfg?.whisper) {
-    if (cfg.whisper.exePath) {
-      localExePath.value = cfg.whisper.exePath;
-      console.log("[WhisperTool] 加载 exePath:", cfg.whisper.exePath);
-    }
-    if (cfg.whisper.targetPath) {
-      targetPath.value = cfg.whisper.targetPath;
-      console.log("[WhisperTool] 加载 targetPath:", cfg.whisper.targetPath);
-    }
-    if (cfg.whisper.subFormats && Array.isArray(cfg.whisper.subFormats)) {
-      subFormats.value = cfg.whisper.subFormats;
-      console.log("[WhisperTool] 加载 subFormats:", cfg.whisper.subFormats);
-    }
-  } else {
-    console.log("[WhisperTool] 未找到 whisper 配置");
-  }
-
-  window.api.onTaskFinished(taskFinishedHandler);
-});
-
-// 组件卸载时清理监听器
-onUnmounted(() => {
-  window.api.removeListener("task-finished", taskFinishedHandler);
-});
-
-const startTranslate = async () => {
-  if (!canStart.value) return;
-  store.reset(); // 先重置，再启动
-  store.startTask();
-
-  try {
-    const count = await window.api.countMediaFiles(targetPath.value);
-    store.totalFiles = count > 0 ? count : 1;
-    store.addLog(`扫描到 ${count} 个媒体文件`);
-  } catch {
-    store.totalFiles = 1;
-  }
-
-  const payload = getSafePayload();
-  try {
-    await window.api.saveConfig({ whisper: payload });
-    window.api.startTask(payload);
-  } catch (e) {
-    store.addLog(e.message);
-    store.stopTask();
-  }
-};
-
-const handleCloseProgress = () => {
-  showProgressModal.value = false;
-};
+const {
+  store,
+  localExePath,
+  targetPath,
+  subFormats,
+  canStart,
+  showProgressModal,
+  showResultModal,
+  resultData,
+  statusText,
+  selectExe,
+  selectTarget,
+  startTranslate,
+  handleCloseProgress,
+} = useWhisperToolWorkflow();
 </script>
 
 <style scoped>
@@ -255,22 +123,22 @@ const handleCloseProgress = () => {
   margin: 0;
   font-size: 20px;
   font-weight: 600;
-  color: #262626;
+  color: #26251f;
 }
 
 .status-tag {
   font-size: 13px;
   padding: 6px 14px;
   border-radius: 20px;
-  background: #f5f5f5;
-  color: #737373;
-  border: 1px solid #e5e5e5;
+  background: #f2ede0;
+  color: #86806f;
+  border: 1px solid #d8d0bb;
 }
 
 .status-tag.running {
-  color: #8b5cf6;
-  border-color: #8b5cf6;
-  background: #f0ebfc;
+  color: #adb571;
+  border-color: #adb571;
+  background: #e8f1fa;
   font-weight: 500;
 }
 
@@ -291,7 +159,7 @@ const handleCloseProgress = () => {
 .label {
   font-size: 14px;
   font-weight: 500;
-  color: #525252;
+  color: #66614f;
 }
 
 .input-wrap {
@@ -303,20 +171,20 @@ const handleCloseProgress = () => {
   flex: 1;
   padding: 12px 14px;
   border-radius: 8px;
-  border: 1px solid #e5e5e5;
+  border: 1px solid #d8d0bb;
   outline: none;
   font-size: 14px;
-  color: #262626;
+  color: #26251f;
   background: #fff;
 }
 
 .input:focus {
-  border-color: #8b5cf6;
+  border-color: #adb571;
 }
 
 .input:readonly {
-  color: #737373;
-  background: #fafafa;
+  color: #86806f;
+  background: #f7f2e8;
 }
 
 .btn-primary {
@@ -328,11 +196,11 @@ const handleCloseProgress = () => {
   font-size: 14px;
   font-weight: 500;
   transition: all 0.2s ease;
-  background: #8b5cf6;
+  background: #adb571;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: #7c3aed;
+  background: #0d5da3;
 }
 
 .btn-primary:disabled {
@@ -345,15 +213,15 @@ const handleCloseProgress = () => {
   border-radius: 8px;
   border: none;
   cursor: pointer;
-  color: #525252;
+  color: #66614f;
   font-size: 14px;
   font-weight: 500;
   transition: all 0.2s ease;
-  background: #f5f5f5;
+  background: #f2ede0;
 }
 
 .btn-secondary:hover {
-  background: #e5e5e5;
+  background: #d8d0bb;
 }
 
 .tags-group {
@@ -377,13 +245,13 @@ const handleCloseProgress = () => {
   border-radius: 8px;
   font-size: 13px;
   font-weight: 500;
-  background: #f5f5f5;
-  color: #737373;
+  background: #f2ede0;
+  color: #86806f;
   transition: all 0.2s ease;
 }
 
 .tag-checkbox input:checked + .tag-body {
-  background: #8b5cf6;
+  background: #adb571;
   color: #fff;
 }
 
@@ -403,7 +271,7 @@ const handleCloseProgress = () => {
   background: #fff;
   border-radius: 12px;
   padding: 20px;
-  border: 1px solid #e5e5e5;
+  border: 1px solid #d8d0bb;
 }
 
 /* 进度页面模态框 */
@@ -446,7 +314,7 @@ const handleCloseProgress = () => {
   margin: 0 0 20px;
   font-size: 18px;
   font-weight: 500;
-  color: #262626;
+  color: #26251f;
 }
 
 .btn-full {

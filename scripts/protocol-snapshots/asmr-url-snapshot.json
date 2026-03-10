@@ -1,0 +1,11 @@
+{
+  "asmrApiTokens": [
+    "https://api.asmr-200.com/api/works",
+    "https://api.asmr-200.com/api/search/"
+  ],
+  "asmrPlaylistTokens": [
+    "https://api.asmr.one/api/playlist/get-playlist-works",
+    "https://api.asmr.one/api/playlist/remove-works-from-playlist"
+  ],
+  "tgLinkTokens": ["https://t.me/", "https://t.me/c/"]
+}

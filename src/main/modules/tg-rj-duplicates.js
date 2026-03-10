@@ -12,8 +12,20 @@
 
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
+import { createSilentGramJsLogger } from "../utils/gramjs-logger";
 import { ipcMain } from "electron";
 import { getConfig } from "./config";
+import { normalizePeerEntityInput } from "./tg-common-core/peer-entity";
+import { getTelegramMessageText } from "./tg-common-core/message-text";
+import {
+  normalizeChatIdFromPayload,
+  normalizeMessageIdFromPayload,
+  normalizeMessageIdList,
+  normalizePositiveMessageId,
+  normalizeFlexiblePeerId,
+  normalizeSenderIdFromPayload,
+  normalizeUsername,
+} from "./tg-common-core/id-normalizers";
 
 // 日志工具
 import { createLogSender } from "../utils/logger";
@@ -46,7 +58,7 @@ async function getConnectedClient() {
   }
 
   if (!isConnected || !telegramClient) {
-    logger.info("正在初始化 Telegram 客户端连接...");
+    logger.debug("正在初始化 Telegram 客户端连接...");
     telegramClient = new TelegramClient(
       new StringSession(session),
       Number(apiId),
@@ -54,12 +66,13 @@ async function getConnectedClient() {
       {
         connectionRetries: 2,
         useWSS: false,
+        baseLogger: createSilentGramJsLogger(),
       },
     );
     telegramClient.setLogLevel("none");
     await telegramClient.connect();
     isConnected = true;
-    logger.info("Telegram 客户端已连接");
+    logger.debug("Telegram 客户端已连接");
   }
   return telegramClient;
 }
@@ -68,18 +81,7 @@ async function getConnectedClient() {
  * 解析 Entity (群组/频道对象)
  */
 async function resolveEntity(_client, chatIdInput) {
-  let peerId = chatIdInput;
-
-  if (typeof chatIdInput === "string" || typeof chatIdInput === "number") {
-    const cleanId = String(chatIdInput).trim();
-    try {
-      if (/^-?\d+$/.test(cleanId)) {
-        peerId = BigInt(cleanId);
-      }
-    } catch {
-      peerId = cleanId;
-    }
-  }
+  const peerId = normalizePeerEntityInput(chatIdInput);
 
   try {
     return await telegramClient.getEntity(peerId);
@@ -108,63 +110,14 @@ function extractRJCode(str) {
 }
 
 function extractRJCodeFromMessage(msg) {
-  const text = msg.text || msg.caption || "";
+  const text = getTelegramMessageText(msg);
   return extractRJCode(text);
 }
 
-function normalizeMessageId(rawValue) {
-  const normalized = Number(rawValue);
-  if (!Number.isInteger(normalized) || normalized <= 0) {
-    return null;
-  }
-  return normalized;
-}
-
-function normalizePeerId(rawValue) {
-  if (rawValue === null || rawValue === undefined) {
-    return null;
-  }
-
-  if (typeof rawValue === "bigint") {
-    return rawValue.toString();
-  }
-
-  if (typeof rawValue === "number") {
-    return Number.isFinite(rawValue) ? String(Math.trunc(rawValue)) : null;
-  }
-
-  if (typeof rawValue === "string") {
-    const trimmed = rawValue.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  }
-
-  if (typeof rawValue === "object") {
-    if ("value" in rawValue) {
-      return normalizePeerId(rawValue.value);
-    }
-    if ("userId" in rawValue) {
-      return normalizePeerId(rawValue.userId);
-    }
-    if ("channelId" in rawValue) {
-      return normalizePeerId(rawValue.channelId);
-    }
-    if ("chatId" in rawValue) {
-      return normalizePeerId(rawValue.chatId);
-    }
-  }
-
-  return null;
-}
-
-function normalizeUsername(rawUsername) {
-  if (typeof rawUsername !== "string") {
-    return "";
-  }
-  return rawUsername.trim().toLowerCase();
-}
-
 function getReplyToMessageId(msg) {
-  return normalizeMessageId(msg.replyToMsgId ?? msg.replyTo?.replyToMsgId);
+  return normalizePositiveMessageId(
+    msg.replyToMsgId ?? msg.replyTo?.replyToMsgId,
+  );
 }
 
 function getPeerType(rawPeer) {
@@ -195,15 +148,15 @@ function ensureMessageIdField(message) {
     return null;
   }
 
-  const messageId = normalizeMessageId(message.messageId ?? message.id);
-  const senderId = normalizePeerId(
-    message.senderInfo?.senderId ?? message.senderId ?? message.fromId,
-  );
+  const messageId = normalizeMessageIdFromPayload(message);
+  const senderId = normalizeSenderIdFromPayload(message);
 
   const senderInfo = message.senderInfo
     ? {
         ...message.senderInfo,
-        senderId: normalizePeerId(message.senderInfo.senderId ?? senderId),
+        senderId: normalizeFlexiblePeerId(
+          message.senderInfo.senderId ?? senderId,
+        ),
       }
     : undefined;
 
@@ -214,18 +167,6 @@ function ensureMessageIdField(message) {
     senderId,
     senderInfo,
   };
-}
-
-function normalizeMessageIdList(messageIds) {
-  if (!Array.isArray(messageIds)) {
-    return [];
-  }
-
-  const normalizedIds = messageIds
-    .map((messageId) => normalizeMessageId(messageId))
-    .filter((messageId) => messageId !== null);
-
-  return [...new Set(normalizedIds)];
 }
 
 function formatDeleteError(error) {
@@ -277,7 +218,7 @@ function getMirrorDeleteTarget(meta, fallbackMessageId, configuredChatId) {
     return null;
   }
 
-  const senderChannelId = normalizePeerId(meta.senderId);
+  const senderChannelId = normalizeFlexiblePeerId(meta.senderId);
   if (!senderChannelId || !senderChannelId.startsWith("-100")) {
     return null;
   }
@@ -286,7 +227,7 @@ function getMirrorDeleteTarget(meta, fallbackMessageId, configuredChatId) {
     return null;
   }
 
-  const mappedMessageId = normalizeMessageId(
+  const mappedMessageId = normalizePositiveMessageId(
     meta.forwardChannelPostId ?? meta.replyToTopId,
   );
   if (mappedMessageId !== null) {
@@ -320,9 +261,7 @@ function getMirrorDeleteTarget(meta, fallbackMessageId, configuredChatId) {
  * 识别发送者身份
  */
 function identifySender(msg, config) {
-  const senderId = normalizePeerId(
-    msg.senderId ?? msg.fromId ?? msg.rawSenderId ?? msg.rawFromId,
-  );
+  const senderId = normalizeSenderIdFromPayload(msg);
   const senderEntity = msg.sender || msg.from || null;
   const senderUsername = normalizeUsername(senderEntity?.username);
   const peerType =
@@ -336,7 +275,7 @@ function identifySender(msg, config) {
     senderEntity?.username ||
     (senderId ? `ID:${senderId}` : "Unknown");
 
-  const configuredBotId = normalizePeerId(
+  const configuredBotId = normalizeFlexiblePeerId(
     config?.tg?.dlsiteInfoBotUserId ?? DLSITE_INFO_BOT.userId,
   );
   const configuredBotUsername = normalizeUsername(
@@ -449,9 +388,7 @@ function detectResponderSenderIds(messages, config) {
   const senderCountMap = new Map();
 
   for (const message of messages) {
-    const senderId = normalizePeerId(
-      message?.senderInfo?.senderId ?? message?.senderId ?? message?.fromId,
-    );
+    const senderId = normalizeSenderIdFromPayload(message);
     if (!senderId) {
       continue;
     }
@@ -461,7 +398,9 @@ function detectResponderSenderIds(messages, config) {
     }
   }
 
-  const configuredSenderId = normalizePeerId(config?.tg?.dlsiteInfoBotUserId);
+  const configuredSenderId = normalizeFlexiblePeerId(
+    config?.tg?.dlsiteInfoBotUserId,
+  );
   const sortedByReplyCount = [...senderCountMap.entries()].sort(
     (left, right) => right[1] - left[1],
   );
@@ -476,9 +415,7 @@ function detectResponderSenderIds(messages, config) {
   }
 
   for (const message of messages) {
-    const senderId = normalizePeerId(
-      message?.senderInfo?.senderId ?? message?.senderId ?? message?.fromId,
-    );
+    const senderId = normalizeSenderIdFromPayload(message);
     if (!senderId) {
       continue;
     }
@@ -503,9 +440,7 @@ function isResponderMessage(message, responderSenderIds) {
     return false;
   }
 
-  const senderId = normalizePeerId(
-    message?.senderInfo?.senderId ?? message?.senderId ?? message?.fromId,
-  );
+  const senderId = normalizeSenderIdFromPayload(message);
   if (senderId && responderSenderIds.has(senderId)) {
     return true;
   }
@@ -701,7 +636,7 @@ async function scanRjDuplicates(options) {
     for await (const msg of iterator) {
       if (!msg) continue;
 
-      const messageId = normalizeMessageId(msg.id);
+      const messageId = normalizeMessageIdFromPayload(msg);
       if (messageId === null) {
         logger.warn(`[接口日志] 跳过无效消息ID: ${String(msg.id)}`);
         continue;
@@ -709,14 +644,16 @@ async function scanRjDuplicates(options) {
 
       const rjCode = extractRJCodeFromMessage(msg);
       const replyToMessageId = getReplyToMessageId(msg);
-      const peerId = normalizePeerId(msg.peerId);
-      const forwardFromPeerId = normalizePeerId(
+      const peerId = normalizeChatIdFromPayload(msg);
+      const forwardFromPeerId = normalizeFlexiblePeerId(
         msg.fwdFrom?.fromId ?? msg.fwdFrom?.savedFromPeer,
       );
-      const forwardChannelPostId = normalizeMessageId(
+      const forwardChannelPostId = normalizePositiveMessageId(
         msg.fwdFrom?.channelPost ?? msg.fwdFrom?.savedFromMsgId,
       );
-      const replyToTopId = normalizeMessageId(msg.replyTo?.replyToTopId);
+      const replyToTopId = normalizePositiveMessageId(
+        msg.replyTo?.replyToTopId,
+      );
       const isPost = Boolean(msg.post);
       let sender = msg.sender || msg.from || null;
 
@@ -735,10 +672,10 @@ async function scanRjDuplicates(options) {
       messages.push({
         id: messageId,
         messageId,
-        text: msg.text || msg.caption || "",
+        text: getTelegramMessageText(msg),
         date: new Date(msg.date * 1000),
-        senderId: normalizePeerId(msg.senderId),
-        fromId: normalizePeerId(msg.fromId),
+        senderId: normalizeSenderIdFromPayload(msg),
+        fromId: normalizeFlexiblePeerId(msg.fromId),
         rawSenderId: msg.senderId,
         rawFromId: msg.fromId,
         peerId,
@@ -847,27 +784,23 @@ async function scanRjDuplicates(options) {
     for (const row of normalizedResults) {
       const rowMessages = [row.userMessage, row.botMessage].filter(Boolean);
       for (const rowMessage of rowMessages) {
-        const messageId = normalizeMessageId(
-          rowMessage?.messageId ?? rowMessage?.id,
-        );
+        const messageId = normalizeMessageIdFromPayload(rowMessage);
         if (messageId === null) {
           continue;
         }
 
-        const senderId = normalizePeerId(
-          rowMessage?.senderInfo?.senderId ??
-            rowMessage?.senderId ??
-            rowMessage?.fromId,
-        );
+        const senderId = normalizeSenderIdFromPayload(rowMessage);
         const senderType = rowMessage?.senderInfo?.type || "unknown";
-        const sourceChatId = normalizePeerId(rowMessage?.peerId);
-        const forwardFromPeerId = normalizePeerId(
+        const sourceChatId = normalizeChatIdFromPayload(rowMessage);
+        const forwardFromPeerId = normalizeFlexiblePeerId(
           rowMessage?.forwardFromPeerId,
         );
-        const forwardChannelPostId = normalizeMessageId(
+        const forwardChannelPostId = normalizePositiveMessageId(
           rowMessage?.forwardChannelPostId,
         );
-        const replyToTopId = normalizeMessageId(rowMessage?.replyToTopId);
+        const replyToTopId = normalizePositiveMessageId(
+          rowMessage?.replyToTopId,
+        );
         const isPost = Boolean(rowMessage?.isPost);
 
         scanMessageMeta.set(messageId, {
@@ -983,7 +916,7 @@ async function deleteDuplicateMessages(messageIds) {
     const telegramClient = await getConnectedClient();
     const entity = await resolveEntity(telegramClient, channelIdStr);
     const entityType = getEntityTypeLabel(entity);
-    const configuredChatId = normalizePeerId(channelIdStr);
+    const configuredChatId = normalizeFlexiblePeerId(channelIdStr);
 
     logger.info(
       `[接口日志] 开始删除 ${normalizedMessageIds.length} 条消息，目标实体=${entityType}, channelId=${channelIdStr}`,
@@ -1213,7 +1146,7 @@ async function deleteDuplicateMessages(messageIds) {
 // ==========================================
 
 export function setupRjDuplicatesIPC() {
-  console.log("[tg-rj-duplicates] 正在初始化 IPC 处理器...");
+  logger.debug("[tg-rj-duplicates] initializing IPC handlers...");
 
   const handlers = ["tg-scan-rj-duplicates", "tg-delete-duplicate-messages"];
 
@@ -1227,13 +1160,13 @@ export function setupRjDuplicatesIPC() {
 
   // 扫描重复 RJ 号
   ipcMain.handle("tg-scan-rj-duplicates", async (_event, options) => {
-    logger.info(
+    logger.debug(
       `IPC: tg-scan-rj-duplicates 请求 limit=${Number.isInteger(Number(options?.limit)) ? Number(options?.limit) : "default"}`,
     );
 
     const result = await scanRjDuplicates(options);
 
-    logger.info(
+    logger.debug(
       `IPC: tg-scan-rj-duplicates 响应 success=${result.success} duplicates=${Array.isArray(result.duplicates) ? result.duplicates.length : 0}`,
     );
     return result;
@@ -1241,17 +1174,17 @@ export function setupRjDuplicatesIPC() {
 
   // 删除重复消息
   ipcMain.handle("tg-delete-duplicate-messages", async (_event, messageIds) => {
-    logger.info(
+    logger.debug(
       `IPC: tg-delete-duplicate-messages 请求数量=${Array.isArray(messageIds) ? messageIds.length : 0}`,
     );
 
     const result = await deleteDuplicateMessages(messageIds);
 
-    logger.info(
+    logger.debug(
       `IPC: tg-delete-duplicate-messages 响应 success=${result.success} deleted=${result.deletedCount || 0} errors=${Array.isArray(result.errors) ? result.errors.length : 0}`,
     );
     return result;
   });
 
-  console.log("[tg-rj-duplicates] 所有 IPC 处理器注册完成!");
+  logger.debug("[tg-rj-duplicates] IPC handlers registered");
 }

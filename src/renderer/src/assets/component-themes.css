@@ -1,0 +1,637 @@
+#app .home-theme,
+#app .settings-theme,
+#app .upload-tool-theme,
+#app .recent-activity-theme,
+#app .chinese-list-theme,
+#app .cloud-cleaner-theme,
+#app .local-cleaner-theme,
+#app .whisper-theme,
+#app .rj-duplicate-theme,
+#app .tools-theme,
+#app .advanced-search-theme,
+#app .rj-filter-theme,
+#app .tg-search-bot-theme,
+#app .workflow-designer-theme {
+  --comp-accent: var(--accent, var(--app-accent, #adb571));
+  --comp-surface-1: color-mix(in srgb, var(--page-surface-bg) 94%, #ffffff 6%);
+  --comp-surface-2: color-mix(in srgb, var(--page-surface-bg) 88%, #ffffff 12%);
+  --comp-border: var(--page-surface-border);
+  --comp-divider: var(--page-divider);
+  --comp-control-bg: var(--page-control-bg);
+  --comp-control-border: var(--page-control-border);
+  --comp-control-hover: var(--page-control-hover);
+  --comp-text: var(--page-text-strong);
+  --comp-muted: var(--page-text-muted);
+  color: var(--comp-text);
+}
+
+#app .home-theme {
+  --comp-accent: var(--accent, var(--app-accent, #adb571));
+  --comp-surface-1: color-mix(in srgb, var(--page-surface-bg) 93%, #ffffff 7%);
+}
+
+#app .settings-theme {
+  --comp-accent: var(--accent, var(--app-accent, #adb571));
+  --comp-surface-1: color-mix(in srgb, var(--page-surface-bg) 91%, #f1eddf 9%);
+}
+
+#app .upload-tool-theme {
+  --comp-accent: var(--accent, var(--app-accent, #adb571));
+  --comp-surface-1: color-mix(in srgb, var(--page-surface-bg) 92%, #f3efdf 8%);
+}
+
+#app .recent-activity-theme {
+  --comp-accent: var(--accent, var(--app-accent, #adb571));
+  --comp-surface-1: color-mix(in srgb, var(--page-surface-bg) 90%, #f1eddf 10%);
+}
+
+#app .chinese-list-theme {
+  --comp-accent: var(--accent, var(--app-accent, #adb571));
+  --comp-surface-1: color-mix(in srgb, var(--page-surface-bg) 90%, #f2eedc 10%);
+}
+
+#app .cloud-cleaner-theme {
+  --comp-accent: var(--accent, var(--app-accent, #adb571));
+  --comp-surface-1: color-mix(in srgb, var(--page-surface-bg) 91%, #f2eddc 9%);
+}
+
+#app .local-cleaner-theme {
+  --comp-accent: var(--accent, var(--app-accent, #adb571));
+  --comp-surface-1: color-mix(in srgb, var(--page-surface-bg) 91%, #f4efdf 9%);
+}
+
+#app .whisper-theme {
+  --comp-accent: var(--accent, var(--app-accent, #adb571));
+  --comp-surface-1: color-mix(in srgb, var(--page-surface-bg) 91%, #f0eddd 9%);
+}
+
+#app .rj-duplicate-theme {
+  --comp-accent: var(--accent, var(--app-accent, #adb571));
+  --comp-surface-1: color-mix(in srgb, var(--page-surface-bg) 91%, #fbfaf3 9%);
+}
+
+#app .tools-theme {
+  --comp-accent: var(--accent, var(--app-accent, #adb571));
+  --comp-surface-1: color-mix(in srgb, var(--page-surface-bg) 92%, #f1eddf 8%);
+}
+
+#app .advanced-search-theme {
+  --comp-accent: var(--accent, var(--app-accent, #adb571));
+  --comp-surface-1: color-mix(in srgb, var(--page-surface-bg) 90%, #f0eddd 10%);
+  --adv-include-bg: color-mix(in srgb, var(--comp-accent) 18%, transparent);
+  --adv-include-border: color-mix(in srgb, var(--comp-accent) 36%, transparent);
+  --adv-exclude-bg: color-mix(
+    in srgb,
+    var(--status-error-bg, #fdecec) 70%,
+    transparent
+  );
+  --adv-exclude-border: color-mix(
+    in srgb,
+    var(--status-error-border, #f2b2b2) 80%,
+    transparent
+  );
+  --adv-exclude-text: var(--status-error-text, #cf1322);
+}
+
+#app .rj-filter-theme {
+  --comp-accent: var(--accent, var(--app-accent, #adb571));
+  --comp-surface-1: color-mix(in srgb, var(--page-surface-bg) 91%, #f1eddf 9%);
+}
+
+#app .tg-search-bot-theme {
+  --comp-accent: var(--accent, var(--app-accent, #adb571));
+  --comp-surface-1: color-mix(in srgb, var(--page-surface-bg) 91%, #f1eddf 9%);
+}
+
+#app .workflow-designer-theme {
+  --comp-accent: var(--accent, var(--app-accent, #adb571));
+  --comp-surface-1: color-mix(in srgb, var(--page-surface-bg) 90%, #f2efde 10%);
+}
+
+#app .home-theme .page-header,
+#app .home-theme .page-header-simple,
+#app .home-theme .card,
+#app .home-theme .stat-card,
+#app .settings-theme .page-header,
+#app .settings-theme .card,
+#app .upload-tool-theme .page-header,
+#app .upload-tool-theme .status-bar,
+#app .upload-tool-theme .split-left,
+#app .upload-tool-theme .split-right,
+#app .upload-tool-theme .log-panel,
+#app .upload-tool-theme .modal-box,
+#app .recent-activity-theme .page-header,
+#app .recent-activity-theme .card,
+#app .chinese-list-theme .page-header,
+#app .chinese-list-theme .card,
+#app .cloud-cleaner-theme .page-header,
+#app .cloud-cleaner-theme .card,
+#app .local-cleaner-theme .page-header,
+#app .local-cleaner-theme .card,
+#app .whisper-theme .page-header,
+#app .whisper-theme .card,
+#app .rj-duplicate-theme .page-header,
+#app .rj-duplicate-theme .card,
+#app .tools-theme .page-header,
+#app .tools-theme .card,
+#app .advanced-search-theme .search-header,
+#app .advanced-search-theme .main-panel,
+#app .advanced-search-theme .side-panel,
+#app .rj-filter-theme .filter-header,
+#app .rj-filter-theme .input-section,
+#app .rj-filter-theme .compare-section,
+#app .rj-filter-theme .result-section,
+#app .tg-search-bot-theme .n-card,
+#app .tg-search-bot-theme .bot-card,
+#app .workflow-designer-theme .page-header,
+#app .workflow-designer-theme .card {
+  background: var(--comp-surface-1) !important;
+  border-color: var(--comp-border) !important;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+#app .home-theme .page-title,
+#app .settings-theme .page-title,
+#app .upload-tool-theme .page-title,
+#app .recent-activity-theme .page-title,
+#app .chinese-list-theme .page-title,
+#app .cloud-cleaner-theme .page-title,
+#app .local-cleaner-theme .page-title,
+#app .whisper-theme .page-title,
+#app .rj-duplicate-theme .page-title,
+#app .tools-theme .page-title,
+#app .advanced-search-theme h2,
+#app .rj-filter-theme h2,
+#app .tg-search-bot-theme .n-card-header__main,
+#app .home-theme .section-title,
+#app .settings-theme .section-title,
+#app .upload-tool-theme .section-title,
+#app .recent-activity-theme .section-title,
+#app .chinese-list-theme .section-title,
+#app .cloud-cleaner-theme .section-title,
+#app .local-cleaner-theme .section-title,
+#app .whisper-theme .section-title,
+#app .rj-duplicate-theme .section-title,
+#app .tools-theme .section-title,
+#app .advanced-search-theme h3,
+#app .rj-filter-theme h3,
+#app .tg-search-bot-theme .result-message,
+#app .workflow-designer-theme .section-title,
+#app .workflow-designer-theme .page-title {
+  color: var(--comp-text) !important;
+}
+
+#app .home-theme .form-label,
+#app .home-theme .stat-label,
+#app .settings-theme .form-label,
+#app .settings-theme .toggle-label,
+#app .upload-tool-theme .form-label,
+#app .recent-activity-theme .stat-label,
+#app .recent-activity-theme label,
+#app .chinese-list-theme .source-label,
+#app .chinese-list-theme .source-desc,
+#app .cloud-cleaner-theme .filter-label,
+#app .local-cleaner-theme .txt-title,
+#app .whisper-theme .label,
+#app .rj-duplicate-theme .label,
+#app .tools-theme .form-label,
+#app .tools-theme .tool-desc,
+#app .advanced-search-theme .search-header,
+#app .rj-filter-theme label,
+#app .tg-search-bot-theme .meta-item,
+#app .tg-search-bot-theme .connected-status,
+#app .tg-search-bot-theme .disconnected-status,
+#app .workflow-designer-theme .form-label,
+#app .workflow-designer-theme .status-info {
+  color: var(--comp-muted) !important;
+}
+
+#app .home-theme .input,
+#app .settings-theme .input,
+#app .settings-theme .select,
+#app .upload-tool-theme .input,
+#app .recent-activity-theme .input,
+#app .recent-activity-theme .file-input,
+#app .chinese-list-theme .input,
+#app .cloud-cleaner-theme .input,
+#app .local-cleaner-theme .input,
+#app .whisper-theme .input,
+#app .tools-theme .input,
+#app .advanced-search-theme input:not([type="range"]),
+#app .advanced-search-theme select,
+#app .rj-filter-theme .url-input,
+#app .rj-filter-theme .file-input,
+#app .rj-filter-theme .date-input,
+#app .tg-search-bot-theme .n-input,
+#app .tg-search-bot-theme .n-input__input-el,
+#app .rj-duplicate-theme .n-input,
+#app .rj-duplicate-theme .n-input-number,
+#app .rj-duplicate-theme .n-input-number-input,
+#app .rj-duplicate-theme .n-base-selection,
+#app .workflow-designer-theme .input,
+#app .workflow-designer-theme .select,
+#app .workflow-designer-theme textarea {
+  background: var(--comp-control-bg) !important;
+  border-color: var(--comp-control-border) !important;
+  color: var(--comp-text) !important;
+}
+
+#app .home-theme .btn-primary,
+#app .settings-theme .btn-primary,
+#app .upload-tool-theme .btn-primary,
+#app .recent-activity-theme .btn-primary,
+#app .chinese-list-theme .btn-primary,
+#app .cloud-cleaner-theme .btn-primary,
+#app .local-cleaner-theme .btn-primary,
+#app .whisper-theme .btn-primary,
+#app .rj-duplicate-theme .btn-primary,
+#app .tools-theme .btn-primary,
+#app .advanced-search-theme .search-btn.primary,
+#app .rj-filter-theme .action-btn.primary,
+#app .tg-search-bot-theme .n-button--primary-type,
+#app .workflow-designer-theme .btn-primary {
+  background: var(--comp-accent) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--comp-accent) 85%,
+    #ffffff 15%
+  ) !important;
+  color: #ffffff !important;
+}
+
+#app .rj-duplicate-theme .btn-warning,
+#app .rj-duplicate-theme .btn-danger,
+#app .tg-search-bot-theme .n-button--warning-type,
+#app .tg-search-bot-theme .n-button--error-type {
+  border: 1px solid color-mix(in srgb, var(--comp-accent) 48%, #b84a3b 52%) !important;
+}
+
+#app .home-theme .btn-secondary,
+#app .settings-theme .btn-secondary,
+#app .settings-theme .browse-btn,
+#app .upload-tool-theme .btn-secondary,
+#app .upload-tool-theme .browse-btn,
+#app .recent-activity-theme .btn-secondary,
+#app .recent-activity-theme .browse-btn,
+#app .chinese-list-theme .btn-secondary,
+#app .cloud-cleaner-theme .btn-secondary,
+#app .local-cleaner-theme .btn-secondary,
+#app .whisper-theme .btn-secondary,
+#app .rj-duplicate-theme .btn-secondary,
+#app .tools-theme .btn-secondary,
+#app .advanced-search-theme .reset-btn,
+#app .rj-filter-theme .action-btn.secondary,
+#app .rj-filter-theme .browse-btn,
+#app .tg-search-bot-theme .n-button,
+#app .workflow-designer-theme .btn-secondary {
+  background: var(--comp-control-bg) !important;
+  border-color: var(--comp-control-border) !important;
+  color: var(--comp-text) !important;
+}
+
+#app .home-theme .btn-secondary:hover:not(:disabled),
+#app .settings-theme .btn-secondary:hover:not(:disabled),
+#app .settings-theme .browse-btn:hover:not(:disabled),
+#app .upload-tool-theme .btn-secondary:hover:not(:disabled),
+#app .recent-activity-theme .btn-secondary:hover:not(:disabled),
+#app .chinese-list-theme .btn-secondary:hover:not(:disabled),
+#app .cloud-cleaner-theme .btn-secondary:hover:not(:disabled),
+#app .local-cleaner-theme .btn-secondary:hover:not(:disabled),
+#app .whisper-theme .btn-secondary:hover:not(:disabled),
+#app .rj-duplicate-theme .btn-secondary:hover:not(:disabled),
+#app .tools-theme .btn-secondary:hover:not(:disabled),
+#app .advanced-search-theme .reset-btn:hover:not(:disabled),
+#app .rj-filter-theme .action-btn.secondary:hover:not(:disabled),
+#app .tg-search-bot-theme .n-button:hover,
+#app .workflow-designer-theme .btn-secondary:hover:not(:disabled) {
+  background: var(--comp-control-hover) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--comp-accent) 36%,
+    var(--comp-control-border) 64%
+  ) !important;
+}
+
+#app .home-theme .history-item,
+#app .recent-activity-theme .file-item,
+#app .recent-activity-theme .file-row,
+#app .chinese-list-theme .rj-item,
+#app .cloud-cleaner-theme .file-row,
+#app .local-cleaner-theme .file-row,
+#app .rj-duplicate-theme .n-data-table td,
+#app .rj-duplicate-theme .n-data-table th,
+#app .tools-theme .result-box,
+#app .rj-filter-theme .result-item {
+  border-color: var(--comp-divider) !important;
+}
+
+#app .home-theme .code-badge,
+#app .recent-activity-theme .rj-code,
+#app .chinese-list-theme .badge-success,
+#app .local-cleaner-theme .rj-tag,
+#app .rj-filter-theme .rj-item,
+#app .rj-filter-theme .count-badge,
+#app .cloud-cleaner-theme .tag-item.active,
+#app .chinese-list-theme .source-item.active {
+  background: color-mix(
+    in srgb,
+    var(--comp-accent) 16%,
+    transparent
+  ) !important;
+  color: var(--comp-accent) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--comp-accent) 30%,
+    transparent
+  ) !important;
+}
+
+#app .tools-theme .tool-icon,
+#app .rj-filter-theme .filter-header h2,
+#app .advanced-search-theme .search-btn.primary,
+#app .tg-search-bot-theme .result-link,
+#app .tg-search-bot-theme .result-link a {
+  color: var(--comp-accent) !important;
+}
+
+#app .settings-theme .status-badge.online,
+#app .upload-tool-theme .dot.online,
+#app .whisper-theme .status-tag.running,
+#app .tg-search-bot-theme .connected-status {
+  background: var(--status-success-bg) !important;
+  color: var(--status-success-text) !important;
+  border-color: var(--status-success-border) !important;
+}
+
+#app .settings-theme .status-badge.offline,
+#app .upload-tool-theme .dot,
+#app .whisper-theme .status-tag,
+#app .tg-search-bot-theme .disconnected-status {
+  background: var(--status-error-bg) !important;
+  color: var(--status-error-text) !important;
+  border-color: var(--status-error-border) !important;
+}
+
+#app .advanced-search-theme .preset-list,
+#app .advanced-search-theme .preview-box,
+#app .rj-filter-theme .result-list,
+#app .tg-search-bot-theme .search-result,
+#app .tg-search-bot-theme .sync-result,
+#app .tg-search-bot-theme .result-content {
+  background: var(--comp-surface-2) !important;
+  border-color: var(--comp-border) !important;
+}
+
+#app .rj-duplicate-theme .n-data-table,
+#app .rj-duplicate-theme .n-data-table-wrapper,
+#app .tg-search-bot-theme .n-data-table,
+#app .tg-search-bot-theme .n-data-table-wrapper {
+  background: var(--comp-surface-2) !important;
+}
+
+#app .rj-duplicate-theme .status-tag,
+#app .rj-duplicate-theme .stat-card,
+#app .tools-theme .result-box,
+#app .cloud-cleaner-theme .tag-item,
+#app .local-cleaner-theme .txt-panel,
+#app .chinese-list-theme .drop-zone,
+#app .recent-activity-theme .stat-item,
+#app .upload-tool-theme .tab-btn,
+#app .upload-tool-theme .chip {
+  background: var(--comp-surface-2) !important;
+  border-color: var(--comp-border) !important;
+  color: var(--comp-text) !important;
+}
+
+/* Advanced Search: per-component contrast hardening */
+#app .advanced-search-theme .tag-selector,
+#app .advanced-search-theme .preset-manager,
+#app .advanced-search-theme .search-preview,
+#app .advanced-search-theme .language-selector,
+#app .advanced-search-theme .duration-picker,
+#app .advanced-search-theme .rating-picker,
+#app .advanced-search-theme .price-picker,
+#app .advanced-search-theme .age-selector {
+  background: var(--comp-surface-1) !important;
+  border: 1px solid var(--comp-border) !important;
+  color: var(--comp-text) !important;
+}
+
+#app .advanced-search-theme .label,
+#app .advanced-search-theme .tag-name,
+#app .advanced-search-theme .preset-name,
+#app .advanced-search-theme .lang-token,
+#app .advanced-search-theme .header-text,
+#app .advanced-search-theme .toggle-label,
+#app .advanced-search-theme .mode-btn,
+#app .advanced-search-theme .mode-selector label,
+#app .advanced-search-theme .syntax-item,
+#app .advanced-search-theme .age-option,
+#app .advanced-search-theme .current-value {
+  color: var(--comp-text) !important;
+}
+
+#app .advanced-search-theme .hint,
+#app .advanced-search-theme .tag-count,
+#app .advanced-search-theme .more-tags,
+#app .advanced-search-theme .lang-desc,
+#app .advanced-search-theme .empty-state,
+#app .advanced-search-theme .result-count,
+#app .advanced-search-theme .slider-labels,
+#app .advanced-search-theme .unit {
+  color: var(--comp-muted) !important;
+}
+
+#app .advanced-search-theme .search-box,
+#app .advanced-search-theme .tags-container,
+#app .advanced-search-theme .selected-tags,
+#app .advanced-search-theme .selected-langs,
+#app .advanced-search-theme .lang-list,
+#app .advanced-search-theme .preview-content,
+#app .advanced-search-theme .preset-item,
+#app .advanced-search-theme .tag-item,
+#app .advanced-search-theme .lang-item,
+#app .advanced-search-theme .mode-btn,
+#app .advanced-search-theme .mode-selector label,
+#app .advanced-search-theme .preset-btn,
+#app .advanced-search-theme .duration-input,
+#app .advanced-search-theme .rating-input,
+#app .advanced-search-theme .price-input,
+#app .advanced-search-theme .unit-select,
+#app .advanced-search-theme .preset-input,
+#app .advanced-search-theme .clear-btn,
+#app .advanced-search-theme .age-option {
+  background: var(--comp-control-bg) !important;
+  border-color: var(--comp-control-border) !important;
+  color: var(--comp-text) !important;
+}
+
+#app .advanced-search-theme .search-box input,
+#app .advanced-search-theme .duration-input::placeholder,
+#app .advanced-search-theme .rating-input::placeholder,
+#app .advanced-search-theme .price-input::placeholder,
+#app .advanced-search-theme .preset-input::placeholder {
+  color: color-mix(in srgb, var(--comp-muted) 78%, transparent) !important;
+}
+
+#app .advanced-search-theme .search-box input,
+#app .advanced-search-theme .duration-input,
+#app .advanced-search-theme .rating-input,
+#app .advanced-search-theme .price-input,
+#app .advanced-search-theme .preset-input {
+  color: var(--comp-text) !important;
+}
+
+#app .advanced-search-theme .tag-item.selected,
+#app .advanced-search-theme .preset-item.active,
+#app .advanced-search-theme .lang-item.selected.include,
+#app .advanced-search-theme .tag-badge.include,
+#app .advanced-search-theme .lang-badge.include,
+#app .advanced-search-theme .mode-btn.active,
+#app .advanced-search-theme .mode-selector label.active,
+#app .advanced-search-theme .preset-btn.active,
+#app .advanced-search-theme .age-option.active,
+#app .advanced-search-theme .current-badge {
+  background: var(--adv-include-bg) !important;
+  border-color: var(--adv-include-border) !important;
+  color: var(--comp-accent) !important;
+}
+
+#app .advanced-search-theme .tag-item.excluded,
+#app .advanced-search-theme .lang-item.selected.exclude,
+#app .advanced-search-theme .tag-badge.exclude,
+#app .advanced-search-theme .lang-badge.exclude,
+#app .advanced-search-theme .age-option.exclude.active,
+#app .advanced-search-theme .syntax-item.tag-exclude,
+#app .advanced-search-theme .syntax-item.tagw-exclude,
+#app .advanced-search-theme .syntax-item.lang-exclude,
+#app .advanced-search-theme .syntax-item.age-exclude {
+  background: var(--adv-exclude-bg) !important;
+  border-color: var(--adv-exclude-border) !important;
+  color: var(--adv-exclude-text) !important;
+}
+
+#app .advanced-search-theme .search-icon,
+#app .advanced-search-theme .clear-btn,
+#app .advanced-search-theme .clear-all-btn,
+#app .advanced-search-theme .update-btn,
+#app .advanced-search-theme .delete-btn {
+  color: var(--comp-muted) !important;
+}
+
+#app .advanced-search-theme .preset-name:hover,
+#app .advanced-search-theme .clear-all-btn:hover,
+#app .advanced-search-theme .update-btn:hover {
+  color: var(--comp-accent) !important;
+}
+
+#app .advanced-search-theme .delete-btn:hover,
+#app .advanced-search-theme .clear-btn:hover {
+  color: var(--adv-exclude-text) !important;
+}
+
+/* TG pages: unify input + button combo as one clean control group */
+#app .tg-search-bot-theme .search-input-group {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--comp-control-border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--comp-control-bg);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 42%, transparent);
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background-color 0.18s ease;
+}
+
+#app .tg-search-bot-theme .search-input-group:focus-within {
+  border-color: color-mix(
+    in srgb,
+    var(--comp-accent) 42%,
+    var(--comp-control-border) 58%
+  );
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--comp-accent) 18%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 32%, transparent);
+}
+
+#app .tg-search-bot-theme .search-input-group .n-input {
+  flex: 1;
+  min-width: 0;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  --n-border: transparent !important;
+  --n-border-hover: transparent !important;
+  --n-border-focus: transparent !important;
+  --n-box-shadow-focus: none !important;
+}
+
+#app .tg-search-bot-theme .search-input-group .n-input .n-input-wrapper {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+#app .tg-search-bot-theme .search-input-group .n-input .n-input__border,
+#app .tg-search-bot-theme .search-input-group .n-input .n-input__state-border {
+  display: none !important;
+}
+
+#app .tg-search-bot-theme .search-input-group .n-input .n-input__input-el {
+  background: transparent !important;
+  color: var(--comp-text) !important;
+}
+
+#app
+  .tg-search-bot-theme
+  .search-input-group
+  .n-input
+  .n-input__input-el::placeholder {
+  color: color-mix(in srgb, var(--comp-muted) 78%, transparent) !important;
+}
+
+#app .tg-search-bot-theme .search-input-group .n-button {
+  border: 0 !important;
+  border-left: 0 !important;
+  border-radius: 0 !important;
+  min-width: 112px;
+  height: auto !important;
+  font-weight: 600;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--comp-accent) !important;
+}
+
+#app .tg-search-bot-theme .search-input-group .n-button + .n-button {
+  min-width: 126px;
+}
+
+#app .tg-search-bot-theme .search-input-group .n-button .n-button__border,
+#app
+  .tg-search-bot-theme
+  .search-input-group
+  .n-button
+  .n-button__state-border {
+  display: none !important;
+}
+
+#app .tg-search-bot-theme .search-input-group .n-button:hover {
+  background: color-mix(
+    in srgb,
+    var(--comp-accent) 12%,
+    transparent
+  ) !important;
+}
+
+#app .tg-search-bot-theme .search-input-group .n-button--warning-type {
+  color: color-mix(in srgb, #d97706 72%, var(--comp-text) 28%) !important;
+}
+
+.app-shell.window-dark .tg-search-bot-theme .search-input-group {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}

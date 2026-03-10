@@ -8,16 +8,19 @@
 import { computed } from "vue";
 
 const props = defineProps({
+  // 约定 gap/padding/maxWidth 都走 token 值，保持布局参数在页面间可复用。
   gap: { type: String, default: "4" },
   maxWidth: { type: String, default: "7xl" },
   padding: { type: String, default: "4" },
 });
 
 const containerClass = computed(() => {
+  // 统一在此拼接工具类，避免模板中散落字符串导致维护困难。
   return (
     "gap-" + props.gap + " px-" + props.padding + " max-w-" + props.maxWidth
   );
 });
+// 具体列数断点由 scoped CSS 控制，这里只负责外层间距与宽度约束。
 </script>
 
 <style scoped>

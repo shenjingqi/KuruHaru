@@ -1,7 +1,7 @@
 <template>
   <div class="age-selector">
     <div class="selector-header">
-      <span class="label">🎂 年龄分级</span>
+      <span class="label">年龄分级</span>
       <span class="hint">(默认全部)</span>
     </div>
 
@@ -12,22 +12,22 @@
       </div>
       <label class="age-option" :class="{ active: selected === 'all' }">
         <input v-model="selected" type="radio" value="all" />
-        🌐 全部
+        全部
       </label>
       <label class="age-option" :class="{ active: selected === 'general' }">
         <input v-model="selected" type="radio" value="general" />
-        👶 全年龄
+        全年龄
       </label>
       <label class="age-option" :class="{ active: selected === 'r15' }">
         <input v-model="selected" type="radio" value="r15" />
-        🔞 R15
+        R15
       </label>
       <label
         class="age-option exclude"
         :class="{ active: selected === 'excludeAdult' }"
       >
         <input v-model="selected" type="radio" value="excludeAdult" />
-        🚫 不要R18
+        不要R18
       </label>
     </div>
   </div>
@@ -42,9 +42,9 @@ const emitUpdate = () => {
 };
 const getLabel = (val) => {
   const labels = {
-    general: "👶 全年龄",
-    r15: "🔞 R15",
-    excludeAdult: "🚫 不要R18",
+    general: "全年龄",
+    r15: "R15",
+    excludeAdult: "不要R18",
   };
   return labels[val] || val;
 };
@@ -63,23 +63,28 @@ watch(
 </script>
 <style scoped>
 .age-selector {
-  background: #f8f9fa;
-  border-radius: 12px;
+  background: color-mix(
+    in srgb,
+    var(--comp-surface-1) 92%,
+    rgba(255, 253, 245, 0.08) 8%
+  );
+  border: 1px solid var(--comp-border);
+  border-radius: 16px;
   padding: 16px;
 }
 .selector-header {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
   margin-bottom: 12px;
 }
 .label {
-  font-weight: 600;
-  color: #333;
+  font-weight: 700;
+  color: var(--comp-text);
 }
 .hint {
   font-size: 12px;
-  color: #999;
+  color: var(--comp-muted);
 }
 .age-options {
   display: flex;
@@ -92,40 +97,56 @@ watch(
 .current-badge {
   display: inline-flex;
   align-items: center;
+  min-height: 28px;
   padding: 4px 10px;
-  background: #1890ff;
-  color: #fff;
-  border-radius: 12px;
+  border-radius: 999px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--comp-accent) 92%, #cbd39c 8%),
+    color-mix(in srgb, var(--comp-accent) 72%, #7f8750 28%)
+  );
+  color: #fffdf4;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 700;
 }
 .age-option {
   display: flex;
   align-items: center;
+  min-height: 38px;
   padding: 10px 14px;
-  background: #fff;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
+  background: color-mix(
+    in srgb,
+    var(--comp-control-bg) 88%,
+    rgba(255, 253, 245, 0.08) 8%
+  );
+  border: 1px solid var(--comp-control-border);
+  border-radius: 12px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.18s ease;
+  color: var(--comp-text);
 }
 .age-option:hover {
-  border-color: #1890ff;
+  border-color: color-mix(in srgb, var(--comp-accent) 30%, transparent);
 }
 .age-option.active {
-  border-color: #1890ff;
-  background: #e6f7ff;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--comp-accent) 92%, #cbd39c 8%),
+    color-mix(in srgb, var(--comp-accent) 72%, #7f8750 28%)
+  );
+  border-color: color-mix(in srgb, var(--comp-accent) 58%, transparent);
+  color: #fffdf4;
 }
 .age-option.exclude.active {
-  border-color: #ff4d4f;
-  background: #fff2f0;
-  color: #ff4d4f;
+  background: color-mix(in srgb, #7e4d4d 78%, #221414 22%);
+  border-color: color-mix(in srgb, #c98b8b 42%, transparent);
+  color: #fffdf4;
 }
 .age-option input[type="radio"] {
   margin-right: 10px;
-  accent-color: #1890ff;
+  accent-color: var(--comp-accent);
 }
 .age-option.exclude input[type="radio"] {
-  accent-color: #ff4d4f;
+  accent-color: #c98b8b;
 }
 </style>

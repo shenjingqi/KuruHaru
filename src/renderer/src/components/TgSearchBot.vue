@@ -1,5 +1,5 @@
 <template>
-  <div class="tg-search-bot">
+  <div class="tg-search-bot tg-search-bot-theme">
     <n-card title="Telegram 搜索 Bot" :bordered="false" class="bot-card">
       <n-space vertical :size="16">
         <div class="bot-status">
@@ -26,7 +26,12 @@
             频道：{{ botStatus.sourceChannelId || "未配置" }}
           </div>
           <div class="meta-item">
-            索引文件：{{ botStatus.historyFilePath || "未生成" }}
+            链接索引缓存（/search）：{{ botStatus.historyFilePath || "未生成" }}
+          </div>
+          <div class="meta-item">
+            作品信息缓存（纯文本/详情）：{{
+              infoCacheStatusResult?.cacheFilePath || "未生成"
+            }}
           </div>
         </div>
 
@@ -68,15 +73,18 @@
         </div>
 
         <div class="search-section">
-          <n-input-group>
+          <div class="search-input-group">
             <n-input
               v-model:value="searchRjCode"
-              placeholder="请输入 RJ 号（如 RJ189111）"
+              :bordered="false"
+              placeholder="请输入编号（如 RJ189111 / VJ123456）"
               class="search-input"
               @keyup.enter="handleSearch"
             />
             <n-button
               type="primary"
+              text
+              :bordered="false"
               :loading="isSearching"
               @click="handleSearch"
             >
@@ -85,7 +93,31 @@
               </template>
               搜索
             </n-button>
-          </n-input-group>
+          </div>
+        </div>
+
+        <div class="search-section">
+          <div class="search-input-group">
+            <n-input
+              v-model:value="infoWorkCode"
+              :bordered="false"
+              placeholder="查询详情（直接输入 RJ/VJ/BJ 编号）"
+              class="search-input"
+              @keyup.enter="handleInfoSearch"
+            />
+            <n-button
+              type="info"
+              text
+              :bordered="false"
+              :loading="isInfoSearching"
+              @click="handleInfoSearch"
+            >
+              <template #icon>
+                <SearchOutlined />
+              </template>
+              查询详情
+            </n-button>
+          </div>
         </div>
 
         <div v-if="searchResult" class="search-result">
@@ -104,6 +136,22 @@
                 >
                   {{ searchResult.url }}
                 </n-a>
+                <div
+                  v-if="searchResult.alternateUrls?.length"
+                  class="result-link-list"
+                >
+                  <n-a
+                    v-for="(
+                      alternateUrl, index
+                    ) in searchResult.alternateUrls.slice(0, 2)"
+                    :key="`${alternateUrl}-${index}`"
+                    :href="alternateUrl"
+                    target="_blank"
+                    class="result-link"
+                  >
+                    备用链接{{ index + 1 }}：{{ alternateUrl }}
+                  </n-a>
+                </div>
               </div>
             </div>
             <div v-else class="error-result">
@@ -112,6 +160,34 @@
               </n-icon>
               <div class="result-content">
                 <div class="result-message">{{ searchResult.message }}</div>
+              </div>
+            </div>
+          </n-card>
+        </div>
+
+        <div v-if="infoResult" class="search-result">
+          <n-card title="详情查询结果" size="small" :bordered="false">
+            <div v-if="infoResult.success" class="success-result">
+              <n-icon size="20">
+                <CheckCircleOutlined />
+              </n-icon>
+              <div class="result-content">
+                <div class="result-message">{{ infoResult.message }}</div>
+                <div class="result-message">
+                  编号：{{ infoResult.workCode || infoWorkCode }}
+                </div>
+                <div class="result-message">
+                  数据来源：{{ infoResult.source || "unknown" }}
+                </div>
+                <div class="result-message">请在 TG 中查看图文回复效果。</div>
+              </div>
+            </div>
+            <div v-else class="error-result">
+              <n-icon size="20">
+                <ExclamationCircleOutlined />
+              </n-icon>
+              <div class="result-content">
+                <div class="result-message">{{ infoResult.message }}</div>
               </div>
             </div>
           </n-card>
@@ -161,13 +237,18 @@
             <ul class="usage-list">
               <li>先点击“获取频道消息并保存索引”生成本地索引</li>
               <li>同步会合并“频道消息 + 前置包 TXT”到同一个索引文件</li>
-              <li>输入 RJ 号（如 RJ189111），点击搜索</li>
+              <li>输入 RJ/VJ/BJ 编号（如 RJ189111），点击搜索</li>
+              <li>
+                输入编号点击“查询详情”，等价于 Bot 命令 `/info &lt;编号&gt;`
+              </li>
+              <li>TXT 构建作品信息缓存请到「TG信息缓存」页面</li>
               <li>
                 群聊命令支持：/search@BotName RJ123456 或 @BotName /search
                 RJ123456
               </li>
               <li>Bot 会先查历史索引，再查前置包内存索引（极速）</li>
               <li>命中前置包后会后台补充频道结果并更新历史索引</li>
+              <li>详情查询优先读取缓存 JSON，未命中会实时抓取并自动回填缓存</li>
               <li>如都未找到，会返回提示信息</li>
             </ul>
           </n-card>
@@ -178,10 +259,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
 import {
   NCard,
-  NInputGroup,
   NInput,
   NButton,
   NTag,
@@ -198,130 +277,31 @@ import {
   CloseCircleOutlined,
   ExclamationCircleOutlined, // 对应原 WarningCircle
 } from "@vicons/antd";
+import { useTgSearchBotWorkflow } from "../composables/useTgSearchBotWorkflow";
 
+// 统一用 naive-ui message 承接异步操作反馈，避免在 workflow 内直接耦合 UI 组件。
 const message = useMessage();
 
-// Bot 状态
-const botStatus = ref({
-  running: false,
-  connected: false,
-});
-
-// 控制加载状态
-const isStarting = ref(false);
-const isStopping = ref(false);
-const isSearching = ref(false);
-const isSyncingHistory = ref(false);
-
-// 搜索相关
-const searchRjCode = ref("");
-const searchResult = ref(null);
-const syncResult = ref(null);
-
-// 获取 Bot 状态
-const getBotStatus = async () => {
-  try {
-    const result = await window.api.tgBotStatus();
-    botStatus.value = result || {
-      running: false,
-      connected: false,
-      indexedCount: 0,
-      historyFilePath: "",
-      sourceChannelId: "",
-    };
-  } catch (error) {
-    console.error("获取 Bot 状态失败:", error);
-  }
-};
-
-// 启动 Bot
-const handleStartBot = async () => {
-  isStarting.value = true;
-  try {
-    const result = await window.api.tgBotStart();
-    if (result.success) {
-      message.success("Bot 启动成功");
-      await getBotStatus();
-    } else {
-      message.error(result.error || "Bot 启动失败");
-    }
-  } catch (error) {
-    message.error(`启动失败: ${error.message}`);
-  } finally {
-    isStarting.value = false;
-  }
-};
-
-// 停止 Bot
-const handleStopBot = async () => {
-  isStopping.value = true;
-  try {
-    const result = await window.api.tgBotStop();
-    if (result.success) {
-      message.success("Bot 停止成功");
-      await getBotStatus();
-    } else {
-      message.error(result.error || "Bot 停止失败");
-    }
-  } catch (error) {
-    message.error(`停止失败: ${error.message}`);
-  } finally {
-    isStopping.value = false;
-  }
-};
-
-// 处理搜索
-const handleSearch = async () => {
-  const rjCode = searchRjCode.value.trim();
-  if (!rjCode) {
-    message.warning("请输入 RJ 号");
-    return;
-  }
-
-  isSearching.value = true;
-  try {
-    const result = await window.api.tgBotSearch(rjCode);
-    searchResult.value = result;
-  } catch (error) {
-    searchResult.value = {
-      success: false,
-      message: `搜索失败: ${error.message}`,
-    };
-  } finally {
-    isSearching.value = false;
-  }
-};
-
-// 同步频道历史到 Bot 索引文件
-const handleSyncHistory = async () => {
-  isSyncingHistory.value = true;
-
-  try {
-    const result = await window.api.tgBotSyncHistory();
-
-    syncResult.value = result;
-
-    if (result?.success) {
-      message.success(result.message || "索引同步成功");
-      await getBotStatus();
-    } else {
-      message.error(result?.error || result?.message || "索引同步失败");
-    }
-  } catch (error) {
-    syncResult.value = {
-      success: false,
-      error: `同步失败: ${error.message}`,
-    };
-    message.error(`同步失败: ${error.message}`);
-  } finally {
-    isSyncingHistory.value = false;
-  }
-};
-
-// 组件挂载时获取 Bot 状态
-onMounted(() => {
-  getBotStatus();
-});
+// 页面仅负责展示与触发交互，Bot 启停/索引同步/搜索状态都由 workflow 统一管理。
+const {
+  botStatus,
+  isStarting,
+  isStopping,
+  isSearching,
+  isInfoSearching,
+  isSyncingHistory,
+  searchRjCode,
+  searchResult,
+  infoWorkCode,
+  infoResult,
+  syncResult,
+  infoCacheStatusResult,
+  handleStartBot,
+  handleStopBot,
+  handleSearch,
+  handleInfoSearch,
+  handleSyncHistory,
+} = useTgSearchBotWorkflow({ message });
 </script>
 
 <style scoped>
@@ -419,8 +399,14 @@ onMounted(() => {
 .result-link {
   display: inline-block;
   font-size: 13px;
-  color: #1890ff;
+  color: #adb571;
   word-break: break-all;
+}
+
+.result-link-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .usage-section {

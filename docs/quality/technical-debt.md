@@ -1,7 +1,7 @@
 # 技术债务
 
 > 状态: 🟢 大部分修复  
-> 最后更新: 2026-02-28
+> 最后更新: 2026-03-05
 
 本文档记录 KuruHaru 项目的技术债务清单，供 Agent 参考进行修复。
 
@@ -16,7 +16,7 @@
 | **架构违规**     | ✅ 已修复 | 16        | -         | 17+   |
 | **错误处理**     | ✅ 已完成 | ✅ 已完成 | -         | 3     |
 | **文档不一致**   | ✅ 已完成 | ✅ 已完成 | 2         | 8     |
-| **Lint 警告**    | 0 错误    | 27 警告   | -         | 27    |
+| **Lint 警告**    | 0 错误    | 44 警告   | -         | 44    |
 
 ---
 
@@ -39,8 +39,8 @@
 | 项目               | 状态 | 说明                                                          |
 | ------------------ | ---- | ------------------------------------------------------------- |
 | 其他模块 fs 异步化 | 🟡   | tg-recent-activity.js, config.js, asmr-localization.js 待处理 |
-| TODO 功能实现      | 🟡   | telegram-login.js 状态通知待实现                              |
-| ESLint 警告        | 🟡   | 27 个警告（主要是 require-await 风格问题）                    |
+| TODO 功能实现      | ✅   | telegram-login.js 状态通知链路已接线（`tg-upload-finished`）  |
+| ESLint 警告        | 🟡   | 44 个警告（主要是 require-await 风格问题）                    |
 | 架构违规重构       | 🟡   | Runtime → Service 依赖重构（大改动，低优先级）                |
 
 ---
@@ -51,28 +51,26 @@
 
 **问题**: 同步 fs 操作会阻塞 UI
 
-| 模块                    | 状态      | 数量 | 主要操作                                           |
-| ----------------------- | --------- | ---- | -------------------------------------------------- |
-| `whisper.js`            | 🟢 已修复 | 0    | packFolderInPlace, count-media-files 已异步化，递归扫描函数 scanSubDir 已异步化
-| `tg-recent-activity.js` | 🟡 待修复 | 7    | readFileSync, writeFileSync, mkdirSync, unlinkSync |
-| `config.js`             | 🟡 待修复 | 7    | readFileSync, mkdirSync, writeFileSync             |
-| `asmr-localization.js`  | 🟡 待修复 | 12   | readFileSync, unlinkSync, mkdirSync, writeFileSync |
+| 模块                    | 状态      | 数量 | 主要操作                                                                        |
+| ----------------------- | --------- | ---- | ------------------------------------------------------------------------------- |
+| `whisper.js`            | 🟢 已修复 | 0    | packFolderInPlace, count-media-files 已异步化，递归扫描函数 scanSubDir 已异步化 |
+| `tg-recent-activity.js` | 🟡 待修复 | 7    | readFileSync, writeFileSync, mkdirSync, unlinkSync                              |
+| `config.js`             | 🟡 待修复 | 7    | readFileSync, mkdirSync, writeFileSync                                          |
+| `asmr-localization.js`  | 🟡 待修复 | 12   | readFileSync, unlinkSync, mkdirSync, writeFileSync                              |
 
 **修复方案**: 改用 `fs.promises` 或 `async/await`
 
 ---
 
-### 2. TODO 注释 (P2) 🟡 待修复
+### 2. TODO 注释 (P2) ✅ 已收敛
 
-| 文件                | 行号 | 内容                        | 状态      |
-| ------------------- | ---- | --------------------------- | --------- |
-| `telegram-login.js` | 294  | `// TODO: 实现状态通知逻辑` | 🟡 待实现 |
+当前 `src/` 与 `scripts/` 已无遗留 TODO/FIXME/HACK 标记；剩余 TODO 主要为文档模板占位文本。
 
 ---
 
 ### 3. ESLint 警告 (P2) ⚠️ 部分修复
 
-**当前状态**: 27 个警告 (从 764 → 27，减少 96%)
+**当前状态**: 44 个警告（0 error，主要为历史风格告警）
 
 | 规则             | 数量 | 说明                           |
 | ---------------- | ---- | ------------------------------ |
@@ -100,7 +98,7 @@
 ### 阶段三: 进行中 (P2) 🟡
 
 - [ ] 其他模块同步 fs 操作异步化
-- [ ] 实现 TODO 功能
+- [x] 实现 TODO 功能
 - [ ] ESLint 警告清理（可选）
 
 ---
@@ -110,7 +108,6 @@
 - [docs/quality/README.md](./README.md) - 质量评分
 - [docs/development-workflow.md](../development-workflow.md) - 开发流程
 - [docs/design-docs/module-index.md](../design-docs/module-index.md) - 模块文档
-
 
 ---
 
@@ -123,11 +120,13 @@
 **影响**: 代码维护困难，日志格式可能不一致
 
 **涉及文件**:
+
 - `src/main/utils.js` (行 109-145)
 - `src/main/utils/logger.js` (标准实现)
 - `src/main/utils/telegram-login.js` (行 14-27, 内联实现)
 
 **修复方案**:
+
 1. `utils.js`: 删除实现，改为从 logger.js 重新导出
 2. `telegram-login.js`: 删除内联日志，使用标准 logger
 
@@ -144,6 +143,7 @@
 **风险**: 可能包含过期代码或敏感信息
 
 **修复操作**:
+
 ```bash
 git rm src/main/modules/tg-recent-activity.js.bak
 git commit -m "chore: remove backup file"
@@ -158,6 +158,7 @@ git commit -m "chore: remove backup file"
 **风险**: 可能包含过期代码或敏感信息
 
 **修复操作**:
+
 ```bash
 git rm src/main/modules/tg-recent-activity.js.bak
 git commit -m "chore: remove backup file"
@@ -172,6 +173,7 @@ git commit -m "chore: remove backup file"
 **问题**: 不同模块对 IPC 处理器移除的处理方式不一致
 
 **现状**:
+
 - `config.js`: 移除所有处理器后再注册
 - `whisper.js`: 只移除 2 个特定处理器
 - `tg-recent-activity.js`: 使用 `removeHandler`
@@ -181,6 +183,7 @@ git commit -m "chore: remove backup file"
 **修复方案**: 统一使用 `config.js` 模式
 
 **涉及文件**:
+
 - `src/main/modules/whisper.js`
 - `src/main/modules/tg-recent-activity.js`
 
@@ -197,10 +200,12 @@ git commit -m "chore: remove backup file"
 **方案选项**:
 
 **选项 A** (推荐): 合并到 asmr-localization.js
+
 - 将 `asmr-login.js` 的 IPC 处理器合并到 `asmr-localization.js`
 - 删除 `asmr-login.js`
 
 **选项 B**: 在 index.js 中添加调用
+
 - 在 `index.js` 中调用 `setupAsmrIPCHandlers()`
 
 **建议**: 采用选项 A，避免功能分散
@@ -224,10 +229,10 @@ const CACHE_TTL = 5000; // 5秒缓存
 
 export async function getConfig() {
   const now = Date.now();
-  if (configCache && (now - configCacheTime) < CACHE_TTL) {
+  if (configCache && now - configCacheTime < CACHE_TTL) {
     return configCache;
   }
-  
+
   // 原有读取逻辑...
   configCache = mergedConfig;
   configCacheTime = now;
@@ -246,11 +251,11 @@ export async function saveConfig(newConfig) {
 
 ## 📊 修复优先级总览
 
-| 优先级 | 任务数 | 预计总时间 | 关键收益 |
-| ------ | ------ | ---------- | -------- |
-| P0 | 3 | 40分钟 | 消除严重技术债务 |
-| P1 | 3 | 2小时 | 提升代码可维护性 |
-| P2 | 1 | 20分钟 | 性能优化 |
+| 优先级 | 任务数 | 预计总时间 | 关键收益         |
+| ------ | ------ | ---------- | ---------------- |
+| P0     | 3      | 40分钟     | 消除严重技术债务 |
+| P1     | 3      | 2小时      | 提升代码可维护性 |
+| P2     | 1      | 20分钟     | 性能优化         |
 
 **总计**: 7项任务，约3小时工作量
 
@@ -283,12 +288,14 @@ export async function saveConfig(newConfig) {
 ## ✅ 快速启动清单
 
 ### 今天可以完成的 (40分钟):
+
 - [ ] 删除备份文件 (5分钟)
 - [ ] 修复 technical-debt.md 表格格式 (15分钟)
 - [ ] 修复 AGENTS.md 重复内容 (5分钟)
 - [ ] 统一日志工具 (30分钟)
 
 ### 本周完成的:
+
 - [ ] 修复 IPC 处理器模式
 - [ ] 处理未使用的 asmr-login.js
 - [ ] 添加配置缓存
@@ -300,4 +307,3 @@ export async function saveConfig(newConfig) {
 - [技术债务修复方案详细版](./technical-debt-remediation-plan.md) - 包含代码示例和详细步骤
 - [AGENTS.md](../../AGENTS.md) - 项目入职手册
 - [质量评分](./README.md) - 模块质量评分
-

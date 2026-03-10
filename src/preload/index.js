@@ -1,6 +1,293 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
 
+const ARG_NONE = "none";
+const ARG_DIRECT = "direct";
+const ARG_PAYLOAD = "payload";
+
+const LISTENER_RAW = "raw";
+const LISTENER_VALUE = "value";
+const LISTENER_EVENT_AND_VALUE = "event-and-value";
+
+const createChannelCallMethod = (transport, descriptor) => {
+  const normalizedDescriptor =
+    typeof descriptor === "string"
+      ? { channel: descriptor, args: ARG_NONE }
+      : { args: ARG_NONE, ...descriptor };
+
+  if (normalizedDescriptor.args === ARG_DIRECT) {
+    return (value) =>
+      ipcRenderer[transport](normalizedDescriptor.channel, value);
+  }
+
+  if (normalizedDescriptor.args === ARG_PAYLOAD) {
+    return (...values) =>
+      ipcRenderer[transport](
+        normalizedDescriptor.channel,
+        normalizedDescriptor.payload(...values),
+      );
+  }
+
+  return () => ipcRenderer[transport](normalizedDescriptor.channel);
+};
+
+const createChannelCallMethods = (transport, descriptorMap) =>
+  Object.fromEntries(
+    Object.entries(descriptorMap).map(([methodName, descriptor]) => [
+      methodName,
+      createChannelCallMethod(transport, descriptor),
+    ]),
+  );
+
+const createListenerMethod = (descriptor) => {
+  const normalizedDescriptor = {
+    mode: LISTENER_VALUE,
+    mapValue: (value) => value,
+    clearBeforeListen: false,
+    returnUnsubscribe: false,
+    returnSubscription: false,
+    ...descriptor,
+  };
+
+  return (callback) => {
+    if (normalizedDescriptor.clearBeforeListen) {
+      ipcRenderer.removeAllListeners(normalizedDescriptor.channel);
+    }
+
+    if (normalizedDescriptor.mode === LISTENER_RAW) {
+      return ipcRenderer.on(normalizedDescriptor.channel, callback);
+    }
+
+    const handler =
+      normalizedDescriptor.mode === LISTENER_EVENT_AND_VALUE
+        ? (event, value) =>
+            callback(event, normalizedDescriptor.mapValue(value))
+        : (event, value) => callback(normalizedDescriptor.mapValue(value));
+
+    const subscription = ipcRenderer.on(normalizedDescriptor.channel, handler);
+
+    if (normalizedDescriptor.returnUnsubscribe) {
+      return () =>
+        ipcRenderer.removeListener(normalizedDescriptor.channel, handler);
+    }
+
+    if (normalizedDescriptor.returnSubscription) {
+      return subscription;
+    }
+
+    return undefined;
+  };
+};
+
+const createListenerMethods = (descriptorMap) =>
+  Object.fromEntries(
+    Object.entries(descriptorMap).map(([methodName, descriptor]) => [
+      methodName,
+      createListenerMethod(descriptor),
+    ]),
+  );
+
+const WINDOW_CONTROL_INVOKE_MAP = {
+  minimize: "window-minimize",
+  toggleMaximize: "window-toggle-maximize",
+  close: "window-close",
+  isMaximized: "window-is-maximized",
+  getState: "window-get-state",
+  getBounds: "window-get-bounds",
+  setBounds: { channel: "window-set-bounds", args: ARG_DIRECT },
+};
+
+const INVOKE_MAP = {
+  // 配置与文件
+  loadConfig: "get-config",
+  saveConfig: { channel: "save-config", args: ARG_DIRECT },
+  selectFile: { channel: "dialog:openFile", args: ARG_DIRECT },
+  dialogOpenFile: { channel: "dialog:openFile", args: ARG_DIRECT },
+  dialogOpenDirectory: "dialog:openDirectory",
+  dialogSaveFile: { channel: "dialog:saveFile", args: ARG_DIRECT },
+  writeFile: {
+    channel: "write-file",
+    args: ARG_PAYLOAD,
+    payload: ({ path, content }) => ({ path, content }),
+  },
+  readFile: { channel: "fs-read-file", args: ARG_DIRECT },
+  readImageAsBase64: { channel: "read-image-as-base64", args: ARG_DIRECT },
+  getDefaultAvatar: "get-default-avatar",
+
+  // 保存自定义路径配置
+  saveCustomPaths: { channel: "save-custom-paths", args: ARG_DIRECT },
+
+  // 个人中心
+  getUserProfile: "get-user-profile",
+  updateUserProfile: { channel: "update-user-profile", args: ARG_DIRECT },
+  getSystemInfo: "get-system-info",
+  getStatistics: "get-statistics",
+  openLogsDir: "open-logs-dir",
+  clearCache: {
+    channel: "clear-cache",
+    args: ARG_PAYLOAD,
+    payload: (cacheFile = "recent_activity.json") => ({ cacheFile }),
+  },
+  exportData: "export-data",
+  importData: "import-data",
+  clearAllData: "clear-all-data",
+  updateSystemSettings: { channel: "update-system-settings", args: ARG_DIRECT },
+  resetSystemSettings: "reset-system-settings",
+
+  // 模块接口
+  asmrLogin: { channel: "asmr-login", args: ARG_DIRECT },
+  asmrFetchPlaylist: { channel: "asmr-fetch-playlist", args: ARG_DIRECT },
+  asmrDeleteByRJ: { channel: "asmr-delete-by-rj", args: ARG_DIRECT },
+  asmrDeleteWorks: { channel: "asmr-delete-works", args: ARG_DIRECT },
+  asmrFetchChineseWorks: {
+    channel: "asmr-fetch-chinese-works",
+    args: ARG_DIRECT,
+  },
+  asmrSetChineseListPath: {
+    channel: "asmr-set-chinese-list-path",
+    args: ARG_DIRECT,
+  },
+  asmrGetChineseListPath: "asmr-get-chinese-list-path",
+  asmrReadChineseList: "asmr-read-chinese-list",
+  asmrWriteChineseList: {
+    channel: "asmr-write-chinese-list",
+    args: ARG_DIRECT,
+  },
+  filterRjFromUrl: { channel: "filter-rj-from-url", args: ARG_DIRECT },
+  filterRjFromUrlLegacy: {
+    channel: "filter_rj_from_url",
+    args: ARG_DIRECT,
+  },
+  scanLocalIds: {
+    channel: "scan-local-ids",
+    args: ARG_PAYLOAD,
+    payload: (path) => ({ path }),
+  },
+  scanLocalArchives: { channel: "scan-local-archives", args: ARG_DIRECT },
+  getUploadHistory: "get-upload-history",
+  loadTagDb: "load-tag-db",
+  asmrGetCachedCloudWorks: "asmr-get-cached-cloud-works",
+  asmrFetchCloudWorks: "asmr-fetch-cloud-works",
+  triggerCloudDataFetch: "asmr-trigger-cloud-data-fetch",
+
+  // Whisper
+  countMediaFiles: { channel: "count-media-files", args: ARG_DIRECT },
+  zipSubtitles: { channel: "zip-subtitles", args: ARG_DIRECT },
+
+  // Tools
+  extractFileNames: { channel: "extract-file-names", args: ARG_DIRECT },
+  cleanData: { channel: "clean-data", args: ARG_DIRECT },
+
+  // Telegram
+  tgCheckLogin: "tg-check-login",
+  tgLogin: { channel: "tg-login", args: ARG_DIRECT },
+  tgCancelUpload: "tg-cancel-upload",
+  tgGetStatistics: "tg-get-statistics",
+
+  // Telegram 搜索 Bot
+  tgBotStart: "tg-bot-start",
+  tgBotStop: "tg-bot-stop",
+  tgBotStatus: "tg-bot-status",
+  tgBotSearch: { channel: "tg-bot-search", args: ARG_DIRECT },
+  tgBotInfo: { channel: "tg-bot-info", args: ARG_DIRECT },
+  tgBotSyncHistory: { channel: "tg-bot-sync-history", args: ARG_DIRECT },
+  tgInfoCacheBuild: { channel: "tg-info-cache-build", args: ARG_DIRECT },
+  tgInfoCacheStatus: { channel: "tg-info-cache-status", args: ARG_DIRECT },
+
+  // 最近活动（新增）
+  tgScanRecentActivity: "tg-scan-recent-activity",
+  tgReadRecentActivity: "tg-read-recent-activity",
+  tgGetRecentActivity: "get-recent-activity",
+  tgReadRjList: { channel: "read-rj-list", args: ARG_DIRECT },
+  tgDownloadFile: { channel: "download-tg-file", args: ARG_DIRECT },
+  tgFilterActivityByTime: {
+    channel: "tg-filter-activity-by-time",
+    args: ARG_DIRECT,
+  },
+  tgFindRaishunyaDate: "tg-find-raishunya-date",
+  tgGetRJFilesByRange: {
+    channel: "tg-get-rj-files-by-range",
+    args: ARG_DIRECT,
+  },
+  tgScanRjDuplicates: { channel: "tg-scan-rj-duplicates", args: ARG_DIRECT },
+  tgDeleteDuplicateMessages: {
+    channel: "tg-delete-duplicate-messages",
+    args: ARG_DIRECT,
+  },
+  tgInfoErrorRecover: { channel: "tg-info-error-recover", args: ARG_DIRECT },
+
+  // Workflow Runtime
+  workflowList: "workflow-list",
+  workflowGet: { channel: "workflow-get", args: ARG_DIRECT },
+  workflowSave: { channel: "workflow-save", args: ARG_DIRECT },
+  workflowDelete: { channel: "workflow-delete", args: ARG_DIRECT },
+  workflowValidate: { channel: "workflow-validate", args: ARG_DIRECT },
+  workflowRun: { channel: "workflow-run", args: ARG_DIRECT },
+  workflowCancel: { channel: "workflow-cancel", args: ARG_DIRECT },
+  workflowGetRun: { channel: "workflow-get-run", args: ARG_DIRECT },
+  workflowListRuns: { channel: "workflow-list-runs", args: ARG_DIRECT },
+  workflowListNodeDefinitions: "workflow-list-node-definitions",
+};
+
+const SEND_MAP = {
+  asmrRemoveWorks: { channel: "asmr-remove-works", args: ARG_DIRECT },
+  asmrRemoveWorksByRJ: { channel: "asmr-remove-works-by-rj", args: ARG_DIRECT },
+  startTask: { channel: "start-task", args: ARG_DIRECT },
+  stopTask: "stop-task",
+  tgUploadFiles: { channel: "tg-upload-files", args: ARG_DIRECT },
+  tgAuthReply: { channel: "tg-auth-reply", args: ARG_DIRECT },
+};
+
+const LISTENER_MAP = {
+  onTgAuthNeeded: {
+    channel: "tg-auth-needed",
+    returnUnsubscribe: true,
+  },
+  onTgUploadFinished: {
+    channel: "tg-upload-finished",
+    mapValue: (value) => value || {},
+    returnUnsubscribe: true,
+  },
+
+  // 🟢 日志监听保护 - 移除旧监听器后再注册
+  onLogUpdate: {
+    channel: "log-update",
+    clearBeforeListen: true,
+    mapValue: (value) => value || { type: "system", msg: "" },
+  },
+  onTaskFinished: {
+    channel: "task-finished",
+    mode: LISTENER_EVENT_AND_VALUE,
+    clearBeforeListen: true,
+    mapValue: (value) => value || {},
+  },
+
+  // 云端数据更新监听
+  onCloudWorksUpdated: {
+    channel: "cloud-works-updated",
+    mapValue: (value) => value || {},
+    returnSubscription: true,
+  },
+
+  // 登录成功事件监听
+  onAsmrLoggedIn: {
+    channel: "asmr-logged-in",
+    mode: LISTENER_RAW,
+  },
+
+  onWindowStateChanged: {
+    channel: "window-state-changed",
+    mapValue: (value) => value || {},
+    returnUnsubscribe: true,
+  },
+
+  onWorkflowRunEvent: {
+    channel: "workflow-run-event",
+    mapValue: (value) => value || {},
+    returnUnsubscribe: true,
+  },
+};
+
 const api = {
   send: (channel, data) => ipcRenderer.send(channel, data),
   invoke: (channel, data) => ipcRenderer.invoke(channel, data),
@@ -26,126 +313,111 @@ const api = {
 
   windowControls: {
     supported: process.platform === "win32",
-    minimize: () => ipcRenderer.invoke("window-minimize"),
-    toggleMaximize: () => ipcRenderer.invoke("window-toggle-maximize"),
-    close: () => ipcRenderer.invoke("window-close"),
-    isMaximized: () => ipcRenderer.invoke("window-is-maximized"),
+    ...createChannelCallMethods("invoke", WINDOW_CONTROL_INVOKE_MAP),
   },
 
-  // 配置与文件
-  loadConfig: () => ipcRenderer.invoke("get-config"),
-  saveConfig: (config) => ipcRenderer.invoke("save-config", config),
-  selectFile: (type) => ipcRenderer.invoke("dialog:openFile", type),
-  dialogOpenFile: (options) => ipcRenderer.invoke("dialog:openFile", options),
-  dialogOpenDirectory: () => ipcRenderer.invoke("dialog:openFile", "dir"),
-  dialogSaveFile: (options) => ipcRenderer.invoke("dialog:saveFile", options),
-  writeFile: ({ path, content }) =>
-    ipcRenderer.invoke("write-file", { path, content }),
-  readImageAsBase64: (filePath) =>
-    ipcRenderer.invoke("read-image-as-base64", filePath),
-  getDefaultAvatar: () => ipcRenderer.invoke("get-default-avatar"),
+  ...createChannelCallMethods("invoke", INVOKE_MAP),
+  ...createChannelCallMethods("send", SEND_MAP),
+  ...createListenerMethods(LISTENER_MAP),
+};
 
-  // 保存自定义路径配置
-  saveCustomPaths: (paths) => ipcRenderer.invoke("save-custom-paths", paths),
+// 命名空间 API（保留原有平铺方法，逐步迁移）
+api.config = {
+  load: api.loadConfig,
+  save: api.saveConfig,
+  saveCustomPaths: api.saveCustomPaths,
+};
 
-  // 个人中心
-  getUserProfile: () => ipcRenderer.invoke("get-user-profile"),
-  updateUserProfile: (profile) =>
-    ipcRenderer.invoke("update-user-profile", profile),
-  getSystemInfo: () => ipcRenderer.invoke("get-system-info"),
-  getStatistics: () => ipcRenderer.invoke("get-statistics"),
-  openLogsDir: () => ipcRenderer.invoke("open-logs-dir"),
-  clearCache: (cacheFile = "recent_activity.json") =>
-    ipcRenderer.invoke("clear-cache", { cacheFile }),
-  exportData: () => ipcRenderer.invoke("export-data"),
-  importData: () => ipcRenderer.invoke("import-data"),
-  clearAllData: () => ipcRenderer.invoke("clear-all-data"),
-  updateSystemSettings: (settings) =>
-    ipcRenderer.invoke("update-system-settings", settings),
-  resetSystemSettings: () => ipcRenderer.invoke("reset-system-settings"),
+api.dialog = {
+  openFile: api.dialogOpenFile,
+  openDirectory: api.dialogOpenDirectory,
+  saveFile: api.dialogSaveFile,
+  selectFile: api.selectFile,
+};
 
-  // 模块接口
-  asmrLogin: (cred) => ipcRenderer.invoke("asmr-login", cred),
-  asmrFetchPlaylist: (data) => ipcRenderer.invoke("asmr-fetch-playlist", data),
-  asmrRemoveWorks: (data) => ipcRenderer.send("asmr-remove-works", data),
-  asmrRemoveWorksByRJ: (data) =>
-    ipcRenderer.send("asmr-remove-works-by-rj", data),
-  asmrDeleteByRJ: (rjCodes) => ipcRenderer.invoke("asmr-delete-by-rj", rjCodes),
-  asmrFetchChineseWorks: (options) =>
-    ipcRenderer.invoke("asmr-fetch-chinese-works", options),
-  asmrSetChineseListPath: (path) =>
-    ipcRenderer.invoke("asmr-set-chinese-list-path", path),
-  asmrGetChineseListPath: () =>
-    ipcRenderer.invoke("asmr-get-chinese-list-path"),
-  asmrReadChineseList: () => ipcRenderer.invoke("asmr-read-chinese-list"),
-  scanLocalIds: (path) => ipcRenderer.invoke("scan-local-ids", path),
-  scanLocalArchives: (dir) => ipcRenderer.invoke("scan-local-archives", dir),
-  getUploadHistory: () => ipcRenderer.invoke("get-upload-history"),
-  loadTagDb: () => ipcRenderer.invoke("load-tag-db"),
-  asmrGetCachedCloudWorks: () =>
-    ipcRenderer.invoke("asmr-get-cached-cloud-works"),
-  triggerCloudDataFetch: () =>
-    ipcRenderer.invoke("asmr-trigger-cloud-data-fetch"),
+api.system = {
+  clearCache: api.clearCache,
+  readImageAsBase64: api.readImageAsBase64,
+  getDefaultAvatar: api.getDefaultAvatar,
+  getWindowState: api.windowControls.getState,
+  onWindowStateChanged: api.onWindowStateChanged,
+  windowControls: api.windowControls,
+};
 
-  // Whisper
-  startTask: (config) => ipcRenderer.send("start-task", config),
-  stopTask: () => ipcRenderer.send("stop-task"),
-  zipSubtitles: (data) => ipcRenderer.invoke("zip-subtitles", data),
+api.whisper = {
+  startTask: api.startTask,
+  stopTask: api.stopTask,
+  countMediaFiles: api.countMediaFiles,
+  zipSubtitles: api.zipSubtitles,
+  onTaskFinished: api.onTaskFinished,
+  onLogUpdate: api.onLogUpdate,
+};
 
-  // Telegram
-  tgCheckLogin: () => ipcRenderer.invoke("tg-check-login"),
-  tgLogin: (config) => ipcRenderer.invoke("tg-login", config),
-  tgUploadFiles: (data) => ipcRenderer.send("tg-upload-files", data),
-  tgCancelUpload: () => ipcRenderer.send("tg-cancel-upload"),
-  onTgAuthNeeded: (callback) => {
-    const handler = (e, val) => callback(val);
-    ipcRenderer.on("tg-auth-needed", handler);
-    // 返回取消监听函数
-    return () => ipcRenderer.removeListener("tg-auth-needed", handler);
-  },
-  tgGetStatistics: () => ipcRenderer.invoke("tg-get-statistics"),
+api.local = {
+  scanLocalArchives: api.scanLocalArchives,
+  readFile: api.readFile,
+  writeFile: api.writeFile,
+};
 
-  // Telegram 搜索 Bot
-  tgBotStart: () => ipcRenderer.invoke("tg-bot-start"),
-  tgBotStop: () => ipcRenderer.invoke("tg-bot-stop"),
-  tgBotStatus: () => ipcRenderer.invoke("tg-bot-status"),
-  tgBotSearch: (rjCode) => ipcRenderer.invoke("tg-bot-search", rjCode),
-  tgBotSyncHistory: (options) =>
-    ipcRenderer.invoke("tg-bot-sync-history", options),
+api.tools = {
+  extractFileNames: api.extractFileNames,
+  cleanData: api.cleanData,
+  zipSubtitles: api.zipSubtitles,
+};
 
-  // 最近活动（新增）
-  tgScanRecentActivity: () => ipcRenderer.invoke("tg-scan-recent-activity"),
-  tgReadRecentActivity: () => ipcRenderer.invoke("tg-read-recent-activity"),
-  tgFilterActivityByTime: (options) =>
-    ipcRenderer.invoke("tg-filter-activity-by-time", options),
-  tgFindRaishunyaDate: () => ipcRenderer.invoke("tg-find-raishunya-date"),
-  tgGetRJFilesByRange: (options) =>
-    ipcRenderer.invoke("tg-get-rj-files-by-range", options),
-  tgScanRjDuplicates: (options) =>
-    ipcRenderer.invoke("tg-scan-rj-duplicates", options),
-  tgDeleteDuplicateMessages: (messageIds) =>
-    ipcRenderer.invoke("tg-delete-duplicate-messages", messageIds),
+api.asmr = {
+  login: api.asmrLogin,
+  fetchCloudWorks: api.asmrFetchCloudWorks,
+  getCachedCloudWorks: api.asmrGetCachedCloudWorks,
+  triggerCloudDataFetch: api.triggerCloudDataFetch,
+  fetchChineseWorks: api.asmrFetchChineseWorks,
+  setChineseListPath: api.asmrSetChineseListPath,
+  getChineseListPath: api.asmrGetChineseListPath,
+  readChineseList: api.asmrReadChineseList,
+  writeChineseList: api.asmrWriteChineseList,
+  filterRjFromUrl: api.filterRjFromUrl,
+  deleteWorks: api.asmrDeleteWorks,
+  deleteByRJ: api.asmrDeleteByRJ,
+};
 
-  // 🟢 日志监听保护 - 移除旧监听器后再注册
-  onLogUpdate: (callback) => {
-    ipcRenderer.removeAllListeners("log-update");
-    ipcRenderer.on("log-update", (e, val) => {
-      if (!val) val = { type: "system", msg: "" };
-      callback(val);
-    });
-  },
+api.tg = {
+  checkLogin: api.tgCheckLogin,
+  login: api.tgLogin,
+  uploadFiles: api.tgUploadFiles,
+  cancelUpload: api.tgCancelUpload,
+  authReply: api.tgAuthReply,
+  onAuthNeeded: api.onTgAuthNeeded,
+  onUploadFinished: api.onTgUploadFinished,
+  getRecentActivity: api.tgGetRecentActivity,
+  readRecentActivity: api.tgReadRecentActivity,
+  scanRecentActivity: api.tgScanRecentActivity,
+  readRjList: api.tgReadRjList,
+  downloadFile: api.tgDownloadFile,
+  botStart: api.tgBotStart,
+  botStop: api.tgBotStop,
+  botStatus: api.tgBotStatus,
+  botSearch: api.tgBotSearch,
+  botInfo: api.tgBotInfo,
+  botSyncHistory: api.tgBotSyncHistory,
+  infoCacheBuild: api.tgInfoCacheBuild,
+  infoCacheStatus: api.tgInfoCacheStatus,
+  scanRjDuplicates: api.tgScanRjDuplicates,
+  deleteDuplicateMessages: api.tgDeleteDuplicateMessages,
+  infoErrorRecover: api.tgInfoErrorRecover,
+};
 
-  onTaskFinished: (callback) => {
-    ipcRenderer.removeAllListeners("task-finished");
-    ipcRenderer.on("task-finished", (e, val) => callback(e, val || {}));
-  },
-
-  // 云端数据更新监听
-  onCloudWorksUpdated: (callback) =>
-    ipcRenderer.on("cloud-works-updated", (e, val) => callback(val || {})),
-
-  // 登录成功事件监听
-  onAsmrLoggedIn: (callback) => ipcRenderer.on("asmr-logged-in", callback),
+api.workflow = {
+  list: api.workflowList,
+  get: api.workflowGet,
+  save: api.workflowSave,
+  delete: api.workflowDelete,
+  validate: api.workflowValidate,
+  run: api.workflowRun,
+  cancel: api.workflowCancel,
+  getRun: api.workflowGetRun,
+  listRuns: api.workflowListRuns,
+  listNodeDefinitions: api.workflowListNodeDefinitions,
+  onRunEvent: api.onWorkflowRunEvent,
 };
 
 if (process.contextIsolated) {

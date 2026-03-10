@@ -1,15 +1,15 @@
 <template>
   <div class="price-picker">
     <div class="picker-header">
-      <span class="label">💰 价格筛选</span>
+      <span class="label">价格筛选</span>
       <span class="hint">(留空表示不限制)</span>
     </div>
     <div class="mode-selector">
       <label :class="{ active: mode === 'greater' }"
-        ><input v-model="mode" type="radio" value="greater" /> 📈 高于</label
+        ><input v-model="mode" type="radio" value="greater" /> 高于</label
       >
       <label :class="{ active: mode === 'less' }"
-        ><input v-model="mode" type="radio" value="less" /> 📉 低于</label
+        ><input v-model="mode" type="radio" value="less" /> 低于</label
       >
     </div>
     <div class="input-container">
@@ -62,16 +62,20 @@ const hasValue = computed(
   () => inputValue.value !== null && inputValue.value !== "",
 );
 const setPreset = (value) => {
+  // 预设和手输共用同一更新通道，确保对外事件结构稳定。
   inputValue.value = value;
   emitUpdate();
 };
 const clearValue = () => {
+  // 用 null 表达“无价格限制”，而不是 0。
   inputValue.value = null;
   emitUpdate();
 };
+// 统一出口：所有本地交互最终都走这里同步给父组件。
 const emitUpdate = () => {
   emit("update:modelValue", { value: inputValue.value, mode: mode.value });
 };
+// 响应父级传入的新条件（如加载搜索预设）。
 watch(
   () => props.modelValue,
   (nv) => {
@@ -85,45 +89,63 @@ watch(
 </script>
 <style scoped>
 .price-picker {
-  background: #f8f9fa;
-  border-radius: 12px;
+  background: color-mix(
+    in srgb,
+    var(--comp-surface-1) 92%,
+    rgba(255, 253, 245, 0.08) 8%
+  );
+  border: 1px solid var(--comp-border);
+  border-radius: 16px;
   padding: 16px;
 }
 .picker-header {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
   margin-bottom: 12px;
 }
 .label {
-  font-weight: 600;
-  color: #333;
+  font-weight: 700;
+  color: var(--comp-text);
 }
 .hint {
   font-size: 12px;
-  color: #999;
+  color: var(--comp-muted);
 }
-.mode-selector {
+.mode-selector,
+.quick-select {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   margin-bottom: 16px;
 }
-.mode-selector label {
+.mode-selector label,
+.preset-btn {
   flex: 1;
+  min-height: 38px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   padding: 10px;
-  background: #fff;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
+  background: color-mix(
+    in srgb,
+    var(--comp-control-bg) 88%,
+    rgba(255, 253, 245, 0.08) 8%
+  );
+  border: 1px solid var(--comp-control-border);
+  border-radius: 12px;
   cursor: pointer;
+  color: var(--comp-text);
 }
-.mode-selector label.active {
-  border-color: #1890ff;
-  background: #e6f7ff;
-  color: #1890ff;
+.mode-selector label.active,
+.preset-btn.active {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--comp-accent) 92%, #cbd39c 8%),
+    color-mix(in srgb, var(--comp-accent) 72%, #7f8750 28%)
+  );
+  border-color: color-mix(in srgb, var(--comp-accent) 58%, transparent);
+  color: #fffdf4;
 }
 .input-container {
   display: flex;
@@ -133,51 +155,32 @@ watch(
 }
 .price-input {
   flex: 1;
+  min-height: 40px;
   padding: 10px 12px;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
+  border: 1px solid var(--comp-control-border);
+  border-radius: 12px;
   font-size: 16px;
   font-weight: 600;
   text-align: center;
   outline: none;
+  background: color-mix(
+    in srgb,
+    var(--comp-control-bg) 92%,
+    rgba(255, 253, 245, 0.08) 8%
+  );
+  color: var(--comp-text);
 }
 .unit {
-  font-size: 14px;
-  color: #666;
-}
-.quick-select {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.preset-btn {
-  flex: 1;
-  padding: 8px;
-  background: #fff;
-  border: 1px solid #e0e0e0;
-  border-radius: 6px;
-  font-size: 12px;
-  cursor: pointer;
-}
-.preset-btn:hover {
-  border-color: #1890ff;
-}
-.preset-btn.active {
-  background: #1890ff;
-  color: #fff;
-  border-color: #1890ff;
+  color: var(--comp-muted);
 }
 .clear-btn {
   width: 100%;
+  min-height: 38px;
   padding: 10px;
-  background: #fff;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
-  color: #666;
+  background: color-mix(in srgb, #7e4d4d 78%, #221414 22%);
+  border: 1px solid color-mix(in srgb, #c98b8b 42%, transparent);
+  border-radius: 12px;
+  color: #fffdf4;
   cursor: pointer;
-}
-.clear-btn:hover {
-  border-color: #ff4d4f;
-  color: #ff4d4f;
 }
 </style>

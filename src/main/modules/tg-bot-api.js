@@ -11,10 +11,17 @@ import {
   stopBot,
   getBotStatus,
   handleSearchRequest,
+  handleInfoRequest,
   setupTgSearchBotIPC,
 } from "./tg-search-bot";
 
-export { startBot, stopBot, getBotStatus, handleSearchRequest };
+export {
+  startBot,
+  stopBot,
+  getBotStatus,
+  handleSearchRequest,
+  handleInfoRequest,
+};
 
 export function setupTgBotApiIPC() {
   return setupTgSearchBotIPC();

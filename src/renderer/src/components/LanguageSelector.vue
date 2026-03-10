@@ -96,316 +96,239 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
-
-const LANGUAGE_OPTIONS = [
-  { code: "JPN", region: "JP", name: "日本語" },
-  { code: "ENG", region: "US", name: "English" },
-  { code: "CHI_HANS", region: "CN", name: "简体中文" },
-  { code: "CHI_HANT", region: "HK", name: "繁體中文" },
-  { code: "CHI", region: "CN", name: "中文" },
-  { code: "KO_KR", region: "KR", name: "한국어" },
-  { code: "SPA", region: "ES", name: "Español" },
-  { code: "ITA", region: "IT", name: "Italiano" },
-  { code: "GER", region: "DE", name: "Deutsch" },
-  { code: "FRE", region: "FR", name: "Français" },
-];
+import { useLanguageSelector } from "../composables/useLanguageSelector";
 
 const props = defineProps({
+  // 对外维持 include/exclude 双数组结构，与搜索语法 $lang/$-lang 一一对应。
   modelValue: { type: Object, default: () => ({ include: [], exclude: [] }) },
 });
 
 const emit = defineEmits(["update:modelValue"]);
 
-const searchText = ref("");
-const mode = ref("include");
-const selectedLangs = ref([]);
-const excludedLangs = ref([]);
-
-const searchPlaceholder = computed(() => {
-  return mode.value === "include"
-    ? "搜索要包含的语言，例如 $lang:JPN$"
-    : "搜索要排除的语言，例如 $-lang:ENG$";
-});
-
-const filteredLanguages = computed(() => {
-  const query = searchText.value.trim().toLowerCase();
-  if (!query) return LANGUAGE_OPTIONS;
-
-  return LANGUAGE_OPTIONS.filter((item) => {
-    const code = item.code.toLowerCase();
-    const region = item.region.toLowerCase();
-    const name = item.name.toLowerCase();
-    const includeToken = `$lang:${item.code}$`.toLowerCase();
-    const excludeToken = `$-lang:${item.code}$`.toLowerCase();
-    return (
-      includeToken.includes(query) ||
-      excludeToken.includes(query) ||
-      code.includes(query) ||
-      region.includes(query) ||
-      name.includes(query)
-    );
-  });
-});
-
-const emitUpdate = () => {
-  emit("update:modelValue", {
-    include: [...selectedLangs.value],
-    exclude: [...excludedLangs.value],
-  });
-};
-
-const syncFromModelValue = (value) => {
-  selectedLangs.value = Array.isArray(value?.include)
-    ? value.include.map((item) => String(item).toUpperCase())
-    : [];
-  excludedLangs.value = Array.isArray(value?.exclude)
-    ? value.exclude.map((item) => String(item).toUpperCase())
-    : [];
-};
-
-const getDisplayToken = (code) => {
-  return mode.value === "include" ? `$lang:${code}$` : `$-lang:${code}$`;
-};
-
-const isLanguageSelected = (code) => {
-  return mode.value === "include"
-    ? selectedLangs.value.includes(code)
-    : excludedLangs.value.includes(code);
-};
-
-const toggleLanguage = (code) => {
-  if (mode.value === "exclude") {
-    if (excludedLangs.value.includes(code)) {
-      excludedLangs.value = excludedLangs.value.filter((item) => item !== code);
-    } else {
-      excludedLangs.value.push(code);
-      selectedLangs.value = selectedLangs.value.filter((item) => item !== code);
-    }
-  } else if (selectedLangs.value.includes(code)) {
-    selectedLangs.value = selectedLangs.value.filter((item) => item !== code);
-  } else {
-    selectedLangs.value.push(code);
-    excludedLangs.value = excludedLangs.value.filter((item) => item !== code);
-  }
-
-  emitUpdate();
-};
-
-const clearAll = () => {
-  selectedLangs.value = [];
-  excludedLangs.value = [];
-  emitUpdate();
-};
-
-const removeSelected = (code) => {
-  selectedLangs.value = selectedLangs.value.filter((value) => value !== code);
-  emitUpdate();
-};
-
-const removeExcluded = (code) => {
-  excludedLangs.value = excludedLangs.value.filter((value) => value !== code);
-  emitUpdate();
-};
-
-watch(
-  () => props.modelValue,
-  (value) => {
-    syncFromModelValue(value);
-  },
-  { deep: true },
-);
-
-onMounted(() => {
-  syncFromModelValue(props.modelValue);
-});
+// 组件本身只做 UI 绑定，筛选、模式切换与选中态判定由 composable 统一处理。
+const {
+  searchText,
+  mode,
+  selectedLangs,
+  excludedLangs,
+  searchPlaceholder,
+  filteredLanguages,
+  getDisplayToken,
+  isLanguageSelected,
+  toggleLanguage,
+  clearAll,
+  removeSelected,
+  removeExcluded,
+} = useLanguageSelector({ props, emit });
 </script>
 
 <style scoped>
 .language-selector {
-  background: #f8f9fa;
-  border-radius: 12px;
+  background: color-mix(
+    in srgb,
+    var(--comp-surface-1) 92%,
+    rgba(255, 253, 245, 0.08) 8%
+  );
+  border: 1px solid var(--comp-border);
+  border-radius: 16px;
   padding: 16px;
+  color: var(--comp-text);
 }
-
 .selector-header {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
   margin-bottom: 12px;
 }
-
 .label {
-  font-weight: 600;
-  color: #333;
+  font-weight: 700;
+  color: var(--comp-text);
 }
-
 .hint {
   font-size: 12px;
-  color: #999;
+  color: var(--comp-muted);
 }
-
-.mode-toggle {
+.mode-selector {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   margin-bottom: 12px;
 }
-
 .mode-btn {
-  border: 1px solid #d9d9d9;
-  background: #fff;
-  color: #595959;
+  min-height: 34px;
+  padding: 8px 14px;
   border-radius: 999px;
-  padding: 6px 12px;
-  font-size: 12px;
+  border: 1px solid var(--comp-control-border);
+  background: color-mix(
+    in srgb,
+    var(--comp-control-bg) 88%,
+    rgba(255, 253, 245, 0.08) 8%
+  );
+  color: var(--comp-text);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.18s ease;
 }
-
-.mode-btn:hover {
-  border-color: #40a9ff;
-  color: #1677ff;
-}
-
 .mode-btn.active {
-  background: #1677ff;
-  border-color: #1677ff;
-  color: #fff;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--comp-accent) 92%, #cbd39c 8%),
+    color-mix(in srgb, var(--comp-accent) 72%, #7f8750 28%)
+  );
+  border-color: color-mix(in srgb, var(--comp-accent) 58%, transparent);
+  color: #fffdf4;
 }
-
 .search-box {
   display: flex;
   align-items: center;
-  background: #fff;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
-  padding: 8px 12px;
+  gap: 8px;
+  padding: 10px 12px;
+  background: color-mix(
+    in srgb,
+    var(--comp-control-bg) 92%,
+    rgba(255, 253, 245, 0.08) 8%
+  );
+  border: 1px solid var(--comp-control-border);
+  border-radius: 12px;
+  margin-bottom: 12px;
 }
-
 .search-box input {
   flex: 1;
   border: none;
   outline: none;
+  background: transparent;
+  color: var(--comp-text);
 }
-
+.search-box input::placeholder {
+  color: var(--comp-muted);
+}
+.search-icon,
+.clear-btn {
+  color: color-mix(in srgb, var(--comp-muted) 72%, var(--comp-accent) 28%);
+}
 .clear-btn {
   border: none;
   background: transparent;
-  color: #999;
   cursor: pointer;
 }
-
-.lang-list {
-  margin-top: 12px;
-  max-height: 260px;
+.langs-container {
+  max-height: 220px;
   overflow-y: auto;
-  background: #fff;
-  border-radius: 8px;
-  padding: 10px;
-}
-
-.lang-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border-radius: 8px;
-  padding: 8px 10px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.lang-item:hover {
-  background: #f5f5f5;
-}
-
-.lang-item.selected.include {
-  background: #e6f7ff;
-  border: 1px solid #1890ff;
-}
-
-.lang-item.selected.exclude {
-  background: #fff2f0;
-  border: 1px solid #ff4d4f;
-}
-
-.lang-meta {
-  display: flex;
-  flex-direction: column;
-}
-
-.lang-token {
-  font-family: monospace;
-  font-size: 12px;
-  color: #333;
-}
-
-.lang-desc {
-  font-size: 12px;
-  color: #666;
-}
-
-.empty-state {
-  font-size: 12px;
-  color: #999;
-  text-align: center;
-  padding: 8px;
-}
-
-.selected-langs {
-  margin-top: 12px;
-  background: #fff;
-  border-radius: 8px;
+  background: color-mix(
+    in srgb,
+    var(--comp-control-bg) 76%,
+    rgba(255, 253, 245, 0.1) 24%
+  );
+  border: 1px solid var(--comp-divider);
+  border-radius: 12px;
   padding: 12px;
 }
-
+.langs-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.lang-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 12px;
+  background: color-mix(
+    in srgb,
+    var(--comp-control-bg) 88%,
+    rgba(255, 253, 245, 0.08) 8%
+  );
+  border: 1px solid var(--comp-control-border);
+  border-radius: 999px;
+  cursor: pointer;
+  color: var(--comp-text);
+  transition: all 0.18s ease;
+}
+.lang-item:hover {
+  background: color-mix(
+    in srgb,
+    var(--comp-accent) 10%,
+    var(--comp-control-hover) 90%
+  );
+  border-color: color-mix(in srgb, var(--comp-accent) 30%, transparent);
+}
+.lang-item.selected.include {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--comp-accent) 92%, #cbd39c 8%),
+    color-mix(in srgb, var(--comp-accent) 72%, #7f8750 28%)
+  );
+  border-color: color-mix(in srgb, var(--comp-accent) 58%, transparent);
+  color: #fffdf4;
+}
+.lang-item.selected.exclude {
+  background: color-mix(in srgb, #7e4d4d 78%, #221414 22%);
+  border-color: color-mix(in srgb, #c98b8b 42%, transparent);
+  color: #fffdf4;
+}
+.lang-count {
+  font-size: 11px;
+  color: inherit;
+  opacity: 0.78;
+}
+.selected-langs {
+  margin-top: 12px;
+  background: color-mix(
+    in srgb,
+    var(--comp-control-bg) 82%,
+    rgba(255, 253, 245, 0.1) 18%
+  );
+  border: 1px solid var(--comp-divider);
+  border-radius: 12px;
+  padding: 12px;
+}
 .selected-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 8px;
 }
-
 .header-text {
   font-size: 12px;
-  color: #666;
+  color: var(--comp-muted);
 }
-
 .clear-all-btn {
   border: none;
   background: transparent;
-  color: #1890ff;
+  color: var(--comp-accent);
   cursor: pointer;
   font-size: 12px;
 }
-
 .lang-badges {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
-
 .lang-badge {
-  padding: 4px 10px;
-  border-radius: 12px;
-  font-size: 12px;
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
 }
-
+.lang-badge.include {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--comp-accent) 92%, #cbd39c 8%),
+    color-mix(in srgb, var(--comp-accent) 72%, #7f8750 28%)
+  );
+  color: #fffdf4;
+}
+.lang-badge.exclude {
+  background: color-mix(in srgb, #7e4d4d 78%, #221414 22%);
+  color: #fffdf4;
+}
 .lang-badge button {
   border: none;
   background: transparent;
+  color: inherit;
   cursor: pointer;
-}
-
-.lang-badge.include {
-  background: #e6f7ff;
-  color: #1890ff;
-}
-
-.lang-badge.exclude {
-  background: #fff2f0;
-  color: #ff4d4f;
 }
 </style>

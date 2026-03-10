@@ -1,9 +1,9 @@
 # 数据流设计
 
 > 状态: ✅ 稳定  
-> 最后更新: 2026-03-04
+> 最后更新: 2026-03-06
 
-> 本轮同步标记: 2026-03-04（实现态对齐）
+> 本轮同步标记: 2026-03-06（实现态对齐）
 > 真相源路径: `docs/design-docs/data-flow.md`
 
 本文档描述 KuruHaru 当前实现态的数据流向、模块交互与数据落盘。
@@ -18,6 +18,7 @@ Renderer (Vue Components)
       └─ Preload (contextBridge + ipcRenderer.invoke/send)
           └─ Main Runtime (ipcMain.handle/on)
               ├─ modules/*   (ASMR / Whisper / TG / Config)
+              ├─ workflow-runtime/* (工作流定义、调度与运行记录)
               ├─ utils/*     (TG 登录上传、日志、错误处理、重试)
               ├─ config.json (用户配置)
               ├─ 本地文件系统 (字幕、缓存、索引)
@@ -41,6 +42,8 @@ Renderer (Vue Components)
 | TG 最近活动/下载    | `tg-scan-recent-activity`, `tg-read-recent-activity`, `get-recent-activity`, `download-tg-file`, `read-rj-list`, `clear-cache`                       | `src/main/modules/tg-recent-activity.js`          |
 | TG 搜索 Bot         | `tg-bot-start`, `tg-bot-stop`, `tg-bot-status`, `tg-bot-search`, `tg-bot-sync-history`                                                               | `src/main/modules/tg-search-bot.js`               |
 | RJ 重复检测         | `tg-scan-rj-duplicates`, `tg-delete-duplicate-messages`                                                                                              | `src/main/modules/tg-rj-duplicates.js`            |
+| TG Info 报错恢复    | `tg-info-error-recover`                                                                                                                              | `src/main/modules/tg-info-error-recover.js`       |
+| Workflow Runtime    | `workflow-list`, `workflow-get`, `workflow-save`, `workflow-delete`, `workflow-validate`, `workflow-run`, `workflow-cancel`, `workflow-get-run`, `workflow-list-runs`, `workflow-list-node-definitions`, `workflow-run-event`（事件） | `src/main/workflow-runtime/index.js`              |
 
 ---
 
@@ -142,6 +145,42 @@ Tools.vue
             └─ 返回待删除/已删除统计
 ```
 
+### 3.9 TG Info 报错恢复
+
+```text
+任意前端/脚本调用
+    └─ invoke('tg-info-error-recover', options)
+        └─ tg-info-error-recover.js
+            ├─ 复用 telegram-login 连接（requireConnectedTelegramClient）
+            ├─ 在讨论组按关键词扫描报错消息
+            ├─ 扫描报错消息附近上下若干条并匹配最可能目标，下载评论区 ZIP
+            └─ 按转发来源删除频道原帖（safetyMode 可只预览不删除）
+```
+
+### 3.10 Workflow 设计器执行链路
+
+```text
+WorkflowDesigner.vue / useWorkflowDesigner.js
+    ├─ invoke('workflow-list' / 'workflow-get' / 'workflow-save' / 'workflow-validate')
+    ├─ invoke('workflow-run' / 'workflow-cancel')
+    ├─ invoke('workflow-list-runs' / 'workflow-get-run')
+    └─ on('workflow-run-event')
+
+workflow-runtime/index.js
+    ├─ normalizeWorkflowDefinition + validateWorkflowGraph
+    ├─ startWorkflowExecution(node-registry + adapters)
+    ├─ run-store 管理 run 状态/取消控制
+    └─ storage 持久化定义与运行记录
+```
+
+> 说明：默认首节点为 `whisper.translateSubtitles`，配置项与音声翻译页对齐（`exePath`、`targetPath`、`subFormats`）。
+> 说明：`whisper.translateSubtitles` 运行中会通过 `workflow-run-event` 附带进度字段（`currentRj`、`remainingWorks`、`completedWorks`）。
+> Note: Workflow node library also includes the following runtime nodes:
+> - `whisper.packSubtitles`: Reuse toolbox subtitle packing, scan RJ/VJ/BJ folders and generate zip archives.
+> - `tg.uploadSubtitles`: Run smart archive scan inside the node, then upload scanned files to the target channel.
+> - `asmr.cloudDeleteRecentUploads`: Resolve recent-upload codes to cloud works and perform remote deletion.
+> - `files.localDeleteScanned`: Scan local archives and delete matched local files (preview mode supported).
+
 ---
 
 ## 4. 数据存储与缓存
@@ -152,6 +191,8 @@ Tools.vue
 | TG 最近活动缓存 | `paths.uploadHistoryDir/recent_activity.json`             | `tg-recent-activity.js` 读写       |
 | TG Bot 历史索引 | `tg.botHistoryPath` 或 `getDataDir()/tg-bot-history.json` | `tg-search-bot.js` 读写            |
 | 汉化列表        | `paths.chineseListPath` 或默认数据目录文本文件            | `asmr-localization.js` 管理        |
+| 工作流定义      | `<userData>/workflows/definitions/*.json`                 | `workflow-runtime/storage.js` 读写 |
+| 工作流运行记录  | `<userData>/workflows/runs/*.json`                        | `workflow-runtime/storage.js` 读写 |
 | 日志            | `paths.logsDir`                                           | 主进程日志输出                     |
 
 ---
@@ -203,5 +244,8 @@ event.sender.send("task-finished", { success: true });
 
 | 日期       | 变更                                     |
 | ---------- | ---------------------------------------- |
+| 2026-03-06 | Added workflow node-library responsibilities (pack/upload/cloud recent delete/local scanned delete) |
+| 2026-03-06 | 新增 Workflow Runtime IPC/执行链路/存储路径说明 |
+| 2026-03-06 | 新增 TG Info 报错恢复 IPC 数据流说明     |
 | 2026-03-04 | 按当前代码重写数据流、IPC 通道与存储路径 |
 | 2026-02-26 | 初始版本                                 |

@@ -1,5 +1,12 @@
 <template>
-  <header class="app-titlebar">
+  <header
+    class="app-titlebar"
+    :class="{
+      dark: isDarkMode,
+      blurred: !isWindowFocused,
+      maximized: isWindowMaximized,
+    }"
+  >
     <div
       class="titlebar-top-strip"
       aria-hidden="true"
@@ -7,6 +14,10 @@
     />
 
     <div class="titlebar-lower-row" @dblclick="handleTitleBarDoubleClick">
+      <div class="titlebar-brand">
+        <span class="titlebar-dot" />
+        <span class="titlebar-title">KuruHaru</span>
+      </div>
       <div class="titlebar-drag-zone" aria-hidden="true" />
 
       <div
@@ -70,108 +81,110 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { useAppTitleBarControls } from "../composables/useAppTitleBarControls";
 
-const isWindowMaximized = ref(false);
-let resizeTimer = null;
-
-const canUseWindowControls = computed(() => {
-  return Boolean(window.api?.windowControls);
-});
-
-const syncMaximizedState = async () => {
-  if (!canUseWindowControls.value) return;
-
-  try {
-    const maximized = await window.api.windowControls.isMaximized();
-    isWindowMaximized.value = Boolean(maximized);
-  } catch (error) {
-    console.warn("[AppTitleBar] 获取窗口最大化状态失败:", error);
-  }
-};
-
-const minimizeWindow = async () => {
-  if (!canUseWindowControls.value) return;
-
-  try {
-    await window.api.windowControls.minimize();
-  } catch (error) {
-    console.warn("[AppTitleBar] 最小化窗口失败:", error);
-  }
-};
-
-const toggleMaximizeWindow = async () => {
-  if (!canUseWindowControls.value) return;
-
-  try {
-    const nextMaximizedState = await window.api.windowControls.toggleMaximize();
-    isWindowMaximized.value = Boolean(nextMaximizedState);
-  } catch (error) {
-    console.warn("[AppTitleBar] 切换窗口最大化失败:", error);
-  }
-};
-
-const closeWindow = async () => {
-  if (!canUseWindowControls.value) return;
-
-  try {
-    await window.api.windowControls.close();
-  } catch (error) {
-    console.warn("[AppTitleBar] 关闭窗口失败:", error);
-  }
-};
-
-const handleTitleBarDoubleClick = async () => {
-  if (!canUseWindowControls.value) return;
-  await toggleMaximizeWindow();
-};
-
-const handleWindowResize = () => {
-  if (resizeTimer) {
-    window.clearTimeout(resizeTimer);
-  }
-
-  resizeTimer = window.setTimeout(() => {
-    syncMaximizedState();
-  }, 100);
-};
-
-onMounted(() => {
-  syncMaximizedState();
-  window.addEventListener("resize", handleWindowResize);
-});
-
-onUnmounted(() => {
-  if (resizeTimer) {
-    window.clearTimeout(resizeTimer);
-  }
-  window.removeEventListener("resize", handleWindowResize);
-});
+// 自定义标题栏只做状态映射；窗口焦点/最大化/主题态由 Electron 通道集中提供。
+const {
+  isWindowMaximized,
+  isWindowFocused,
+  isDarkMode,
+  canUseWindowControls,
+  minimizeWindow,
+  toggleMaximizeWindow,
+  closeWindow,
+  handleTitleBarDoubleClick,
+} = useAppTitleBarControls();
+// 双击标题栏与按钮点击都走 composable，确保窗口控制行为在各入口保持一致。
 </script>
 
 <style scoped>
 .app-titlebar {
-  height: 40px;
-  min-height: 40px;
+  --titlebar-bg: #f1f1f2;
+  --titlebar-text: #6e6b58;
+  --titlebar-hover-bg: #e4e6ea;
+  --titlebar-hover-text: #1f2732;
+  --titlebar-active-bg: #d7dae0;
+  --titlebar-border: #d8dbe1;
+  --titlebar-brand: #2f3744;
+  height: 44px;
+  min-height: 44px;
   display: flex;
   flex-direction: column;
-  background: #f7f8fa;
+  background: var(--titlebar-bg);
+  border-bottom: 1px solid var(--titlebar-border);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   user-select: none;
   flex-shrink: 0;
+  font-family:
+    "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI",
+    "Microsoft YaHei UI", sans-serif;
+  transition:
+    background-color 0.2s ease,
+    opacity 0.2s ease;
+}
+
+.app-titlebar.blurred {
+  opacity: 0.92;
+}
+
+.app-titlebar.dark {
+  --titlebar-text: #ffffff;
+  --titlebar-hover-bg: rgba(255, 255, 255, 0.08);
+  --titlebar-hover-text: #ffffff;
+  --titlebar-active-bg: rgba(255, 255, 255, 0.12);
+  --titlebar-border: rgba(255, 255, 255, 0.08);
+  --titlebar-bg: rgba(23, 28, 35, var(--titlebar-opacity, 0.72));
+  --titlebar-brand: #ffffff;
+}
+
+.app-titlebar.dark {
+  backdrop-filter: blur(calc(var(--panel-blur, 0px) * 0.9)) saturate(122%);
+  -webkit-backdrop-filter: blur(calc(var(--panel-blur, 0px) * 0.9))
+    saturate(122%);
+}
+
+.app-titlebar.maximized {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
 }
 
 .titlebar-top-strip {
-  height: 8px;
-  min-height: 8px;
+  height: 9px;
+  min-height: 9px;
   -webkit-app-region: drag;
 }
 
 .titlebar-lower-row {
-  height: 32px;
-  min-height: 32px;
+  height: 35px;
+  min-height: 35px;
   display: flex;
+  gap: 8px;
   align-items: stretch;
+  padding-left: 12px;
   -webkit-app-region: drag;
+}
+
+.titlebar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 105px;
+  color: var(--titlebar-brand);
+}
+
+.titlebar-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(150deg, #adb571, #c4cd88);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.72);
+}
+
+.titlebar-title {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
 }
 
 .titlebar-drag-zone {
@@ -181,7 +194,7 @@ onUnmounted(() => {
 }
 
 .titlebar-controls {
-  height: 32px;
+  height: 35px;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -192,16 +205,17 @@ onUnmounted(() => {
   width: 38px;
   height: 28px;
   border: none;
-  border-radius: 8px;
+  border-radius: 7px;
   background: transparent;
-  color: #667085;
+  color: var(--titlebar-text);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   transition:
     background-color 0.18s ease,
-    color 0.18s ease;
+    color 0.18s ease,
+    transform 0.18s ease;
 }
 
 .titlebar-icon {
@@ -215,17 +229,23 @@ onUnmounted(() => {
 }
 
 .titlebar-btn:hover {
-  background: rgba(100, 116, 139, 0.16);
-  color: #0f172a;
+  background: var(--titlebar-hover-bg);
+  color: var(--titlebar-hover-text);
+  transform: translateY(-1px);
 }
 
 .titlebar-btn:active {
-  background: rgba(100, 116, 139, 0.22);
+  background: var(--titlebar-active-bg);
+  transform: translateY(0);
 }
 
 .titlebar-btn-close:hover {
   background: #ef4444;
   color: #fff;
+}
+
+.titlebar-btn-close:active {
+  background: #dc2626;
 }
 
 .no-drag {

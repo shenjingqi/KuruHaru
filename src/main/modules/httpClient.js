@@ -15,6 +15,8 @@ const logger = createLogSender("http");
 // 单例客户端实例
 let asmrClient = null;
 let tgClient = null;
+let asmrProxyInUse = null;
+let tgProxyInUse = null;
 
 // 默认代理列表（按优先级排序）
 const DEFAULT_PROXIES = [
@@ -23,19 +25,26 @@ const DEFAULT_PROXIES = [
   "http://localhost:7890",
 ];
 
+function resolveProxyUrl(config, scope) {
+  // 全局代理优先，其次使用模块代理，再回落默认代理。
+  return (
+    config?.system?.proxyUrl || config?.[scope]?.proxyUrl || DEFAULT_PROXIES[0]
+  );
+}
+
 /**
  * 获取 ASMR API 客户端（带代理支持，从配置读取）
  */
 export function getAsmrClient() {
-  if (asmrClient) {
+  const config = getConfig();
+  const proxyUrl = resolveProxyUrl(config, "asmr");
+
+  if (asmrClient && asmrProxyInUse === proxyUrl) {
     return asmrClient;
   }
 
-  const config = getConfig();
-  // 从配置读取代理地址，支持自定义
-  const proxyUrl = config.asmr?.proxyUrl || DEFAULT_PROXIES[0];
-
   asmrClient = createClientWithInterceptors("asmr", proxyUrl);
+  asmrProxyInUse = proxyUrl;
   logger.info(`[HTTP] 创建 ASMR 客户端，使用代理: ${proxyUrl}`);
 
   return asmrClient;
@@ -45,14 +54,15 @@ export function getAsmrClient() {
  * 获取 Telegram API 客户端
  */
 export function getTgClient() {
-  if (tgClient) {
+  const config = getConfig();
+  const proxyUrl = resolveProxyUrl(config, "tg");
+
+  if (tgClient && tgProxyInUse === proxyUrl) {
     return tgClient;
   }
 
-  const config = getConfig();
-  const proxyUrl = config.tg?.proxyUrl || DEFAULT_PROXIES[0];
-
   tgClient = createClientWithInterceptors("tg", proxyUrl);
+  tgProxyInUse = proxyUrl;
   logger.info(`[HTTP] 创建 Telegram 客户端，使用代理: ${proxyUrl}`);
 
   return tgClient;
@@ -196,5 +206,7 @@ export function getHttpClient(options = {}) {
 export function clearClientCache() {
   asmrClient = null;
   tgClient = null;
+  asmrProxyInUse = null;
+  tgProxyInUse = null;
   logger.info("[HTTP] 客户端缓存已清除");
 }

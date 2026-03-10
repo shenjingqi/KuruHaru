@@ -11,14 +11,16 @@
     "phone": "",
     "session": "",
     "discussion": "",
-    "channel": ""
+    "channel": "",
+    "proxyUrl": ""
   },
   "asmr": {
     "username": "",
     "password": "",
     "token": "",
     "playlistId": "",
-    "rememberMe": false
+    "rememberMe": false,
+    "proxyUrl": ""
   },
   "paths": {
     "configDir": "",
@@ -51,6 +53,13 @@
     "language": "zh",
     "autoStart": false,
     "minimizeToTray": true,
-    "saveCustomPaths": true
+    "windowFrameMode": "custom",
+    "saveCustomPaths": true,
+    "proxyUrl": "",
+    "windowOpacity": 0.92,
+    "blurEnabled": true,
+    "blurIntensity": 8,
+    "blurRenderMode": "system",
+    "accentColor": "#adb571"
   }
 }

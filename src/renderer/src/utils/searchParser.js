@@ -12,6 +12,7 @@ class SearchParser {
       price: { min: null, max: null },
       age: { include: [], exclude: [] },
     };
+    // 各语法片段独立扫描，允许同一字符串里自由组合条件并自动去重。
     let match;
     const tagInclude = /\$tag:([^$]+)\$/g;
     while ((match = tagInclude.exec(searchString)) !== null) {
@@ -52,6 +53,7 @@ class SearchParser {
     const durGreater = /\$duration:(\d+)([mh])\$/g;
     while ((match = durGreater.exec(searchString)) !== null) {
       const value = parseInt(match[1]) * (match[2] === "h" ? 60 : 1);
+      // 重复下限时取更小值，避免多次输入把范围意外收窄。
       result.duration.min = result.duration.min
         ? Math.min(result.duration.min, value)
         : value;
@@ -59,6 +61,7 @@ class SearchParser {
     const durLess = /\$-duration:(\d+)([mh])\$/g;
     while ((match = durLess.exec(searchString)) !== null) {
       const value = parseInt(match[1]) * (match[2] === "h" ? 60 : 1);
+      // 重复上限时取更大值，保持筛选边界尽量宽松。
       result.duration.max = result.duration.max
         ? Math.max(result.duration.max, value)
         : value;
@@ -95,6 +98,7 @@ class SearchParser {
           ? Math.max(result.price.max, value)
           : value;
     }
+    // 兼容 15/18 这类旧输入，统一归一到固定年龄标签。
     const ageMap = {
       general: "general",
       r15: "r15",
@@ -117,6 +121,7 @@ class SearchParser {
     return result;
   }
   generate(options) {
+    // 输出标准 DSL 字符串，保证 UI 状态和文本查询可双向转换。
     let searchString = "";
     const includeTags = options.tags?.include || [];
     const excludeTags = options.tags?.exclude || [];
@@ -150,6 +155,7 @@ class SearchParser {
     });
     if (options.duration?.min !== null && options.duration?.min !== undefined) {
       const minMinutes = options.duration.min;
+      // 分钟值达到 60 时输出小时语法，与 parse 侧单位保持一致。
       searchString +=
         "$duration:" +
         (minMinutes >= 60

@@ -1,7 +1,7 @@
 # Whisper 语音转字幕（实现留存）
 
 > 状态: ✅ 已实现  
-> 最后更新: 2026-03-04
+> 最后更新: 2026-03-06
 
 本文档沉淀 Whisper 功能实现态设计，覆盖媒体计数、任务启动/停止、进度回传与字幕打包。
 
@@ -46,6 +46,13 @@
 1. 前端调用 `zip-subtitles`。
 2. 主进程将指定字幕集合打包为 zip 并返回输出信息。
 
+### 2.4 翻译前自动作品信息缓存
+
+1. `start-task` 触发后，主进程递归扫描 `targetPath` 下目录名/文件名中的 `RJ/VJ/BJ` 编号。
+2. 将扫描到的编号集合交给 `tg-info-cache` 模块进行缓存预热。
+3. 仅对缓存未命中的编号发起网络抓取并写入 `tg-info-cache.json`。
+4. 该流程与翻译进程并行执行，不阻塞 Whisper 翻译启动。
+
 ---
 
 ## 3. 关键 IPC
@@ -72,5 +79,6 @@
 | 能力           | 文件                                          |
 | -------------- | --------------------------------------------- |
 | Whisper 主链路 | `src/main/modules/whisper.js`                 |
+| 翻译前 RJ 缓存 | `src/main/modules/whisper.js` + `tg-info-cache.js` |
 | IPC 桥接       | `src/preload/index.js`                        |
 | 页面交互       | `src/renderer/src/components/WhisperTool.vue` |

@@ -1,0 +1,440 @@
+.tg-downloader {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.download-header {
+  margin-bottom: 24px;
+}
+
+.download-header h2 {
+  margin: 0;
+  font-size: 24px;
+  color: #333;
+}
+
+.download-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.compare-section,
+.files-section,
+.progress-section,
+.log-section {
+  background: #f8f9fa;
+  border-radius: 12px;
+  padding: 20px;
+}
+
+/* 响应式布局 */
+@media (max-width: 1280px) {
+  .tg-downloader {
+    max-width: 100%;
+    padding: 16px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .files-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .files-stats {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .file-item {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .file-rj {
+    min-width: 70px;
+  }
+
+  .file-date,
+  .file-size {
+    min-width: 50px;
+  }
+}
+
+@media (max-width: 768px) {
+  .tg-downloader {
+    padding: 12px;
+  }
+
+  .compare-section,
+  .files-section,
+  .progress-section,
+  .log-section {
+    padding: 16px;
+    border-radius: 8px;
+  }
+
+  .download-header h2 {
+    font-size: 20px;
+  }
+
+  .files-actions {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .action-btn {
+    flex: 1;
+    min-width: 80px;
+    text-align: center;
+  }
+
+  .file-item {
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+
+  .file-name {
+    width: 100%;
+    order: 3;
+  }
+}
+
+@media (max-width: 640px) {
+  .files-stats {
+    font-size: 12px;
+  }
+
+  .file-input-row {
+    flex-direction: column;
+  }
+
+  .browse-btn {
+    width: 100%;
+  }
+}
+
+.input-group {
+  margin-bottom: 16px;
+}
+
+.input-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: #333;
+  font-size: 14px;
+}
+
+.file-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.file-input {
+  flex: 1;
+  padding: 12px 16px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+  background: #fff;
+}
+
+.file-input:focus {
+  border-color: #adb571;
+}
+
+.browse-btn {
+  padding: 12px 20px;
+  background: #fff;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.browse-btn:hover {
+  border-color: #adb571;
+  color: #adb571;
+}
+
+.file-info {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #52c41a;
+}
+
+.filter-options {
+  margin-top: 12px;
+}
+
+.checkbox-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.files-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.files-header h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #333;
+}
+
+.files-stats {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+}
+
+.stat.skip {
+  color: #faad14;
+}
+
+.stat.will-download {
+  color: #52c41a;
+}
+
+.files-actions {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.action-btn {
+  padding: 8px 16px;
+  border: 2px solid #e0e0e0;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.action-btn:hover {
+  border-color: #adb571;
+  color: #adb571;
+}
+
+.action-btn.primary {
+  background: #adb571;
+  color: #fff;
+  border-color: #adb571;
+}
+
+.action-btn.primary:hover:not(:disabled) {
+  background: #2283d8;
+}
+
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.files-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: #fff;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.file-item:hover {
+  background: #ece6d8;
+}
+
+.file-item.selected {
+  background: #e8f1fa;
+  border: 1px solid #adb571;
+}
+
+.file-item.skipped {
+  opacity: 0.5;
+  background: #f2ede0;
+}
+
+.file-rj {
+  font-weight: 600;
+  color: #adb571;
+  min-width: 90px;
+}
+
+.file-name {
+  flex: 1;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-date {
+  color: #999;
+  font-size: 12px;
+  min-width: 70px;
+}
+
+.file-size {
+  color: #999;
+  font-size: 12px;
+  min-width: 70px;
+  text-align: right;
+}
+
+.skip-badge {
+  padding: 2px 8px;
+  background: #faad14;
+  color: #fff;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.page-btn {
+  padding: 6px 16px;
+  border: 1px solid #cfc6ad;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.page-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.page-info {
+  font-size: 13px;
+  color: #666;
+}
+
+.progress-section {
+  background: #ece6d8;
+}
+
+.progress-bar {
+  height: 8px;
+  background: #e0e0e0;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.progress-fill {
+  height: 100%;
+  background: #adb571;
+  transition: width 0.3s;
+}
+
+.progress-info {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+.current-file {
+  color: #adb571;
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress-actions {
+  text-align: center;
+}
+
+.cancel-btn {
+  padding: 6px 16px;
+  border: 1px solid #ff4d4f;
+  border-radius: 4px;
+  background: #fff;
+  color: #ff4d4f;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.log-section {
+  background: #1e1e1e;
+}
+
+.log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.log-header h3 {
+  margin: 0;
+  font-size: 14px;
+  color: #fff;
+}
+
+.clear-log-btn {
+  background: none;
+  border: none;
+  color: #999;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.clear-log-btn:hover {
+  color: #fff;
+}
+
+.log-list {
+  font-family: "Consolas", monospace;
+  font-size: 12px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.log-item {
+  padding: 2px 0;
+  color: #ccc;
+}
+
+.log-item.success {
+  color: #52c41a;
+}
+
+.log-item.error {
+  color: #ff4d4f;
+}
+
+.log-item.warn {
+  color: #faad14;
+}

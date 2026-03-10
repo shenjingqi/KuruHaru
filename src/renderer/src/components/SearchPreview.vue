@@ -28,84 +28,19 @@
 </template>
 <script setup>
 import { ref, computed, watch } from "vue";
+import {
+  buildSearchSyntaxItems,
+  buildSearchUrl,
+} from "../utils/searchQueryBuilder";
+
 const props = defineProps({
   searchParams: { type: Object, default: () => ({}) },
 });
 const copySuccess = ref(false);
-const syntaxItems = computed(() => {
-  const items = [];
-  const p = props.searchParams;
-
-  if (p.tags?.include?.length) {
-    p.tags.include.forEach((t) =>
-      items.push({ type: "tag-include", text: "$tag:" + t + "$" }),
-    );
-  }
-  if (p.tags?.exclude?.length) {
-    p.tags.exclude.forEach((t) =>
-      items.push({ type: "tag-exclude", text: "$-tag:" + t + "$" }),
-    );
-  }
-  if (p.tagw?.include?.length) {
-    p.tagw.include.forEach((t) =>
-      items.push({ type: "tagw-include", text: "$tagw:" + t + "$" }),
-    );
-  }
-  if (p.tagw?.exclude?.length) {
-    p.tagw.exclude.forEach((t) =>
-      items.push({ type: "tagw-exclude", text: "$-tagw:" + t + "$" }),
-    );
-  }
-  if (p.lang?.include?.length) {
-    p.lang.include.forEach((lang) =>
-      items.push({
-        type: "lang-include",
-        text: "$lang:" + String(lang).toUpperCase() + "$",
-      }),
-    );
-  }
-  if (p.lang?.exclude?.length) {
-    p.lang.exclude.forEach((lang) =>
-      items.push({
-        type: "lang-exclude",
-        text: "$-lang:" + String(lang).toUpperCase() + "$",
-      }),
-    );
-  }
-  if (p.duration?.value !== null && p.duration?.value !== undefined) {
-    const suffix = p.duration.unit === "h" ? "h" : "m";
-    const prefix = p.duration.mode === "less" ? "-" : "";
-    items.push({
-      type: "duration",
-      text: "$" + prefix + "duration:" + p.duration.value + suffix + "$",
-    });
-  }
-  if (p.rating?.value !== null && p.rating?.value !== undefined) {
-    const prefix = p.rating.mode === "less" ? "-" : "";
-    items.push({
-      type: "rating",
-      text: "$" + prefix + "rate:" + p.rating.value + "$",
-    });
-  }
-  if (p.price?.value !== null && p.price?.value !== undefined) {
-    const prefix = p.price.mode === "less" ? "-" : "";
-    items.push({
-      type: "price",
-      text: "$" + prefix + "price:" + p.price.value + "$",
-    });
-  }
-  // 年龄分级
-  if (p.age === "general") {
-    items.push({ type: "age", text: "$age:general$" });
-  } else if (p.age === "r15") {
-    items.push({ type: "age", text: "$age:r15$" });
-  } else if (p.age === "excludeAdult") {
-    items.push({ type: "age-exclude", text: "$-age:adult$" });
-  }
-
-  return items;
-});
+// 预览 token 和最终链接都由同一份参数构建，避免“看见的条件”和“复制的链接”不一致。
+const syntaxItems = computed(() => buildSearchSyntaxItems(props.searchParams));
 const hasContent = computed(() => syntaxItems.value.length > 0);
+// 复制前统一走 URL 生成函数，确保空条件时不会写入无效内容。
 const copyLink = async () => {
   const url = generateUrl();
   if (url) {
@@ -119,10 +54,11 @@ const copyLink = async () => {
   }
 };
 const generateUrl = () => {
+  // 无筛选条件时返回空串，和按钮禁用逻辑形成双保险。
   if (!hasContent.value) return "";
-  const query = syntaxItems.value.map((item) => item.text).join(" ");
-  return "https://api.asmr-200.com/api/search/" + encodeURIComponent(query);
+  return buildSearchUrl(props.searchParams);
 };
+// 任意筛选项变化都清除“已复制”状态，避免用户误以为当前配置已复制。
 watch(
   () => props.searchParams,
   () => {
@@ -133,8 +69,13 @@ watch(
 </script>
 <style scoped>
 .search-preview {
-  background: #f8f9fa;
-  border-radius: 12px;
+  background: color-mix(
+    in srgb,
+    var(--comp-surface-1) 92%,
+    rgba(255, 253, 245, 0.08) 8%
+  );
+  border: 1px solid var(--comp-border);
+  border-radius: 16px;
   padding: 16px;
 }
 .preview-header {
@@ -144,27 +85,38 @@ watch(
   margin-bottom: 12px;
 }
 .label {
-  font-weight: 600;
-  color: #333;
+  font-weight: 700;
+  color: var(--comp-text);
 }
 .copy-btn {
-  padding: 6px 12px;
-  background: #1890ff;
-  color: #fff;
-  border: none;
-  border-radius: 6px;
+  min-height: 36px;
+  padding: 8px 14px;
+  border: 1px solid color-mix(in srgb, var(--comp-accent) 56%, transparent);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--comp-accent) 92%, #cbd39c 8%),
+    color-mix(in srgb, var(--comp-accent) 72%, #7f8750 28%)
+  );
+  color: #fffdf4;
+  border-radius: 12px;
   cursor: pointer;
   font-size: 12px;
+  font-weight: 700;
 }
 .copy-btn:disabled {
-  background: #ccc;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 .preview-content {
-  background: #fff;
-  border-radius: 8px;
+  background: color-mix(
+    in srgb,
+    var(--comp-control-bg) 82%,
+    rgba(255, 253, 245, 0.1) 18%
+  );
+  border: 1px solid var(--comp-divider);
+  border-radius: 12px;
   padding: 12px;
-  min-height: 60px;
+  min-height: 72px;
 }
 .syntax-display {
   display: flex;
@@ -173,70 +125,43 @@ watch(
 }
 .syntax-item {
   padding: 4px 8px;
-  border-radius: 4px;
+  border-radius: 999px;
   font-family: monospace;
   font-size: 12px;
+  border: 1px solid transparent;
 }
-.syntax-item.tag-include {
-  background: #e6f7ff;
-  color: #1890ff;
-}
-.syntax-item.tag-exclude {
-  background: #fff2f0;
-  color: #ff4d4f;
-}
-
-.syntax-item.tagw-include {
-  background: #f3f0ff;
-  color: #531dab;
-}
-
-.syntax-item.tagw-exclude {
-  background: #fff2f0;
-  color: #cf1322;
-}
-
-.syntax-item.lang-include {
-  background: #e6fffb;
-  color: #08979c;
-}
-
-.syntax-item.lang-exclude {
-  background: #fff1f0;
-  color: #f5222d;
-}
-
+.syntax-item.tag-include,
+.syntax-item.tagw-include,
+.syntax-item.lang-include,
+.syntax-item.rating,
+.syntax-item.price,
+.syntax-item.age,
 .syntax-item.duration {
-  background: #fff7e6;
-  color: #fa8c16;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--comp-accent) 92%, #cbd39c 8%),
+    color-mix(in srgb, var(--comp-accent) 72%, #7f8750 28%)
+  );
+  color: #fffdf4;
 }
-.syntax-item.rating {
-  background: #f6ffed;
-  color: #52c41a;
-}
-.syntax-item.price {
-  background: #fffbe6;
-  color: #faad14;
-}
-.syntax-item.age {
-  background: #f9f0ff;
-  color: #722ed1;
-}
+.syntax-item.tag-exclude,
+.syntax-item.tagw-exclude,
+.syntax-item.lang-exclude,
 .syntax-item.age-exclude {
-  background: #fff2f0;
-  color: #ff4d4f;
+  background: color-mix(in srgb, #7e4d4d 78%, #221414 22%);
+  color: #fffdf4;
 }
 .empty-state {
   display: flex;
   align-items: center;
   justify-content: center;
   height: 60px;
-  color: #999;
+  color: var(--comp-muted);
 }
 .result-count {
   margin-top: 8px;
   font-size: 12px;
-  color: #999;
+  color: var(--comp-muted);
   text-align: right;
 }
 </style>

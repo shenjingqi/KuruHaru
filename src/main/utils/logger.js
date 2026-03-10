@@ -55,6 +55,18 @@ const DEFAULT_CONFIG = {
   enableFileLog: true,
 };
 
+function normalizeLogLevel(level) {
+  const normalizedLevel = String(level || "")
+    .trim()
+    .toLowerCase();
+
+  if (LOG_LEVEL_WEIGHT[normalizedLevel]) {
+    return normalizedLevel;
+  }
+
+  return LOG_LEVEL.INFO;
+}
+
 /**
  * 获取日志配置
  * 使用动态导入避免循环依赖
@@ -74,10 +86,7 @@ async function getLoggingConfig() {
  */
 async function getCurrentLevelWeight() {
   const config = await getLoggingConfig();
-  const level = config.level || "info";
-  return (
-    LOG_LEVEL_WEIGHT[level.toUpperCase()] || LOG_LEVEL_WEIGHT[LOG_LEVEL.INFO]
-  );
+  return LOG_LEVEL_WEIGHT[normalizeLogLevel(config.level)];
 }
 
 /**
@@ -85,9 +94,8 @@ async function getCurrentLevelWeight() {
  */
 async function shouldLog(level) {
   const currentWeight = await getCurrentLevelWeight();
-  const messageWeight =
-    LOG_LEVEL_WEIGHT[level.toUpperCase()] || LOG_LEVEL_WEIGHT[LOG_LEVEL.INFO];
-  return messageWeight <= currentWeight;
+  const messageWeight = LOG_LEVEL_WEIGHT[normalizeLogLevel(level)];
+  return messageWeight >= currentWeight;
 }
 
 /**
@@ -127,9 +135,15 @@ async function writeToFile(message, type) {
  */
 export function createLogSender(type) {
   const logWithFile = async (level, msg) => {
-    const formattedMessage = formatLogMessage(type, level, msg);
+    const normalizedLevel = normalizeLogLevel(level);
 
-    switch (level) {
+    if (!(await shouldLog(normalizedLevel))) {
+      return;
+    }
+
+    const formattedMessage = formatLogMessage(type, normalizedLevel, msg);
+
+    switch (normalizedLevel) {
       case LOG_LEVEL.ERROR:
         console.error(formattedMessage);
         break;
@@ -143,9 +157,7 @@ export function createLogSender(type) {
         console.log(formattedMessage);
     }
 
-    if (await shouldLog(level)) {
-      await writeToFile(formattedMessage, type);
-    }
+    await writeToFile(formattedMessage, type);
   };
 
   return {

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, nativeTheme } from "electron";
 import path, { join } from "path";
 import fs from "fs";
 import icon from "../../resources/icon.png?asset";
@@ -11,11 +11,15 @@ import { setupTelegramIPC } from "./utils/telegram-login";
 import { setupTgHistoryIPC } from "./modules/tg-recent-activity";
 import {
   setupTgSearchBotIPC,
+  startBot,
   triggerStartupHistorySync,
 } from "./modules/tg-search-bot";
+import { setupTgInfoCacheIPC } from "./modules/tg-info-cache";
 import { setupRjDuplicatesIPC } from "./modules/tg-rj-duplicates";
+import { setupTgInfoErrorRecoverIPC } from "./modules/tg-info-error-recover";
 import { setupConfigIPC, getConfig, saveConfig } from "./modules/config";
-import { scanForArchives } from "./utils";
+import { setupWorkflowRuntimeIPC } from "./workflow-runtime";
+import { scanForArchives } from "./utils/archive-scanner";
 import { createLogSender } from "./utils/logger";
 
 // 全局窗口引用
@@ -27,16 +31,324 @@ const logger = createLogSender("app");
 // 托盘图标
 let tray = null;
 
-function getWindowChromeOptions() {
+const WINDOW_FRAME_MODE = {
+  CUSTOM: "custom",
+  SYSTEM: "system",
+};
+
+const DEFAULT_WINDOW_FRAME_MODE = WINDOW_FRAME_MODE.CUSTOM;
+const DEFAULT_THEME_MODE = "auto";
+const DEFAULT_WINDOW_OPACITY = 0.92;
+const MIN_WINDOW_OPACITY = 0.55;
+const DEFAULT_BLUR_INTENSITY = 8;
+const MAX_BLUR_INTENSITY = 40;
+const DEFAULT_ACCENT_COLOR = "#adb571";
+const DEFAULT_BLUR_RENDER_MODE = "system";
+let activeWindowFrameMode = resolveEffectiveWindowFrameMode(
+  DEFAULT_WINDOW_FRAME_MODE,
+);
+
+function normalizeWindowFrameMode(rawMode) {
+  if (rawMode === WINDOW_FRAME_MODE.SYSTEM) {
+    return WINDOW_FRAME_MODE.SYSTEM;
+  }
+  return WINDOW_FRAME_MODE.CUSTOM;
+}
+
+function normalizeThemeMode(rawMode) {
+  if (rawMode === "dark" || rawMode === "light" || rawMode === "auto") {
+    return rawMode;
+  }
+
+  return DEFAULT_THEME_MODE;
+}
+
+function normalizeWindowOpacity(rawValue) {
+  const parsed = Number(rawValue);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_WINDOW_OPACITY;
+  }
+
+  return Math.min(1, Math.max(MIN_WINDOW_OPACITY, Number(parsed.toFixed(2))));
+}
+
+function normalizeBlurIntensity(rawValue) {
+  const parsed = Number(rawValue);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_BLUR_INTENSITY;
+  }
+
+  return Math.min(MAX_BLUR_INTENSITY, Math.max(0, Math.round(parsed)));
+}
+
+function normalizeAccentColor(rawValue) {
+  if (typeof rawValue === "string" && /^#[0-9a-fA-F]{6}$/.test(rawValue)) {
+    return rawValue.toLowerCase();
+  }
+
+  return DEFAULT_ACCENT_COLOR;
+}
+
+function normalizeBlurRenderMode(rawValue) {
+  if (rawValue === "gpu" || rawValue === "system") {
+    return rawValue;
+  }
+
+  return DEFAULT_BLUR_RENDER_MODE;
+}
+
+function resolveThemeSource(themeMode) {
+  if (themeMode === "dark" || themeMode === "light") {
+    return themeMode;
+  }
+
+  return "system";
+}
+
+function resolveDarkModeFlag(themeMode) {
+  if (themeMode === "dark") {
+    return true;
+  }
+
+  if (themeMode === "light") {
+    return false;
+  }
+
+  return Boolean(nativeTheme.shouldUseDarkColors);
+}
+
+function resolveWindowAppearanceConfig() {
+  const config = getConfig();
+  const systemConfig = config?.system || {};
+
+  const themeMode = normalizeThemeMode(systemConfig.theme);
+  const windowOpacity = normalizeWindowOpacity(systemConfig.windowOpacity);
+  const blurEnabled =
+    typeof systemConfig.blurEnabled === "boolean"
+      ? systemConfig.blurEnabled
+      : true;
+  const blurIntensity = normalizeBlurIntensity(systemConfig.blurIntensity);
+  const blurRenderMode = normalizeBlurRenderMode(systemConfig.blurRenderMode);
+  const accentColor = normalizeAccentColor(systemConfig.accentColor);
+
+  return {
+    themeMode,
+    windowOpacity,
+    blurEnabled,
+    blurIntensity,
+    blurRenderMode,
+    accentColor,
+    proxyUrl:
+      typeof systemConfig.proxyUrl === "string"
+        ? systemConfig.proxyUrl.trim()
+        : "",
+  };
+}
+
+function resolveRequestedWindowFrameMode() {
+  try {
+    const config = getConfig();
+    return normalizeWindowFrameMode(config?.system?.windowFrameMode);
+  } catch {
+    return DEFAULT_WINDOW_FRAME_MODE;
+  }
+}
+
+function resolveEffectiveWindowFrameMode(requestedMode) {
+  if (requestedMode === WINDOW_FRAME_MODE.SYSTEM) {
+    return WINDOW_FRAME_MODE.SYSTEM;
+  }
+
+  // 目前仅在 Windows 启用完整无边框方案，其它平台兜底系统边框。
   if (process.platform === "win32") {
+    return WINDOW_FRAME_MODE.CUSTOM;
+  }
+
+  return WINDOW_FRAME_MODE.SYSTEM;
+}
+
+function getWindowChromeOptions(frameMode) {
+  if (frameMode === WINDOW_FRAME_MODE.CUSTOM && process.platform === "win32") {
     return {
-      titleBarStyle: "hidden",
-      titleBarOverlay: false,
+      frame: false,
+      transparent: true,
+      backgroundColor: "#00000000",
+      hasShadow: true,
+      // 保留系统缩放边界，否则无边框窗口无法拖拽调整大小
+      thickFrame: true,
+      resizable: true,
       roundedCorners: true,
     };
   }
 
-  return {};
+  return {
+    frame: true,
+    transparent: false,
+    backgroundColor: "#f7f8fa",
+  };
+}
+
+function buildWindowStatePayload(windowInstance) {
+  const requestedFrameMode = resolveRequestedWindowFrameMode();
+  const requestedEffectiveFrameMode =
+    resolveEffectiveWindowFrameMode(requestedFrameMode);
+  const frameMode = activeWindowFrameMode || requestedEffectiveFrameMode;
+  const appearance = resolveWindowAppearanceConfig();
+  const isWindowValid =
+    windowInstance &&
+    !windowInstance.isDestroyed() &&
+    !windowInstance.webContents.isDestroyed();
+
+  return {
+    frameMode,
+    requestedFrameMode,
+    frameModeNeedsRestart: frameMode !== requestedEffectiveFrameMode,
+    customFrameEnabled: frameMode === WINDOW_FRAME_MODE.CUSTOM,
+    windowControlSupported:
+      process.platform === "win32" && frameMode === WINDOW_FRAME_MODE.CUSTOM,
+    maximized: Boolean(isWindowValid && windowInstance.isMaximized()),
+    focused: Boolean(isWindowValid && windowInstance.isFocused()),
+    darkMode: resolveDarkModeFlag(appearance.themeMode),
+    themeMode: appearance.themeMode,
+    windowOpacity: appearance.windowOpacity,
+    blurEnabled: appearance.blurEnabled,
+    blurIntensity: appearance.blurIntensity,
+    blurRenderMode: appearance.blurRenderMode,
+    accentColor: appearance.accentColor,
+  };
+}
+
+function emitWindowState(windowInstance) {
+  if (
+    !windowInstance ||
+    windowInstance.isDestroyed() ||
+    !windowInstance.webContents ||
+    windowInstance.webContents.isDestroyed()
+  ) {
+    return;
+  }
+
+  windowInstance.webContents.send(
+    "window-state-changed",
+    buildWindowStatePayload(windowInstance),
+  );
+}
+
+function resolveWindowsBackgroundMaterial(appearance) {
+  if (!appearance?.blurEnabled) {
+    return "none";
+  }
+
+  if (appearance.blurRenderMode === "gpu") {
+    return "acrylic";
+  }
+
+  // system ????? Win11 Mica ???
+  return "mica";
+}
+
+function applyWindowsDesktopMaterial(windowInstance) {
+  if (!windowInstance || windowInstance.isDestroyed()) {
+    return;
+  }
+
+  const appearance = resolveWindowAppearanceConfig();
+  const useDarkSurface = resolveDarkModeFlag(appearance.themeMode);
+  const requestedMaterial = resolveWindowsBackgroundMaterial(appearance);
+  const canUseCustomMaterial =
+    process.platform === "win32" &&
+    activeWindowFrameMode === WINDOW_FRAME_MODE.CUSTOM &&
+    requestedMaterial !== "none";
+
+  if (typeof windowInstance.setOpacity === "function") {
+    // ?????????????????????????????
+    windowInstance.setOpacity(appearance.windowOpacity);
+  }
+
+  if (process.platform !== "win32") {
+    return;
+  }
+
+  try {
+    windowInstance.setBackgroundColor(useDarkSurface ? "#10151d" : "#f7f7f9");
+
+    if (typeof windowInstance.setBackgroundMaterial === "function") {
+      windowInstance.setBackgroundMaterial(
+        canUseCustomMaterial ? requestedMaterial : "none",
+      );
+      logger.debug(
+        canUseCustomMaterial
+          ? `? Windows ???????: ${requestedMaterial}`
+          : "? Windows ???????",
+      );
+      return;
+    }
+
+    if (typeof windowInstance.setVibrancy === "function") {
+      windowInstance.setVibrancy(null);
+      logger.debug("?? ?? Electron ????? setBackgroundMaterial????????");
+      return;
+    }
+
+    logger.debug("?? ?? Electron API ?????????");
+  } catch (error) {
+    logger.warn(`?? ?? Windows ??????: ${error.message}`);
+  }
+}
+
+function applyThemePreference() {
+  const appearance = resolveWindowAppearanceConfig();
+  const nextThemeSource = resolveThemeSource(appearance.themeMode);
+
+  if (nativeTheme.themeSource !== nextThemeSource) {
+    nativeTheme.themeSource = nextThemeSource;
+    logger.debug(`✅ 主题模式已切换: ${appearance.themeMode}`);
+  }
+}
+
+function ensureMainWindowContent(windowInstance) {
+  if (!windowInstance || windowInstance.isDestroyed()) {
+    return;
+  }
+
+  const currentUrl = windowInstance.webContents.getURL();
+
+  if (currentUrl && currentUrl !== "about:blank") {
+    return;
+  }
+
+  logger.warn("⚠️ 检测到窗口内容为空，尝试重新加载渲染页面");
+
+  if (process.env.NODE_ENV === "development") {
+    windowInstance.loadURL("http://localhost:5173");
+    return;
+  }
+
+  windowInstance.loadFile(join(__dirname, "../renderer/index.html"));
+}
+
+function restoreAndRevealWindow(windowInstance) {
+  if (!windowInstance || windowInstance.isDestroyed()) {
+    return;
+  }
+
+  if (windowInstance.isMinimized()) {
+    windowInstance.restore();
+  }
+
+  ensureMainWindowContent(windowInstance);
+
+  const webContents = windowInstance.webContents;
+
+  if (webContents?.isCrashed?.()) {
+    logger.warn("⚠️ 渲染进程疑似崩溃，恢复时触发重载");
+    webContents.reload();
+  }
+
+  applyWindowsDesktopMaterial(windowInstance);
+  windowInstance.show();
+  windowInstance.focus();
+  webContents.invalidate();
 }
 
 function getAliveMainWindow() {
@@ -51,6 +363,13 @@ function registerWindowControlIPC() {
   ipcMain.handle("window-minimize", () => {
     const win = getAliveMainWindow();
     if (!win) return false;
+
+    const config = getConfig();
+
+    if (config.system?.minimizeToTray) {
+      win.hide();
+      return true;
+    }
 
     win.minimize();
     return true;
@@ -83,12 +402,50 @@ function registerWindowControlIPC() {
 
     return win.isMaximized();
   });
+
+  ipcMain.handle("window-get-state", () => {
+    const win = getAliveMainWindow();
+    return buildWindowStatePayload(win);
+  });
+
+  ipcMain.handle("window-get-bounds", () => {
+    const win = getAliveMainWindow();
+    if (!win) return null;
+    return win.getBounds();
+  });
+
+  ipcMain.handle("window-set-bounds", (_event, rawBounds) => {
+    const win = getAliveMainWindow();
+    if (!win || !rawBounds || typeof rawBounds !== "object") return false;
+
+    const bounds = {
+      x: Number.parseInt(rawBounds.x, 10),
+      y: Number.parseInt(rawBounds.y, 10),
+      width: Number.parseInt(rawBounds.width, 10),
+      height: Number.parseInt(rawBounds.height, 10),
+    };
+
+    if (
+      !Number.isFinite(bounds.x) ||
+      !Number.isFinite(bounds.y) ||
+      !Number.isFinite(bounds.width) ||
+      !Number.isFinite(bounds.height) ||
+      bounds.width < 400 ||
+      bounds.height < 300
+    ) {
+      return false;
+    }
+
+    win.setBounds(bounds, false);
+    return true;
+  });
 }
 
 // 应用系统设置
 function applySystemSettings() {
   try {
     const config = getConfig();
+    applyThemePreference();
 
     // 应用开机自启动设置
     if (config.system?.autoStart) {
@@ -99,19 +456,19 @@ function applySystemSettings() {
         name: app.getName(),
       };
       app.setLoginItemSettings(settings);
-      logger.info("✅ 开机自启动已启用", settings);
+      logger.debug("✅ 开机自启动已启用", settings);
     } else {
       app.setLoginItemSettings({ openAtLogin: false });
-      logger.info("❌ 开机自启动已禁用");
+      logger.debug("❌ 开机自启动已禁用");
     }
 
     // 如果启用最小化到托盘，创建托盘图标
     if (config.system?.minimizeToTray) {
       createTray();
-      logger.info("✅ 最小化到托盘已启用");
+      logger.debug("✅ 最小化到托盘已启用");
     } else {
       destroyTray();
-      logger.info("❌ 最小化到托盘已禁用");
+      logger.debug("❌ 最小化到托盘已禁用");
     }
   } catch (error) {
     logger.error("❌ 应用系统设置失败:", error.message);
@@ -122,14 +479,14 @@ function applySystemSettings() {
 // 创建托盘图标
 function createTray() {
   if (tray) {
-    logger.info("托盘图标已存在，跳过创建");
+    logger.debug("托盘图标已存在，跳过创建");
     return;
   }
 
   try {
     const { Tray, Menu } = require("electron");
 
-    logger.info("开始创建托盘图标...");
+    logger.debug("开始创建托盘图标...");
     // Windows平台使用专门的托盘图标
     const trayIconToUse = process.platform === "win32" ? trayIcon : icon;
     tray = new Tray(trayIconToUse);
@@ -138,17 +495,16 @@ function createTray() {
       {
         label: "显示窗口",
         click: () => {
-          logger.info("托盘菜单: 显示窗口");
+          logger.debug("托盘菜单: 显示窗口");
           if (mainWindow) {
-            mainWindow.show();
-            mainWindow.focus();
+            restoreAndRevealWindow(mainWindow);
           }
         },
       },
       {
         label: "退出",
         click: () => {
-          logger.info("托盘菜单: 退出应用");
+          logger.debug("托盘菜单: 退出应用");
           app.quit();
         },
       },
@@ -158,27 +514,25 @@ function createTray() {
     tray.setContextMenu(contextMenu);
 
     tray.on("click", () => {
-      logger.info("托盘图标被点击");
+      logger.debug("托盘图标被点击");
       if (mainWindow) {
         if (mainWindow.isVisible()) {
           mainWindow.hide();
         } else {
-          mainWindow.show();
-          mainWindow.focus();
+          restoreAndRevealWindow(mainWindow);
         }
       }
     });
 
     // 双击托盘图标切换窗口显示状态
     tray.on("double-click", () => {
-      logger.info("托盘图标被双击");
+      logger.debug("托盘图标被双击");
       if (mainWindow) {
-        mainWindow.show();
-        mainWindow.focus();
+        restoreAndRevealWindow(mainWindow);
       }
     });
 
-    logger.info("✅ 托盘图标已创建");
+    logger.debug("✅ 托盘图标已创建");
   } catch (error) {
     logger.error("❌ 创建托盘图标失败:", error.message);
     console.error("创建托盘图标失败:", error);
@@ -190,49 +544,94 @@ function destroyTray() {
   if (tray) {
     tray.destroy();
     tray = null;
-    logger.info("托盘图标已销毁");
+    logger.debug("托盘图标已销毁");
   }
 }
 
 function createWindow() {
-  logger.info("开始创建窗口...");
+  logger.debug("开始创建窗口...");
+  const requestedFrameMode = resolveRequestedWindowFrameMode();
+  const effectiveFrameMode =
+    resolveEffectiveWindowFrameMode(requestedFrameMode);
+  activeWindowFrameMode = effectiveFrameMode;
+  logger.debug(
+    `窗口边框模式 requested=${requestedFrameMode} effective=${effectiveFrameMode}`,
+  );
 
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     show: false,
+    paintWhenInitiallyHidden: true,
     autoHideMenuBar: true,
     skipTaskbar: false,
     icon: icon,
-    ...getWindowChromeOptions(),
+    ...getWindowChromeOptions(effectiveFrameMode),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       sandbox: false,
       nodeIntegration: true,
       contextIsolation: true,
+      backgroundThrottling: false,
     },
   });
 
-  logger.info("窗口对象已创建");
+  applyWindowsDesktopMaterial(mainWindow);
+
+  logger.debug("窗口对象已创建");
 
   // 加载开发服务器页面
   if (process.env.NODE_ENV === "development") {
     mainWindow.webContents.openDevTools({ mode: "detach" }); // 使用独立窗口模式
-    logger.info("开发模式：强制打开 DevTools");
+    logger.debug("开发模式：强制打开 DevTools");
     mainWindow.loadURL("http://localhost:5173");
-    logger.info("加载开发服务器: http://localhost:5173");
+    logger.debug("加载开发服务器: http://localhost:5173");
   } else {
     mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
-    logger.info("加载生产构建页面");
+    logger.debug("加载生产构建页面");
   }
 
   mainWindow.on("ready-to-show", () => {
-    logger.info("ready-to-show 事件触发，显示窗口");
+    logger.debug("ready-to-show 事件触发，显示窗口");
+    applyWindowsDesktopMaterial(mainWindow);
     mainWindow.show();
+    emitWindowState(mainWindow);
   });
 
   mainWindow.on("show", () => {
-    logger.info("窗口已显示");
+    logger.debug("窗口已显示");
+    ensureMainWindowContent(mainWindow);
+    emitWindowState(mainWindow);
+  });
+
+  mainWindow.on("restore", () => {
+    logger.debug("窗口已还原");
+    ensureMainWindowContent(mainWindow);
+    emitWindowState(mainWindow);
+  });
+
+  mainWindow.on("focus", () => {
+    emitWindowState(mainWindow);
+  });
+
+  mainWindow.on("blur", () => {
+    emitWindowState(mainWindow);
+  });
+
+  mainWindow.on("maximize", () => {
+    emitWindowState(mainWindow);
+  });
+
+  mainWindow.on("unmaximize", () => {
+    emitWindowState(mainWindow);
+  });
+
+  mainWindow.on("enter-full-screen", () => {
+    emitWindowState(mainWindow);
+  });
+
+  mainWindow.on("leave-full-screen", () => {
+    emitWindowState(mainWindow);
   });
 
   // 处理窗口最小化事件
@@ -240,23 +639,48 @@ function createWindow() {
     const config = getConfig();
 
     if (config.system?.minimizeToTray) {
-      // 延迟隐藏窗口，但保留任务栏图标
       event.preventDefault();
-      setTimeout(() => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.hide();
-        }
-      }, 100);
-      logger.info("窗口已最小化到托盘");
+
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.hide();
+      }
+
+      logger.debug("窗口已最小化到托盘");
     }
   });
 
-  mainWindow.on("show", () => {
-    logger.info("窗口已显示");
+  mainWindow.webContents.on("did-finish-load", () => {
+    logger.debug("页面加载完成");
+    emitWindowState(mainWindow);
   });
 
-  mainWindow.webContents.on("did-finish-load", () => {
-    logger.info("页面加载完成");
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    logger.error(
+      `渲染进程退出: reason=${details?.reason || "unknown"}, code=${details?.exitCode ?? "unknown"}`,
+    );
+
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return;
+    }
+
+    setTimeout(() => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        return;
+      }
+
+      ensureMainWindowContent(mainWindow);
+      mainWindow.webContents.reload();
+    }, 180);
+  });
+
+  mainWindow.on("unresponsive", () => {
+    logger.warn("窗口出现无响应，尝试触发重绘");
+
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return;
+    }
+
+    mainWindow.webContents.invalidate();
   });
 
   mainWindow.webContents.on(
@@ -270,6 +694,18 @@ function createWindow() {
 }
 
 registerWindowControlIPC();
+
+nativeTheme.on("updated", () => {
+  const win = getAliveMainWindow();
+  emitWindowState(win);
+});
+
+app.on("config-updated", () => {
+  const win = getAliveMainWindow();
+  applySystemSettings();
+  applyWindowsDesktopMaterial(win);
+  emitWindowState(win);
+});
 
 // 注册通用文件选择接口
 ipcMain.handle("dialog:openFile", async (_event, options = {}) => {
@@ -363,15 +799,15 @@ ipcMain.handle("get-default-avatar", async () => {
       path.join(__dirname, "../../resources/default-avatar.png"),
     ];
 
-    logger.info("尝试查找默认头像文件...");
+    logger.debug("尝试查找默认头像文件...");
 
     for (const avatarPath of possiblePaths) {
-      logger.info(`检查路径: ${avatarPath}`);
+      logger.debug(`检查路径: ${avatarPath}`);
       if (fs.existsSync(avatarPath)) {
-        logger.info(`✅ 找到默认头像: ${avatarPath}`);
+        logger.debug(`✅ 找到默认头像: ${avatarPath}`);
         const data = fs.readFileSync(avatarPath);
         const base64 = `data:image/png;base64,${data.toString("base64")}`;
-        logger.info(`✅ 默认头像加载成功，大小: ${data.length} bytes`);
+        logger.debug(`✅ 默认头像加载成功，大小: ${data.length} bytes`);
         return base64;
       }
     }
@@ -615,12 +1051,12 @@ ipcMain.handle("save-custom-paths", async (event, paths) => {
 
 // Electron生命周期事件
 app.on("window-all-closed", () => {
-  logger.info("所有窗口已关闭");
+  logger.debug("所有窗口已关闭");
   if (process.platform !== "darwin") app.quit();
 });
 
 app.whenReady().then(() => {
-  logger.info("KuruHaru app 已准备就绪");
+  logger.debug("KuruHaru app 已准备就绪");
 
   // 设置应用用户模型ID，确保任务栏图标正确显示
   app.setAppUserModelId("com.kuruharu.app");
@@ -632,17 +1068,47 @@ app.whenReady().then(() => {
   applySystemSettings();
 
   // 3. 加载各个功能模块
-  logger.info("开始加载功能模块...");
+  logger.debug("开始加载功能模块...");
   setupAsmrIPC(join(app.getPath("userData"), "data", "uploaded_records.json"));
   setupWhisperIPC();
   setupTelegramIPC();
   setupTgHistoryIPC();
   setupTgSearchBotIPC();
+  setupTgInfoCacheIPC();
   setupRjDuplicatesIPC();
+  setupTgInfoErrorRecoverIPC();
   setupConfigIPC();
+  setupWorkflowRuntimeIPC().catch((error) => {
+    logger.error("[workflow-runtime] IPC 注册失败", error?.message || error);
+  });
 
-  // 4. 启动后默认执行一次 TG 索引同步（异步，不阻塞应用启动）
+  // 4. 启动后自动启动 Bot（默认开启）+ TG 索引同步（异步，不阻塞应用启动）
   setTimeout(() => {
+    const config = getConfig();
+    const autoStartBot = config?.tg?.botAutoStartOnStartup !== false;
+
+    if (autoStartBot) {
+      startBot()
+        .then((result) => {
+          if (!result?.success) {
+            logger.warn(
+              `[tg-search-bot] 启动自动拉起 Bot 失败: ${result?.error || result?.message || "unknown"}`,
+            );
+            return;
+          }
+
+          logger.debug("[tg-search-bot] 启动自动拉起 Bot 完成");
+        })
+        .catch((error) => {
+          logger.error(
+            "[tg-search-bot] 启动自动拉起 Bot 异常",
+            error?.message || error,
+          );
+        });
+    } else {
+      logger.debug("[tg-search-bot] 启动自动拉起 Bot 已关闭，跳过执行");
+    }
+
     triggerStartupHistorySync().catch((error) => {
       logger.error(
         "[tg-search-bot] 启动自动同步任务异常",
@@ -651,10 +1117,10 @@ app.whenReady().then(() => {
     });
   }, 1500);
 
-  logger.info("所有功能模块加载完成");
+  logger.debug("所有功能模块加载完成");
 
   app.on("activate", () => {
-    logger.info(
+    logger.debug(
       "activate 事件触发，当前窗口数:",
       BrowserWindow.getAllWindows().length,
     );

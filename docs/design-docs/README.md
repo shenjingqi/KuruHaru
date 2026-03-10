@@ -1,6 +1,6 @@
 # 设计文档索引
 
-> 最后更新: 2026-03-04
+> 最后更新: 2026-03-05
 
 本目录用于沉淀项目的**长期设计资产**（架构、数据流、边界、功能实现留存、决策日志）。
 
@@ -26,6 +26,7 @@
 | `business-boundary.md`             | ✅ 稳定   | 业务边界与外部依赖                               |
 | `data-flow.md`                     | ✅ 稳定   | 核心数据流与交互路径                             |
 | `design-decisions.md`              | ✅ 活跃   | 关键决策与来源追溯                               |
+| `js-architecture-breakthrough.md`  | 🔄 活跃   | JS 架构升级、设计突破与全量拆解配套策略          |
 | `module-index.md`                  | ✅ 可用   | 模块与 IPC 快速导航                              |
 | `feature-local-file-management.md` | ✅ 已实现 | 本地文件扫描/提取/导出实现留存                   |
 | `feature-cloud-data-sync.md`       | ✅ 已实现 | ASMR 云端数据同步与缓存广播留存                  |

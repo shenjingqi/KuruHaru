@@ -40,14 +40,22 @@ const DEFAULT_CONFIG = {
     botWebhookPort: 8443,
     botSearchLimit: 3000,
     botHistoryPath: "",
+    botAutoStartOnStartup: true,
     botAutoSyncOnStartup: true,
     botWhitelistDebugLog: false,
+    infoCachePath: "",
+    infoRequestTimeoutMs: 20000,
+    infoCacheMaxConcurrency: 5,
+    infoCacheMaxFileSizeMB: 50,
+    infoCachePersistOnFetch: true,
+    proxyUrl: "",
   },
   asmr: {
     username: "",
     password: "",
     token: "",
     playlistId: "",
+    proxyUrl: "",
   },
   paths: {
     configDir: "",
@@ -85,7 +93,14 @@ const DEFAULT_CONFIG = {
     language: "zh",
     autoStart: false,
     minimizeToTray: true,
+    windowFrameMode: "custom",
     saveCustomPaths: true,
+    proxyUrl: "",
+    windowOpacity: 0.92,
+    blurEnabled: true,
+    blurIntensity: 8,
+    blurRenderMode: "system",
+    accentColor: "#adb571",
   },
 };
 
@@ -168,6 +183,7 @@ export function getConfig() {
         paths: { ...DEFAULT_CONFIG.paths, ...appDataConfig.paths },
         upload: { ...DEFAULT_CONFIG.upload, ...appDataConfig.upload },
         whisper: { ...DEFAULT_CONFIG.whisper, ...appDataConfig.whisper },
+        logging: { ...DEFAULT_CONFIG.logging, ...appDataConfig.logging },
         system: { ...DEFAULT_CONFIG.system, ...appDataConfig.system },
       };
       configCacheTime = now;
@@ -237,6 +253,97 @@ export function getLogPath(module) {
 // 配置保存锁，防止并发写入
 let saveConfigLock = Promise.resolve();
 
+function normalizeConfigDir(rawConfigDir) {
+  if (typeof rawConfigDir !== "string") {
+    return "";
+  }
+
+  return rawConfigDir.trim();
+}
+
+function normalizePathPatch(pathsPatch) {
+  const normalizedPaths = {};
+
+  if (
+    !pathsPatch ||
+    typeof pathsPatch !== "object" ||
+    Array.isArray(pathsPatch)
+  ) {
+    return normalizedPaths;
+  }
+
+  Object.entries(pathsPatch).forEach(([key, value]) => {
+    if (value === undefined) {
+      return;
+    }
+
+    normalizedPaths[key] = typeof value === "string" ? value.trim() : value;
+  });
+
+  return normalizedPaths;
+}
+
+function mergeConfigPatch(currentConfig, newConfig) {
+  const patchConfig =
+    newConfig && typeof newConfig === "object" && !Array.isArray(newConfig)
+      ? newConfig
+      : {};
+
+  const finalConfig = {
+    ...currentConfig,
+    ...patchConfig,
+  };
+
+  const normalizedPaths = normalizePathPatch(patchConfig.paths);
+  finalConfig.paths = {
+    ...currentConfig.paths,
+    ...normalizedPaths,
+  };
+
+  return finalConfig;
+}
+
+function resolveConfigSavePath(config) {
+  const configDir = normalizeConfigDir(config?.paths?.configDir);
+  if (!configDir) {
+    return DEFAULT_CONFIG_PATH;
+  }
+
+  return path.join(configDir, "config.json");
+}
+
+function writeJsonFileSync(filePath, payload) {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+
+  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2));
+}
+
+function syncAppDataConfigDirPointer(configDir) {
+  const normalizedConfigDir = normalizeConfigDir(configDir);
+
+  let appDataConfig = {};
+  if (fs.existsSync(DEFAULT_CONFIG_PATH)) {
+    try {
+      appDataConfig = JSON.parse(fs.readFileSync(DEFAULT_CONFIG_PATH, "utf-8"));
+    } catch {
+      appDataConfig = {};
+    }
+  }
+
+  const nextAppDataConfig = {
+    ...appDataConfig,
+    paths: {
+      ...(appDataConfig.paths || {}),
+      configDir: normalizedConfigDir,
+    },
+  };
+
+  writeJsonFileSync(DEFAULT_CONFIG_PATH, nextAppDataConfig);
+}
+
 export async function saveConfig(newConfig) {
   // 清除缓存，强制下次读取重新加载
   configCache = null;
@@ -249,55 +356,37 @@ export async function saveConfig(newConfig) {
   saveConfigLock = new Promise((resolve) => (resolveLock = resolve));
 
   try {
-    let configPath = DEFAULT_CONFIG_PATH;
-
-    // 获取用户设置的 configDir
-    const config = getConfig();
-    if (config.paths?.configDir?.trim()) {
-      const userConfigDir = config.paths.configDir;
-      if (userConfigDir) {
-        configPath = path.join(userConfigDir, "config.json");
-      }
-    } else {
-      configPath = DEFAULT_CONFIG_PATH;
-    }
-
-    // 确保目录存在
-    const dir = path.dirname(configPath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-
-    logger.info(`准备保存配置，configPath: ${configPath}`);
-
-    // 读取当前配置
     const current = getConfig();
     logger.info(`当前 chineseListPath: ${current.paths?.chineseListPath}`);
 
-    // 合并配置
-    const final = {
-      ...current,
-      ...newConfig,
-    };
+    // 允许显式清空路径（空字符串 / null），并在本次保存中生效。
+    const final = mergeConfigPatch(current, newConfig);
+    const configPath = resolveConfigSavePath(final);
+    logger.info(`准备保存配置，configPath: ${configPath}`);
 
-    // 只保存非空的路径配置
-    const pathsToSave = {};
-    Object.keys(newConfig.paths || {}).forEach((key) => {
-      const value = newConfig.paths[key];
-      if (value && typeof value === "string" && value.trim()) {
-        pathsToSave[key] = value.trim();
-      }
-    });
+    writeJsonFileSync(configPath, final);
 
-    logger.info(`pathsToSave:`, pathsToSave);
+    // 自定义 configDir 模式下，保持 AppData 里有 configDir 指针用于下次启动发现配置。
+    if (configPath !== DEFAULT_CONFIG_PATH) {
+      syncAppDataConfigDirPointer(final.paths?.configDir);
+    }
 
-    // 更新 paths 配置
-    final.paths = {
-      ...current.paths,
-      ...pathsToSave,
-    };
+    // 写盘后立即刷新缓存，避免 TTL 窗口内读到旧值导致“看起来没保存”。
+    configCache = final;
+    configCacheTime = Date.now();
 
-    fs.writeFileSync(configPath, JSON.stringify(final, null, 2));
+    const hasSystemPatch =
+      newConfig &&
+      typeof newConfig === "object" &&
+      !Array.isArray(newConfig) &&
+      Object.prototype.hasOwnProperty.call(newConfig, "system");
+    const didSystemSettingsChange =
+      JSON.stringify(current.system || {}) !==
+      JSON.stringify(final.system || {});
+    if (hasSystemPatch || didSystemSettingsChange) {
+      // 只要请求里包含 system 补丁就重应用，避免“保存成功但视觉不刷新”的体感问题。
+      app.emit("config-updated");
+    }
 
     logger.info(
       `配置保存成功，chineseListPath: "${final.paths?.chineseListPath}"`,

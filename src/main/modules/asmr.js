@@ -2,7 +2,7 @@ import pathModule from "path";
 import { join } from "path";
 import fs from "fs";
 import { ipcMain, app, webContents } from "electron";
-import { scanForIds } from "../utils";
+import { scanForIds } from "../utils/archive-scanner";
 import {
   login_ as asmrLogin_,
   checkLoginStatus_ as checkLoginStatus_,
@@ -12,6 +12,35 @@ import {
 import { getConfig, saveConfig } from "../modules/config";
 import { createLogSender } from "../utils/logger";
 import { getHttpClient } from "./httpClient";
+import {
+  buildAsmrSearchBaseUrl,
+  buildAsmrSearchPageUrl,
+  collectSourceIdsFromWorks,
+  computeAsmrSearchTotalPages,
+  extractAsmrSearchTotalCount,
+  extractSearchQueryParam,
+  extractWorksArrayExtended,
+  extractWorksArrayLite,
+  formatAsmrWorkData,
+  getAsmrSearchBrowserHeaders,
+} from "./asmr-core/search-utils";
+import {
+  readLineSetFromFile,
+  writeUniqueLinesToFile,
+} from "./asmr-core/file-list-utils";
+import {
+  collectRjNumbersFromLines,
+  getWorkComparableRjNumber,
+  matchWorkIdsByRjCodesCaseInsensitive,
+  matchWorkIdsByRjCodesExact,
+} from "./asmr-core/rj-filter-utils";
+import {
+  buildAsmrSearchApiUrl,
+  detectAsmrApiMode,
+  filterWorksByAfterDate,
+  mapWorksToRjFilterResult,
+} from "./asmr-core/url-filter-utils";
+import { fetchAsmrPlaylistWorks } from "./asmr-core/playlist-fetch-utils";
 
 // 创建日志发送器
 const logger = createLogSender("asmr");
@@ -21,9 +50,16 @@ let cloudWorksCache = [];
 
 // 创建HTTP客户端，支持代理和直连两种模式
 const createClient = () => {
-  const PROXY_URL = "http://127.0.0.1:7890";
-  logger.info("使用代理连接:", PROXY_URL);
-  return getHttpClient({ timeout: 30000, proxyUrl: PROXY_URL });
+  const config = getConfig();
+  const proxyUrl = config?.system?.proxyUrl || config?.asmr?.proxyUrl || "";
+
+  if (proxyUrl) {
+    logger.info("使用代理连接:", proxyUrl);
+    return getHttpClient({ timeout: 30000, proxyUrl });
+  }
+
+  logger.info("未配置代理，使用直连");
+  return getHttpClient({ timeout: 30000 });
 };
 
 /**
@@ -184,209 +220,12 @@ export function setupAsmrIPC(historyPath) {
   ipcMain.handle(
     "asmr-fetch-playlist",
     async (event, { token, playlistId }) => {
-      const headers = {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      };
-      const pageSize = 100;
-      let totalPages = 1;
-      const works = [];
-
-      try {
-        sendLogToSender(event.sender, `🚀 开始并发获取播放列表: ${playlistId}`);
-
-        const firstPageUrl = `https://api.asmr.one/api/playlist/get-playlist-works?id=${playlistId}&page=1&pageSize=${pageSize}`;
-        console.log(`[ASMR] ========== 获取第一页 ==========`);
-        console.log(`[ASMR] 获取播放列表: ${firstPageUrl}`);
-        console.log(`[ASMR] 使用Token: ${token.substring(0, 20)}...`);
-
-        let firstRes;
-        try {
-          firstRes = await client.get(firstPageUrl, {
-            headers,
-            timeout: 30000,
-          });
-        } catch (error) {
-          console.error("[ASMR] 获取第一页失败:", error.message);
-          sendLogToSender(event.sender, `❌ 获取第一页失败: ${error.message}`);
-          return { success: false, msg: error.message };
-        }
-
-        console.log(`[ASMR] 第一页响应状态: ${firstRes.status}`);
-
-        let items = [];
-        if (Array.isArray(firstRes.data)) {
-          items = firstRes.data;
-        } else if (firstRes.data.works && Array.isArray(firstRes.data.works)) {
-          items = firstRes.data.works;
-        } else if (firstRes.data.data && Array.isArray(firstRes.data.data)) {
-          items = firstRes.data.data;
-        } else if (firstRes.data.items && Array.isArray(firstRes.data.items)) {
-          items = firstRes.data.items;
-        } else if (firstRes.data.list && Array.isArray(firstRes.data.list)) {
-          items = firstRes.data.list;
-        }
-
-        if (items.length === 0) {
-          sendLogToSender(event.sender, `⚠️ 第一页没有数据`);
-          return { success: true, data: [] };
-        }
-
-        if (firstRes.data.pagination) {
-          const pagination = firstRes.data.pagination;
-          totalPages = Math.ceil(pagination.totalCount / pagination.pageSize);
-          console.log(
-            `[ASMR] 总页数: ${totalPages}，总作品数: ${pagination.totalCount}`,
-          );
-          sendLogToSender(
-            event.sender,
-            `📊 总页数: ${totalPages}，总作品数: ${pagination.totalCount}`,
-          );
-        } else {
-          return {
-            success: true,
-            data: items.map((item) => ({
-              id: String(item.id),
-              source_id: item.source_id,
-              title: item.title,
-              tags: item.tags || [],
-            })),
-          };
-        }
-
-        console.log(
-          `[ASMR] ========== 开始并发获取第2-${totalPages}页（带重试）=========`,
-        );
-        sendLogToSender(
-          event.sender,
-          `⚡ 正在并发获取第 2-${totalPages} 页（共 ${totalPages - 1} 页，每页自动重试3次）...`,
-        );
-
-        const pagePromises = [];
-        for (let page = 2; page <= totalPages; page++) {
-          const url = `https://api.asmr.one/api/playlist/get-playlist-works?id=${playlistId}&page=${page}&pageSize=${pageSize}`;
-
-          const fetchWithRetry = async (pageNum) => {
-            let retryCount = 0;
-            const maxRetries = 3;
-            let res;
-
-            while (retryCount < maxRetries) {
-              try {
-                res = await client.get(url, { headers, timeout: 30000 });
-                break;
-              } catch (error) {
-                retryCount++;
-                if (retryCount >= maxRetries) {
-                  console.error(
-                    `[ASMR] 第 ${pageNum} 页第 ${maxRetries} 次重试后仍失败:`,
-                    error.message,
-                  );
-                  return { pageNum, error: true, errorMsg: error.message };
-                }
-                console.log(
-                  `[ASMR] 第 ${pageNum} 页第 ${retryCount} 次重试...`,
-                );
-                sendLogToSender(
-                  event.sender,
-                  `⚠️ 第 ${pageNum} 页第 ${retryCount} 次重试...`,
-                );
-                await new Promise((resolve) =>
-                  setTimeout(resolve, 1000 * retryCount),
-                );
-              }
-            }
-
-            return { pageNum, res };
-          };
-
-          pagePromises.push(fetchWithRetry(page));
-        }
-
-        const results = await Promise.all(pagePromises);
-
-        console.log(
-          `[ASMR] 所有请求完成，成功: ${results.filter((r) => !r.error).length}/${results.length}`,
-        );
-
-        let successCount = 0;
-        let failCount = 0;
-        results.forEach((result) => {
-          const page = result.pageNum;
-
-          if (result.error) {
-            failCount++;
-            sendLogToSender(
-              event.sender,
-              `❌ 第 ${page} 页获取失败（${result.errorMsg || "未知错误"}）`,
-            );
-            return;
-          }
-
-          successCount++;
-          const res = result.res;
-
-          let pageItems = [];
-          if (Array.isArray(res.data)) {
-            pageItems = res.data;
-          } else if (res.data.works && Array.isArray(res.data.works)) {
-            pageItems = res.data.works;
-          } else if (res.data.data && Array.isArray(res.data.data)) {
-            pageItems = res.data.data;
-          } else if (res.data.items && Array.isArray(res.data.items)) {
-            pageItems = res.data.items;
-          } else if (res.data.list && Array.isArray(res.data.list)) {
-            pageItems = res.data.list;
-          }
-
-          console.log(`[ASMR] 第 ${page} 页获取到 ${pageItems.length} 个作品`);
-          sendLogToSender(
-            event.sender,
-            `📄 第 ${page}/${totalPages} 页：获取到 ${pageItems.length} 个作品`,
-          );
-
-          works.push(
-            ...pageItems.map((item) => ({
-              id: String(item.id),
-              source_id: item.source_id,
-              title: item.title,
-              tags: item.tags || [],
-            })),
-          );
-        });
-
-        works.unshift(
-          ...items.map((item) => ({
-            id: String(item.id),
-            source_id: item.source_id,
-            title: item.title,
-            tags: item.tags || [],
-          })),
-        );
-
-        sendLogToSender(
-          event.sender,
-          `✅ 并发获取完成！成功: ${successCount}，失败: ${failCount}，共 ${works.length} 个作品`,
-        );
-
-        return { success: true, data: works };
-      } catch (e) {
-        console.error("[ASMR] 获取播放列表失败:", e.message);
-        if (e.response) {
-          console.error("[ASMR] 响应状态:", e.response.status);
-          console.error("[ASMR] 响应数据:", e.response.data);
-          sendLogToSender(
-            event.sender,
-            `❌ 获取播放列表失败: HTTP ${e.response.status}`,
-          );
-          return {
-            success: false,
-            msg: `HTTP ${e.response.status}: ${JSON.stringify(e.response.data)}`,
-          };
-        }
-        sendLogToSender(event.sender, `❌ 获取播放列表失败: ${e.message}`);
-        return { success: false, msg: e.message };
-      }
+      return await fetchAsmrPlaylistWorks({
+        httpClient: client,
+        token,
+        playlistId,
+        sendLog: (message) => sendLogToSender(event.sender, message),
+      });
     },
   );
 
@@ -466,36 +305,15 @@ export function setupAsmrIPC(historyPath) {
         });
 
         // 提取所有作品
-        let allWorks = [];
-        if (Array.isArray(playlistRes.data)) {
-          allWorks = playlistRes.data;
-        } else if (
-          playlistRes.data.works &&
-          Array.isArray(playlistRes.data.works)
-        ) {
-          allWorks = playlistRes.data.works;
-        } else if (
-          playlistRes.data.data &&
-          Array.isArray(playlistRes.data.data)
-        ) {
-          allWorks = playlistRes.data.data;
-        }
+        const allWorks = extractWorksArrayLite(playlistRes.data);
 
         console.log("[ASMR] 获取到作品数:", allWorks.length);
 
         // 匹配 RJ 号到 workId
-        const matchedWorkIds = [];
-        const notFoundRJ = [];
-        for (const rjCode of rjCodes) {
-          const matched = allWorks.find(
-            (work) => work.source_id === rjCode || String(work.id) === rjCode,
-          );
-          if (matched) {
-            matchedWorkIds.push(String(matched.id));
-          } else {
-            notFoundRJ.push(rjCode);
-          }
-        }
+        const { matchedWorkIds, notFoundRJ } = matchWorkIdsByRjCodesExact(
+          allWorks,
+          rjCodes,
+        );
 
         if (notFoundRJ.length > 0) {
           sendLogToSender(
@@ -763,46 +581,13 @@ export function setupAsmrIPC(historyPath) {
       }
 
       // 提取所有作品
-      let allWorks = [];
-      if (Array.isArray(playlistRes.data)) {
-        allWorks = playlistRes.data;
-      } else if (
-        playlistRes.data.works &&
-        Array.isArray(playlistRes.data.works)
-      ) {
-        allWorks = playlistRes.data.works;
-      } else if (
-        playlistRes.data.data &&
-        Array.isArray(playlistRes.data.data)
-      ) {
-        allWorks = playlistRes.data.data;
-      }
+      const allWorks = extractWorksArrayLite(playlistRes.data);
 
       logger.info(`获取到 ${allWorks.length} 个云端作品`);
 
       // 步骤2: 匹配 RJ 号到 workId
-      const rjCodeSet = new Set(rjCodes.map((c) => c.toUpperCase()));
-      const matchedWorkIds = [];
-      const notFoundRJ = [];
-
-      for (const work of allWorks) {
-        const workRJ = work.source_id || String(work.id);
-        if (rjCodeSet.has(workRJ.toUpperCase())) {
-          matchedWorkIds.push(String(work.id));
-        }
-      }
-
-      // 找出未匹配的 RJ 号
-      for (const rj of rjCodes) {
-        const found = allWorks.some(
-          (w) =>
-            (w.source_id && w.source_id.toUpperCase() === rj.toUpperCase()) ||
-            String(w.id) === rj,
-        );
-        if (!found) {
-          notFoundRJ.push(rj);
-        }
-      }
+      const { matchedWorkIds, notFoundRJ } =
+        matchWorkIdsByRjCodesCaseInsensitive(allWorks, rjCodes);
 
       if (notFoundRJ.length > 0) {
         logger.warn(`未找到云端作品: ${notFoundRJ.join(", ")}`);
@@ -896,16 +681,7 @@ export function setupAsmrIPC(historyPath) {
   const readExistingChineseList = async () => {
     return fileLock.then(() => {
       const txtPath = getTxtPath();
-      try {
-        if (fs.existsSync(txtPath)) {
-          const content = fs.readFileSync(txtPath, "utf-8");
-          const lines = content.split("\n").filter((l) => l.trim());
-          return new Set(lines);
-        }
-      } catch (e) {
-        logger.error(`读取汉化列表失败: ${e.message}`);
-      }
-      return new Set();
+      return readLineSetFromFile(txtPath, logger);
     });
   };
 
@@ -913,28 +689,15 @@ export function setupAsmrIPC(historyPath) {
   const writeChineseList = async (rjCodes) => {
     const txtPath = getTxtPath();
     return fileLock.then(async () => {
-      try {
-        if (!rjCodes || rjCodes.length === 0) return;
-        // 确保目录存在
-        const dataDir = pathModule.dirname(txtPath);
-        if (!fs.existsSync(dataDir)) {
-          fs.mkdirSync(dataDir, { recursive: true });
-        }
-        // 去重并排序
-        const uniqueCodes = [...new Set(rjCodes)].sort();
-        fs.writeFileSync(txtPath, uniqueCodes.join("\n"), "utf-8");
-        logger.info(`已写入汉化列表: ${uniqueCodes.length} 个RJ号`);
-      } catch (e) {
-        logger.error(`写入汉化列表失败: ${e.message}`);
-        logger.error(`Error name: ${e.name}, code: ${e.code}`);
-        logger.error(`Stack: ${e.stack}`);
+      const writeResult = writeUniqueLinesToFile(txtPath, rjCodes, logger);
+      if (writeResult.success && writeResult.count > 0) {
+        logger.info(`已写入汉化列表: ${writeResult.count} 个RJ号`);
       }
     });
   };
 
   // 从页数据提取RJ号（服务器已用subtitle=1过滤）
   const extractChineseRjFromPage = (works) => {
-    const rjCodes = [];
     for (let i = 0; i < works.length; i++) {
       const work = works[i];
 
@@ -944,13 +707,13 @@ export function setupAsmrIPC(historyPath) {
         work.source_id === "RJ1508514" ||
         work.source_id === "1508514"
       ) {
-        logger.info(`[DEBUG] 找到目标作品 RJ1508514:`);
-        logger.info(`  id: ${work.id}`);
-        logger.info(`  source_id: ${work.source_id}`);
-        logger.info(`  title: ${work.title}`);
-        logger.info(`  has_subtitle: ${work.has_subtitle}`);
-        logger.info(`  release: ${work.release}`);
-        logger.info(
+        logger.debug(`[DEBUG] 找到目标作品 RJ1508514:`);
+        logger.debug(`  id: ${work.id}`);
+        logger.debug(`  source_id: ${work.source_id}`);
+        logger.debug(`  title: ${work.title}`);
+        logger.debug(`  has_subtitle: ${work.has_subtitle}`);
+        logger.debug(`  release: ${work.release}`);
+        logger.debug(
           `  other_language_editions_in_db: ${JSON.stringify(work.other_language_editions_in_db || [])}`,
         );
       }
@@ -963,16 +726,16 @@ export function setupAsmrIPC(historyPath) {
         work.source_id || `RJ${String(work.id).padStart(8, "0")}`;
       const currentId = String(work.id);
       if (currentSourceId === "RJ01087430" || currentId === "1087430") {
-        logger.info(`[DEBUG] 找到 RJ01087430:`);
-        logger.info(`  source_id: ${work.source_id}`);
-        logger.info(`  id: ${work.id}`);
-        logger.info(`  has_subtitle: ${work.has_subtitle}`);
-        logger.info(
+        logger.debug(`[DEBUG] 找到 RJ01087430:`);
+        logger.debug(`  source_id: ${work.source_id}`);
+        logger.debug(`  id: ${work.id}`);
+        logger.debug(`  has_subtitle: ${work.has_subtitle}`);
+        logger.debug(
           `  other_language_editions_in_db: ${JSON.stringify(ol || [])}`,
         );
         // 检查是否有其他作品引用了这个 RJ 号
         if (ol && ol.length > 0) {
-          logger.info(`  该作品包含其他语种版本`);
+          logger.debug(`  该作品包含其他语种版本`);
         }
       }
       // 检查 other_language_editions_in_db 中是否包含 RJ01087430
@@ -982,33 +745,15 @@ export function setupAsmrIPC(historyPath) {
             edition.source_id === "RJ01087430" ||
             String(edition.id) === "1087430"
           ) {
-            logger.info(`[DEBUG] 在其他作品的其他语言版本中找到 RJ01087430`);
-            logger.info(`  当前作品 source_id: ${work.source_id}`);
-            logger.info(`  当前作品 id: ${work.id}`);
-            logger.info(`  当前作品 has_subtitle: ${work.has_subtitle}`);
+            logger.debug(`[DEBUG] 在其他作品的其他语言版本中找到 RJ01087430`);
+            logger.debug(`  当前作品 source_id: ${work.source_id}`);
+            logger.debug(`  当前作品 id: ${work.id}`);
+            logger.debug(`  当前作品 has_subtitle: ${work.has_subtitle}`);
           }
         }
-      }
-
-      if (ol && Array.isArray(ol) && ol.length > 0) {
-        // 先保存作品本身的 source_id
-        const sourceId =
-          work.source_id || `RJ${String(work.id).padStart(8, "0")}`;
-        rjCodes.push(sourceId);
-        // 再保存所有语种的 source_id
-        for (let j = 0; j < ol.length; j++) {
-          if (ol[j].source_id) {
-            rjCodes.push(ol[j].source_id);
-          }
-        }
-      } else {
-        // 取整个作品的 source_id
-        const sourceId =
-          work.source_id || `RJ${String(work.id).padStart(8, "0")}`;
-        rjCodes.push(sourceId);
       }
     }
-    return rjCodes;
+    return collectSourceIdsFromWorks(works);
   };
 
   // 7. 获取汉化作品列表（带字幕/多语种）
@@ -1063,7 +808,7 @@ export function setupAsmrIPC(historyPath) {
       // subtitle=1: 只返回有字幕的作品（服务器过滤，更快）
       const url = `https://api.asmr-200.com/api/works?order=create_date&sort=desc&page=${page}&pageSize=100&subtitle=1`;
       const res = await client.get(url, { headers, timeout: 30000 });
-      return res.data?.works || [];
+      return extractWorksArrayExtended(res.data);
     };
 
     // 获取第1页及分页信息
@@ -1071,7 +816,7 @@ export function setupAsmrIPC(historyPath) {
       const url = `https://api.asmr-200.com/api/works?order=create_date&sort=desc&page=1&pageSize=100&subtitle=1`;
       const res = await client.get(url, { headers, timeout: 30000 });
       return {
-        works: res.data?.works || [],
+        works: extractWorksArrayExtended(res.data),
         totalCount: res.data?.pagination?.totalCount || 0,
       };
     };
@@ -1277,19 +1022,9 @@ export function setupAsmrIPC(historyPath) {
         logger.info(`比对文件: ${compareFilePath || "无"}`);
 
         // 解析链接类型
-        let isSearchApi = url.includes("/api/search/");
-        let isListApi =
-          url.includes("/api/playlist/") || url.includes("/api/works/");
+        const { isSearchApi, isListApi } = detectAsmrApiMode(url);
 
         logger.info(`isSearchApi: ${isSearchApi}, isListApi: ${isListApi}`);
-
-        if (!isSearchApi && !isListApi) {
-          // 尝试直接作为网页链接处理
-          isSearchApi =
-            url.includes("asmr-200.com/search") ||
-            url.includes("asmr-200.com/api/search");
-          logger.info(`二次检查后 isSearchApi: ${isSearchApi}`);
-        }
 
         // 获取工作列表
         let works = [];
@@ -1301,9 +1036,7 @@ export function setupAsmrIPC(historyPath) {
           logger.info(`获取到 ${works.length} 个作品`);
         } else {
           // 默认尝试搜索API格式
-          const searchUrl = url.includes("/api/search/")
-            ? url
-            : `https://api.asmr-200.com/api/search/${encodeURIComponent(url)}`;
+          const searchUrl = buildAsmrSearchApiUrl(url);
           logger.info(`默认搜索URL: ${searchUrl}`);
           works = await fetchSearchFromPage(client, searchUrl);
         }
@@ -1321,7 +1054,6 @@ export function setupAsmrIPC(historyPath) {
 
         // 日期筛选
         if (dateMode === "after" && beforeDate) {
-          const after = new Date(beforeDate);
           logger.info(`日期筛选: 保留 ${beforeDate} 之后的作品`);
           logger.info(
             `示例作品日期: ${works
@@ -1330,22 +1062,20 @@ export function setupAsmrIPC(historyPath) {
               .join(", ")}`,
           );
 
-          let beforeFilter = works.length;
-          const filteredOut = [];
-
-          works = works.filter((work) => {
-            if (!work.date) return true;
+          const beforeFilter = works.length;
+          works.forEach((work) => {
+            if (!work?.date) return;
             const workDate = new Date(work.date);
             if (isNaN(workDate.getTime())) {
               logger.warn(`无效日期: ${work.date}`);
-              return true;
             }
-            const keep = workDate > after;
-            if (!keep) {
-              filteredOut.push({ rj: work.rj_code, date: work.date });
-            }
-            return keep;
           });
+
+          const { filteredWorks, filteredOut } = filterWorksByAfterDate(
+            works,
+            beforeDate,
+          );
+          works = filteredWorks;
 
           logger.info(
             `日期筛选后剩余 ${works.length} 个作品 (从 ${beforeFilter} 筛选)`,
@@ -1364,37 +1094,20 @@ export function setupAsmrIPC(historyPath) {
         if (compareFilePath && fs.existsSync(compareFilePath)) {
           const content = fs.readFileSync(compareFilePath, "utf-8");
           const lines = content.split("\n").filter((l) => l.trim());
-          lines.forEach((line) => {
-            // 提取RJ号（可能格式: RJ123456, rj123456, 123456）
-            const match = line.match(/RJ?(\d+)/i);
-            if (match) {
-              existingRjs.add(match[1]);
-            } else if (/^\d+$/.test(line.trim())) {
-              existingRjs.add(line.trim());
-            }
-          });
+          existingRjs = collectRjNumbersFromLines(lines);
           logger.info(`已读取TXT文件，包含 ${existingRjs.size} 个RJ号`);
         }
 
         // 筛选出不存在的RJ号（以 source_id 为主）
-        const filteredWorks = works.filter((work) => {
-          const rjNum =
-            work.rj_number ||
-            work.rj_code ||
-            work.id?.replace("RJ", "") ||
-            work.id;
-          return !existingRjs.has(rjNum);
-        });
+        const filteredWorks = works.filter(
+          (work) => !existingRjs.has(getWorkComparableRjNumber(work)),
+        );
 
         logger.info(`TXT比对后剩余 ${filteredWorks.length} 个RJ号`);
 
         return {
           success: true,
-          data: filteredWorks.map((w) => ({
-            rj_code: w.rj_code || w.id,
-            title: w.title,
-            date: w.date || w.release,
-          })),
+          data: mapWorksToRjFilterResult(filteredWorks),
           total: works.length,
           filtered: filteredWorks.length,
         };
@@ -1411,54 +1124,26 @@ export function setupAsmrIPC(historyPath) {
       logger.info(`备用方法: 直接请求搜索API`);
       logger.info(`原始URL: ${url}`);
 
-      // 提取查询参数
-      let queryParam = "";
-      if (url.includes("/api/search/")) {
-        queryParam = url.split("/api/search/")[1] || "";
-        // 移除已有的查询参数
-        const queryIndex = queryParam.indexOf("?");
-        if (queryIndex > -1) {
-          queryParam = queryParam.substring(0, queryIndex);
-        }
-        try {
-          queryParam = decodeURIComponent(queryParam);
-        } catch {
-          // 忽略解码错误
-        }
-      } else {
-        // 如果是完整URL，提取搜索关键词
-        try {
-          const urlObj = new URL(url);
-          queryParam =
-            urlObj.searchParams.get("keyword") ||
-            urlObj.searchParams.get("q") ||
-            url;
-        } catch {
-          queryParam = url;
-        }
-      }
+      const queryParam = extractSearchQueryParam(url);
 
       logger.info(`提取的查询参数: ${queryParam}`);
 
       // 构建 API 基础 URL - 正确的格式
-      const baseUrl = `https://api.asmr-200.com/api/search/${encodeURIComponent(queryParam)}?order=create_date&sort=desc&pageSize=100`;
+      const baseUrl = buildAsmrSearchBaseUrl(
+        queryParam,
+        100,
+        "https://api.asmr-200.com/api/search/",
+      );
 
       // 先获取第一页获取总数
-      const firstUrl = `${baseUrl}&page=1`;
+      const firstUrl = buildAsmrSearchPageUrl(baseUrl, 1);
       logger.info(`第一页URL: ${firstUrl}`);
 
       // 模拟浏览器请求头 - 更完整
       const axios = (await import("axios")).default;
-      const browserHeaders = {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        Accept: "application/json, text/plain, */*",
-        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-        "Accept-Encoding": "gzip, deflate, br",
-        Connection: "keep-alive",
-        Referer: "https://asmr-200.com/",
-        Origin: "https://asmr-200.com",
-      };
+      const browserHeaders = getAsmrSearchBrowserHeaders({
+        includeCompression: true,
+      });
 
       let firstRes;
       try {
@@ -1492,25 +1177,9 @@ export function setupAsmrIPC(historyPath) {
       logger.info(`响应数据前500字符: ${dataStr.substring(0, 500)}`);
 
       // 解析第一页数据
-      let allItems = [];
-      if (Array.isArray(firstRes.data)) {
-        allItems = firstRes.data;
-        logger.info(`数据是数组，长度: ${allItems.length}`);
-      } else if (firstRes.data.works) {
-        allItems = firstRes.data.works;
-        logger.info(`数据在 works 中，长度: ${allItems.length}`);
-      } else if (firstRes.data.data) {
-        allItems = firstRes.data.data;
-        logger.info(`数据在 data 中，长度: ${allItems.length}`);
-      } else if (firstRes.data.items) {
-        allItems = firstRes.data.items;
-        logger.info(`数据在 items 中，长度: ${allItems.length}`);
-      } else if (firstRes.data.list) {
-        allItems = firstRes.data.list;
-        logger.info(`数据在 list 中，长度: ${allItems.length}`);
-      } else if (firstRes.data.pagination?.works) {
-        allItems = firstRes.data.pagination.works;
-        logger.info(`数据在 pagination.works 中，长度: ${allItems.length}`);
+      let allItems = extractWorksArrayExtended(firstRes.data);
+      if (allItems.length > 0) {
+        logger.info(`标准字段解析成功，长度: ${allItems.length}`);
       } else {
         // 遍历所有键查找数组
         logger.info(`未找到标准数组字段，遍历响应数据...`);
@@ -1539,63 +1208,36 @@ export function setupAsmrIPC(historyPath) {
       logger.info(`第一页获取 ${allItems.length} 个作品`);
 
       // 获取总数
-      let totalCount = 0;
-      if (firstRes.data.pagination?.totalCount) {
-        totalCount = firstRes.data.pagination.totalCount;
-      } else if (firstRes.data.total) {
-        totalCount = firstRes.data.total;
-      } else if (firstRes.data.total_count) {
-        totalCount = firstRes.data.total_count;
-      }
-
-      if (totalCount === 0) {
-        totalCount = allItems.length;
-      }
+      const totalCount = extractAsmrSearchTotalCount(
+        firstRes.data,
+        allItems.length,
+      );
 
       logger.info(`总数: ${totalCount}`);
 
       // 计算总页数（每页100个）
-      const pageSize = 100;
-      const totalPages = Math.ceil(totalCount / pageSize);
+      const totalPages = computeAsmrSearchTotalPages(totalCount, 100);
       logger.info(`总页数: ${totalPages}`);
 
       // 如果只有一页，直接返回
       if (totalPages <= 1) {
-        return allItems.map(formatWorkData);
+        return allItems.map(formatAsmrWorkData);
       }
 
       // 带重试的获取单页函数
       const fetchPageWithRetry = async (pageNum, maxRetries = 3) => {
-        const pageUrl = `${baseUrl}&page=${pageNum}`;
+        const pageUrl = buildAsmrSearchPageUrl(baseUrl, pageNum);
 
         for (let retry = 0; retry < maxRetries; retry++) {
           try {
             const res = await axios.get(pageUrl, {
               timeout: 30000,
-              headers: {
-                "User-Agent":
-                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                Accept: "application/json, text/plain, */*",
-                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-                Origin: "https://asmr-200.com",
-                Referer: "https://asmr-200.com/",
-              },
+              headers: getAsmrSearchBrowserHeaders({
+                includeCompression: false,
+              }),
             });
 
-            let items = [];
-            if (Array.isArray(res.data)) {
-              items = res.data;
-            } else if (res.data.works) {
-              items = res.data.works;
-            } else if (res.data.data) {
-              items = res.data.data;
-            } else if (res.data.items) {
-              items = res.data.items;
-            } else if (res.data.list) {
-              items = res.data.list;
-            } else if (res.data.pagination?.works) {
-              items = res.data.pagination.works;
-            }
+            const items = extractWorksArrayExtended(res.data);
 
             logger.info(
               `第 ${pageNum}/${totalPages} 页: ${items.length} 个作品`,
@@ -1631,47 +1273,10 @@ export function setupAsmrIPC(historyPath) {
       });
 
       logger.info(`总共获取 ${allItems.length} 个作品`);
-      return allItems.map(formatWorkData);
+      return allItems.map(formatAsmrWorkData);
     } catch (e) {
       logger.error(`备用方法失败: ${e.message}`);
       return [];
     }
-  }
-
-  // 格式化作品数据
-  function formatWorkData(item) {
-    // source_id 是主要的RJ号标识
-    const rjCode =
-      item.source_id ||
-      item.rj_code ||
-      item.id ||
-      item.work_id ||
-      item.rj ||
-      "";
-    const title = item.title || item.work_title || item.name || "未知标题";
-    // API返回的日期字段是 release
-    const date =
-      item.date ||
-      item.release_date ||
-      item.release ||
-      item.created_at ||
-      item.publish_date ||
-      "";
-
-    // 提取纯RJ号（确保是字符串）
-    let rjNum = "";
-    if (typeof rjCode === "string") {
-      rjNum = rjCode.replace(/^RJ?/i, "");
-    } else if (rjCode) {
-      rjNum = String(rjCode).replace(/^RJ?/i, "");
-    }
-
-    return {
-      rj_code:
-        typeof rjCode === "string" ? rjCode : rjCode ? String(rjCode) : "",
-      rj_number: rjNum,
-      title: typeof title === "string" ? title : "未知标题",
-      date: typeof date === "string" ? date : "",
-    };
   }
 }

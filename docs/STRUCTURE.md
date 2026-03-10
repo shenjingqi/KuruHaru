@@ -1,6 +1,6 @@
 # 文档库结构说明
 
-> 最后更新: 2026-03-04
+> 最后更新: 2026-03-05
 
 本文档描述 `docs/` 目录当前真实结构，用于快速导航与一致性维护。
 
@@ -20,6 +20,7 @@ docs/
 │   ├── business-boundary.md
 │   ├── data-flow.md
 │   ├── design-decisions.md
+│   ├── js-architecture-breakthrough.md
 │   ├── feature-local-file-management.md
 │   ├── feature-cloud-data-sync.md
 │   ├── feature-whisper-transcription.md
@@ -37,15 +38,17 @@ docs/
 ├── exec-plans/
 │   ├── README.md
 │   ├── active/
-│   │   ├── 2026-03-04-侧边栏导航重构方案.md
-│   │   └── 2026-03-04-无边框窗口设计方案.md
+│   │   └── （当前为空）
 │   ├── completed/
 │   │   ├── 2026-02-27-harness-t0-improvements.md
 │   │   ├── 2026-02-28-添加上传取消按钮功能.md
 │   │   ├── 2026-03-03-rj-duplicate-detector-id-delete-hotfix.md
 │   │   ├── 2026-03-03-rj-duplicate-detector-v2.md
 │   │   ├── 2026-03-03-rj-duplicate-detector-v3.md
-│   │   └── 2026-03-03-telegram-bot-api-migration.md
+│   │   ├── 2026-03-03-telegram-bot-api-migration.md
+│   │   ├── 2026-03-04-侧边栏导航重构方案.md
+│   │   ├── 2026-03-04-页面与JS分阶段重构方案.md
+│   │   └── 2026-03-04-无边框窗口设计方案.md
 │   └── tech-debt/
 │       └── 2026-02-28-仪表盘上次更新时间显示未知.md
 │
