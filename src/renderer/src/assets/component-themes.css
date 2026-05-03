@@ -11,6 +11,7 @@
 #app .advanced-search-theme,
 #app .rj-filter-theme,
 #app .tg-search-bot-theme,
+#app .asmr-downloader-page,
 #app .workflow-designer-theme {
   --comp-accent: var(--accent, var(--app-accent, #adb571));
   --comp-surface-1: color-mix(in srgb, var(--page-surface-bg) 94%, #ffffff 6%);
@@ -22,6 +23,53 @@
   --comp-control-hover: var(--page-control-hover);
   --comp-text: var(--page-text-strong);
   --comp-muted: var(--page-text-muted);
+  --text-strong: var(--comp-text);
+  --text-muted: color-mix(in srgb, var(--comp-text) 82%, transparent);
+  --text-soft: color-mix(in srgb, var(--comp-text) 64%, transparent);
+  --surface-card: var(--comp-surface-1);
+  --surface-card-strong: var(--comp-surface-2);
+  --surface-control: var(--comp-control-bg);
+  --surface-control-border: var(--comp-control-border);
+  --surface-control-hover: var(--comp-control-hover);
+  --accent-soft-bg: color-mix(in srgb, var(--comp-accent) 18%, transparent);
+  --accent-soft-border: color-mix(in srgb, var(--comp-accent) 32%, transparent);
+  --accent-contrast: #fffdf4;
+  color: var(--comp-text);
+}
+
+html[data-app-theme='dark'] #app .home-theme,
+html[data-app-theme='dark'] #app .settings-theme,
+html[data-app-theme='dark'] #app .upload-tool-theme,
+html[data-app-theme='dark'] #app .recent-activity-theme,
+html[data-app-theme='dark'] #app .chinese-list-theme,
+html[data-app-theme='dark'] #app .cloud-cleaner-theme,
+html[data-app-theme='dark'] #app .local-cleaner-theme,
+html[data-app-theme='dark'] #app .whisper-theme,
+html[data-app-theme='dark'] #app .rj-duplicate-theme,
+html[data-app-theme='dark'] #app .tools-theme,
+html[data-app-theme='dark'] #app .advanced-search-theme,
+html[data-app-theme='dark'] #app .rj-filter-theme,
+html[data-app-theme='dark'] #app .tg-search-bot-theme,
+html[data-app-theme='dark'] #app .asmr-downloader-page,
+.app-shell.window-dark #app .home-theme,
+.app-shell.window-dark #app .settings-theme,
+.app-shell.window-dark #app .upload-tool-theme,
+.app-shell.window-dark #app .recent-activity-theme,
+.app-shell.window-dark #app .chinese-list-theme,
+.app-shell.window-dark #app .cloud-cleaner-theme,
+.app-shell.window-dark #app .local-cleaner-theme,
+.app-shell.window-dark #app .whisper-theme,
+.app-shell.window-dark #app .rj-duplicate-theme,
+.app-shell.window-dark #app .tools-theme,
+.app-shell.window-dark #app .advanced-search-theme,
+.app-shell.window-dark #app .rj-filter-theme,
+.app-shell.window-dark #app .tg-search-bot-theme,
+.app-shell.window-dark #app .asmr-downloader-page {
+  --comp-text: #eef3e4;
+  --comp-muted: rgba(234, 239, 225, 0.78);
+  --text-strong: #eef3e4;
+  --text-muted: rgba(234, 239, 225, 0.78);
+  --text-soft: rgba(234, 239, 225, 0.58);
   color: var(--comp-text);
 }
 
@@ -143,6 +191,8 @@
 #app .rj-filter-theme .result-section,
 #app .tg-search-bot-theme .n-card,
 #app .tg-search-bot-theme .bot-card,
+#app .asmr-downloader-page .page-header,
+#app .asmr-downloader-page .card,
 #app .workflow-designer-theme .page-header,
 #app .workflow-designer-theme .card {
   background: var(--comp-surface-1) !important;
@@ -162,6 +212,7 @@
 #app .whisper-theme .page-title,
 #app .rj-duplicate-theme .page-title,
 #app .tools-theme .page-title,
+#app .asmr-downloader-page .page-title,
 #app .advanced-search-theme h2,
 #app .rj-filter-theme h2,
 #app .tg-search-bot-theme .n-card-header__main,
@@ -175,6 +226,7 @@
 #app .whisper-theme .section-title,
 #app .rj-duplicate-theme .section-title,
 #app .tools-theme .section-title,
+#app .asmr-downloader-page .panel-title,
 #app .advanced-search-theme h3,
 #app .rj-filter-theme h3,
 #app .tg-search-bot-theme .result-message,
@@ -198,6 +250,13 @@
 #app .rj-duplicate-theme .label,
 #app .tools-theme .form-label,
 #app .tools-theme .tool-desc,
+#app .asmr-downloader-page .field-label,
+#app .asmr-downloader-page .page-desc,
+#app .asmr-downloader-page .panel-hint,
+#app .asmr-downloader-page .meta-badge,
+#app .asmr-downloader-page .stats-badge,
+#app .asmr-downloader-page .import-text,
+#app .asmr-downloader-page .empty-state,
 #app .advanced-search-theme .search-header,
 #app .rj-filter-theme label,
 #app .tg-search-bot-theme .meta-item,
@@ -206,6 +265,102 @@
 #app .workflow-designer-theme .form-label,
 #app .workflow-designer-theme .status-info {
   color: var(--comp-muted) !important;
+}
+
+#app .home-theme .stat-kicker,
+#app .home-theme .stat-suffix,
+#app .home-theme .history-subtitle,
+#app .home-theme .time,
+#app .home-theme .empty-state,
+#app .settings-theme .section-description,
+#app .settings-theme .section-hint,
+#app .upload-tool-theme .status-left,
+#app .upload-tool-theme .tab-btn,
+#app .upload-tool-theme .list-controls,
+#app .upload-tool-theme .check-all,
+#app .upload-tool-theme .name-text,
+#app .upload-tool-theme .info-text,
+#app .upload-tool-theme .placeholder,
+#app .upload-tool-theme .log-body,
+#app .upload-tool-theme .file-tag,
+#app .recent-activity-theme .summary-text,
+#app .chinese-list-theme .empty,
+#app .cloud-cleaner-theme .file-meta,
+#app .local-cleaner-theme .name,
+#app .local-cleaner-theme .size,
+#app .local-cleaner-theme .empty,
+#app .local-cleaner-theme .rj-tag,
+#app .whisper-theme .status-tag,
+#app .whisper-theme .tag-body,
+#app .whisper-theme .input:read-only,
+#app .tools-theme .tool-name,
+#app .tools-theme .checkbox-label,
+#app .tools-theme .result-box,
+#app .rj-filter-theme .filter-subtitle,
+#app .rj-filter-theme .date-hint,
+#app .rj-filter-theme .progress-info,
+#app .rj-filter-theme .progress-hint,
+#app .rj-filter-theme .result-count,
+#app .rj-filter-theme .rj-title,
+#app .rj-filter-theme .rj-date,
+#app .rj-filter-theme .clear-log-btn,
+#app .tg-search-bot-theme .usage-list,
+#app .tg-search-bot-theme .recent-label,
+#app .tg-search-bot-theme .result-link,
+#app .tg-info-cache .recent-label,
+#app .tg-info-cache .usage-list,
+#app .tg-info-error-recover .helper-text,
+#app .rj-duplicate-theme .progress-text,
+#app .rj-duplicate-theme .stat-label,
+#app .rj-duplicate-theme .empty-state,
+#app .asmr-downloader-page .result-title,
+#app .asmr-downloader-page .empty-state,
+#app .asmr-downloader-page .compact-box {
+  color: var(--text-muted) !important;
+}
+
+#app .upload-tool-theme .tab-btn.active,
+#app .upload-tool-theme .code-badge,
+#app .upload-tool-theme .remove-btn,
+#app .local-cleaner-theme .code,
+#app .local-cleaner-theme .rj-tag,
+#app .whisper-theme .status-tag.running,
+#app .tg-search-bot-theme .result-link:hover,
+#app .tg-info-cache .recent-path-btn,
+#app .asmr-downloader-page .stats-badge-warn {
+  color: var(--comp-accent) !important;
+}
+
+#app .upload-tool-theme .file-list,
+#app .upload-tool-theme .drop-zone,
+#app .local-cleaner-theme .card,
+#app .local-cleaner-theme .file-row:hover,
+#app .local-cleaner-theme .file-row.selected,
+#app .whisper-theme .status-tag,
+#app .whisper-theme .tag-body,
+#app .tools-theme .result-box,
+#app .rj-filter-theme .input-section,
+#app .rj-filter-theme .compare-section,
+#app .rj-filter-theme .result-list,
+#app .rj-filter-theme .log-list,
+#app .rj-duplicate-theme .stat-card,
+#app .asmr-downloader-page .meta-badge,
+#app .asmr-downloader-page .result-box,
+#app .asmr-downloader-page .empty-state {
+  background: var(--surface-card-strong) !important;
+  border-color: var(--surface-control-border) !important;
+}
+
+#app .upload-tool-theme .input::placeholder,
+#app .local-cleaner-theme .input::placeholder,
+#app .whisper-theme .input::placeholder,
+#app .tools-theme .input::placeholder,
+#app .rj-filter-theme .url-input::placeholder,
+#app .rj-filter-theme .file-input::placeholder,
+#app .asmr-downloader-page .input::placeholder,
+#app .asmr-downloader-page .textarea::placeholder,
+#app .tg-search-bot-theme .n-input__input-el::placeholder {
+  color: var(--text-soft) !important;
 }
 
 #app .home-theme .input,

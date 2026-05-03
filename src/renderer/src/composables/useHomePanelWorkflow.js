@@ -1,21 +1,28 @@
-import { ref, computed, onMounted } from "vue";
-import { tgReadRecentActivity, tgScanRecentActivity } from "../api/tgApi";
+import { ref, computed, onBeforeUnmount, onMounted } from "vue";
+import {
+  tgInfoCacheStatus,
+  tgReadRecentActivity,
+  tgScanRecentActivity,
+} from "../api/tgApi";
 import { clearCache } from "../api/systemApi";
+
+const HOME_STATUS_REFRESH_INTERVAL_MS = 60 * 1000;
+const HOT_CACHE_INTERVAL_LABELS = {
+  active: "20 分钟",
+  normal: "1 小时",
+  cool: "3 小时",
+};
 
 export const useHomePanelWorkflow = ({ message, dialog }) => {
   const historyList = ref([]);
   const daysSinceUpdate = ref("未知");
   const isLoading = ref(false);
+  const hotCacheStatus = ref(null);
+  const nowTick = ref(Date.now());
 
   const lastScanTime = ref(0);
   const SCAN_DEBOUNCE_MS = 3000;
-
-  const recentHistory = computed(() => {
-    return historyList.value
-      .filter((item) => item.rawDate)
-      .sort((a, b) => new Date(b.rawDate) - new Date(a.rawDate))
-      .slice(0, 10);
-  });
+  let statusRefreshTimer = null;
 
   const totalUploads = computed(() => {
     return historyList.value.length;
@@ -36,6 +43,106 @@ export const useHomePanelWorkflow = ({ message, dialog }) => {
     const diffTime = Math.abs(now - date);
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     return diffDays === 0 ? "今天" : `${diffDays} 天前`;
+  };
+
+  const formatRelativeDuration = (rawValue, options = {}) => {
+    const timestamp = Number(rawValue);
+    if (!Number.isFinite(timestamp) || timestamp <= 0) {
+      return options.fallbackText || "暂无";
+    }
+
+    const diffMs = Math.max(0, nowTick.value - timestamp);
+    const diffMinutes = Math.floor(diffMs / (60 * 1000));
+    if (diffMinutes <= 0) {
+      return options.withSuffix === false ? "不到 1 分钟" : "刚刚";
+    }
+
+    if (diffMinutes < 60) {
+      return options.withSuffix === false
+        ? `${diffMinutes} 分钟`
+        : `${diffMinutes} 分钟前`;
+    }
+
+    const diffHours = Math.floor(diffMinutes / 60);
+    if (diffHours < 24) {
+      return options.withSuffix === false
+        ? `${diffHours} 小时`
+        : `${diffHours} 小时前`;
+    }
+
+    const diffDays = Math.floor(diffHours / 24);
+    return options.withSuffix === false ? `${diffDays} 天` : `${diffDays} 天前`;
+  };
+
+  const recentAsmrWorks = computed(() => {
+    const hotCache = hotCacheStatus.value?.hotCache || {};
+    const recentWorks = Array.isArray(hotCache.recentWorks)
+      ? hotCache.recentWorks
+      : [];
+
+    return recentWorks.slice(0, 100).map((item) => ({
+      id: item.id,
+      title: item.title || item.circle || "未知作品",
+      subtitle: [
+        item.releaseDate ? `发售 ${item.releaseDate}` : "",
+        item.circle || "",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      time: item.createDate || "未知时间",
+    }));
+  });
+
+  const asmrNoUpdateText = computed(() => {
+    const timestamp = Number(
+      hotCacheStatus.value?.hotCache?.lastChangedAt || 0,
+    );
+    if (!Number.isFinite(timestamp) || timestamp <= 0) {
+      return "暂无";
+    }
+
+    const diffMs = Math.max(0, nowTick.value - timestamp);
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    return `${diffDays} 天`;
+  });
+
+  const asmrCacheCheckedHoursText = computed(() => {
+    const timestamp = Number(
+      hotCacheStatus.value?.hotCache?.lastCheckedAt || 0,
+    );
+    if (!Number.isFinite(timestamp) || timestamp <= 0) {
+      return "暂无";
+    }
+
+    const diffMs = Math.max(0, nowTick.value - timestamp);
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    return `${diffHours} 小时`;
+  });
+
+  const asmrTheoreticalIntervalText = computed(() => {
+    const mode = String(hotCacheStatus.value?.hotCache?.mode || "").trim();
+    return HOT_CACHE_INTERVAL_LABELS[mode] || "未知";
+  });
+
+  const asmrLastCheckedAgoText = computed(() =>
+    formatRelativeDuration(hotCacheStatus.value?.hotCache?.lastCheckedAt, {
+      fallbackText: "暂无",
+      withSuffix: false,
+    }),
+  );
+
+  const asmrLastUpdatedText = computed(() =>
+    formatRelativeDuration(hotCacheStatus.value?.hotCache?.lastChangedAt, {
+      fallbackText: "暂无更新记录",
+    }),
+  );
+
+  const refreshHotCacheStatus = async () => {
+    try {
+      hotCacheStatus.value = await tgInfoCacheStatus();
+    } catch (error) {
+      console.error("读取 TG 信息热缓存状态失败:", error);
+    }
   };
 
   const refreshData = async () => {
@@ -83,16 +190,17 @@ export const useHomePanelWorkflow = ({ message, dialog }) => {
 
         const metadata = recentActivity.data?.metadata;
         if (metadata?.anchor) {
-          const refDate = metadata.anchor.date;
-          daysSinceUpdate.value = getDaysSince(refDate);
+          daysSinceUpdate.value = getDaysSince(metadata.anchor.date);
         } else if (metadata?.currentAnchor) {
-          const refDate = metadata.currentAnchor.date;
-          daysSinceUpdate.value = getDaysSince(refDate);
+          daysSinceUpdate.value = getDaysSince(metadata.currentAnchor.date);
         } else if (metadata?.referenceFile) {
-          const refDate = metadata.referenceFile.date;
-          daysSinceUpdate.value = getDaysSince(refDate);
+          daysSinceUpdate.value = getDaysSince(metadata.referenceFile.date);
+        } else if (metadata?.lastUpdated) {
+          daysSinceUpdate.value = getDaysSince(metadata.lastUpdated);
         }
       }
+
+      await refreshHotCacheStatus();
     } catch (e) {
       console.error("刷新数据失败:", e);
     } finally {
@@ -207,12 +315,29 @@ export const useHomePanelWorkflow = ({ message, dialog }) => {
   onMounted(async () => {
     await refreshData();
     scanInBackground();
+
+    statusRefreshTimer = window.setInterval(() => {
+      nowTick.value = Date.now();
+      refreshHotCacheStatus();
+    }, HOME_STATUS_REFRESH_INTERVAL_MS);
+  });
+
+  onBeforeUnmount(() => {
+    if (statusRefreshTimer) {
+      window.clearInterval(statusRefreshTimer);
+      statusRefreshTimer = null;
+    }
   });
 
   return {
     daysSinceUpdate,
+    asmrNoUpdateText,
+    asmrCacheCheckedHoursText,
+    asmrTheoreticalIntervalText,
+    asmrLastCheckedAgoText,
+    asmrLastUpdatedText,
     isLoading,
-    recentHistory,
+    recentAsmrWorks,
     totalUploads,
     todayUploads,
     handleManualScan,

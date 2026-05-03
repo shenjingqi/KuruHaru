@@ -152,6 +152,91 @@
         </div>
       </div>
 
+      <div class="tool-card card">
+        <div class="tool-header">
+          <span class="tool-icon">🗑️</span>
+          <h3 class="tool-name">清理最近上传字幕</h3>
+        </div>
+        <p class="tool-desc">
+          根据最近上传缓存，删除本地字幕压缩包及对应 RJ/VJ/BJ 文件夹
+        </p>
+
+        <div class="tool-form">
+          <div class="form-row">
+            <label class="form-label">字幕压缩包目录</label>
+            <div class="input-wrap">
+              <input
+                v-model="recentUploadArchiveDir"
+                class="input"
+                readonly
+                placeholder="选择打包后的字幕 zip 所在目录"
+              />
+              <button
+                class="btn-secondary"
+                @click="selectRecentUploadArchiveDir"
+              >
+                选择
+              </button>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <label class="form-label">字幕文件夹根目录</label>
+            <div class="input-wrap">
+              <input
+                v-model="recentUploadSubtitleDir"
+                class="input"
+                readonly
+                placeholder="选择字幕文件夹根目录"
+              />
+              <button
+                class="btn-secondary"
+                @click="selectRecentUploadSubtitleDir"
+              >
+                选择
+              </button>
+            </div>
+          </div>
+
+          <div class="form-row checkbox-row">
+            <label class="checkbox-label">
+              <input
+                v-model="shouldDeleteRecentUploadedFiles"
+                type="checkbox"
+                class="checkbox"
+              />
+              <span>实际删除最近上传字幕和文件夹（否则仅预览）</span>
+            </label>
+          </div>
+
+          <button
+            class="btn-primary full"
+            :disabled="
+              !recentUploadArchiveDir ||
+              !recentUploadSubtitleDir ||
+              isCleaningRecentUploaded
+            "
+            @click="cleanRecentUploadedSubtitles"
+          >
+            {{
+              isCleaningRecentUploaded
+                ? "处理中..."
+                : shouldDeleteRecentUploadedFiles
+                  ? "开始清理并删除"
+                  : "预览最近上传清理"
+            }}
+          </button>
+
+          <div v-if="recentUploadCleanupResult" class="result-box">
+            <p>{{ recentUploadCleanupResult }}</p>
+          </div>
+
+          <div v-if="recentUploadCleanupDetails" class="result-box">
+            <pre>{{ recentUploadCleanupDetails }}</pre>
+          </div>
+        </div>
+      </div>
+
       <!-- 打包字幕工具 -->
 
       <div class="tool-card card">
@@ -224,6 +309,12 @@ const {
   cleanResult,
   deletedCodes,
   shouldDeleteFiles,
+  recentUploadArchiveDir,
+  recentUploadSubtitleDir,
+  shouldDeleteRecentUploadedFiles,
+  isCleaningRecentUploaded,
+  recentUploadCleanupResult,
+  recentUploadCleanupDetails,
   zipMediaPath,
   zipOutputPath,
   isZipping,
@@ -234,6 +325,9 @@ const {
   selectMainFile,
   selectCompareDir,
   cleanData,
+  selectRecentUploadArchiveDir,
+  selectRecentUploadSubtitleDir,
+  cleanRecentUploadedSubtitles,
   selectZipMediaPath,
   selectZipOutputPath,
   startZipSubtitles,
@@ -358,6 +452,23 @@ const {
 .input:readonly {
   background: #f7f2e8;
   color: #86806f;
+}
+
+.textarea {
+  min-height: 120px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid #d8d0bb;
+  background: #fff;
+  font-size: 14px;
+  line-height: 1.5;
+  outline: none;
+  color: #26251f;
+  resize: vertical;
+}
+
+.textarea:focus {
+  border-color: #adb571;
 }
 
 .btn-primary {

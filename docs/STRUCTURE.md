@@ -1,6 +1,6 @@
 # 文档库结构说明
 
-> 最后更新: 2026-03-05
+> 最后更新: 2026-04-13
 
 本文档描述 `docs/` 目录当前真实结构，用于快速导航与一致性维护。
 
@@ -23,6 +23,7 @@ docs/
 │   ├── js-architecture-breakthrough.md
 │   ├── feature-local-file-management.md
 │   ├── feature-cloud-data-sync.md
+│   ├── feature-asmr-audio-downloader.md
 │   ├── feature-whisper-transcription.md
 │   ├── feature-telegram-upload.md
 │   ├── feature-local-cleaning.md

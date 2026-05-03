@@ -3,6 +3,9 @@
   display: flex;
   flex-direction: column;
   gap: 18px;
+  --text-strong: var(--comp-text, var(--page-text-strong, #26251f));
+  --text-muted: var(--comp-muted, var(--page-text-muted, #86806f));
+  --accent-contrast: #fffdf4;
   --settings-panel-bg: var(--comp-surface-1, var(--page-panel-bg, #fff));
   --settings-panel-border: var(
     --comp-border,
@@ -13,6 +16,7 @@
     --comp-control-border,
     var(--page-control-border, #d5d8e0)
   );
+  color: var(--text-strong);
 }
 
 .settings-header {
@@ -184,7 +188,7 @@
     color-mix(in srgb, var(--accent, #adb571) 86%, #171a14 14%),
     color-mix(in srgb, var(--accent, #adb571) 66%, #6b7344 34%)
   );
-  color: #fffdf4;
+  color: var(--accent-contrast);
   border-color: color-mix(in srgb, var(--accent, #adb571) 56%, transparent);
   box-shadow: 0 8px 18px
     color-mix(in srgb, var(--accent, #adb571) 16%, transparent);
@@ -515,7 +519,7 @@
   transform: translateX(-50%);
   padding: 12px 22px;
   border-radius: 12px;
-  color: #fff;
+  color: var(--accent-contrast);
   font-size: 14px;
   font-weight: 700;
   z-index: 9999;

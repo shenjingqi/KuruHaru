@@ -10,6 +10,17 @@
     </div>
 
     <div class="files-actions">
+      <label class="concurrency-control">
+        <span>并发</span>
+        <input
+          :value="concurrentCount"
+          type="number"
+          min="1"
+          max="10"
+          class="concurrency-input"
+          @input="emit('update:concurrent-count', Number($event.target.value))"
+        />
+      </label>
       <button class="action-btn" @click="emit('select-all')">全选</button>
       <button class="action-btn" @click="emit('deselect-all')">全不选</button>
       <button class="action-btn" @click="emit('reload-and-scan')">
@@ -49,6 +60,10 @@ defineProps({
     type: Number,
     default: 0,
   },
+  concurrentCount: {
+    type: Number,
+    default: 3,
+  },
   isDownloading: {
     type: Boolean,
     default: false,
@@ -61,6 +76,7 @@ const emit = defineEmits([
   "deselect-all",
   "reload-and-scan",
   "start-download",
+  "update:concurrent-count",
 ]);
 </script>
 
@@ -94,8 +110,27 @@ const emit = defineEmits([
 
 .files-actions {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   margin-bottom: 16px;
+}
+
+.concurrency-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #555;
+}
+
+.concurrency-input {
+  width: 72px;
+  padding: 8px 10px;
+  border: 2px solid #e0e0e0;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 13px;
 }
 
 .action-btn {

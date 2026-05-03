@@ -4,7 +4,7 @@ import {
   tgGetRecentActivity,
   tgReadRjList,
   tgScanRecentActivity,
-  tgDownloadFile,
+  tgDownloadFiles,
 } from "../api/tgApi";
 import { loadConfig } from "../api/configApi";
 import { clearCache } from "../api/systemApi";
@@ -25,9 +25,19 @@ export const useTgDownloaderWorkflow = () => {
   const isDownloading = ref(false);
   const downloadedCount = ref(0);
   const progressPercent = ref(0);
+  const downloadTotalCount = ref(0);
   const currentFile = ref("");
+  const concurrentCount = ref(3);
+  const activeSessionId = ref(0);
 
   const logs = ref([]);
+
+  const createSession = () => {
+    activeSessionId.value += 1;
+    return activeSessionId.value;
+  };
+
+  const isSessionActive = (sessionId) => activeSessionId.value === sessionId;
 
   const addLog = (msg, type = "info") => {
     logs.value.push({ msg, type });
@@ -221,6 +231,8 @@ export const useTgDownloaderWorkflow = () => {
   const startDownload = async () => {
     if (selectedFiles.value.length === 0) return;
 
+    const sessionId = createSession();
+
     isDownloading.value = true;
     downloadedCount.value = 0;
     progressPercent.value = 0;
@@ -229,45 +241,103 @@ export const useTgDownloaderWorkflow = () => {
       (f) =>
         selectedFiles.value.includes(f.id) && !skippedFileIds.value.has(f.id),
     );
+    downloadTotalCount.value = filesToDownload.length;
+    const maxConcurrent = Math.min(
+      Math.max(Number(concurrentCount.value) || 1, 1),
+      10,
+    );
+    const totalBatches = Math.ceil(filesToDownload.length / maxConcurrent);
 
-    addLog(`开始下载 ${filesToDownload.length} 个文件...`, "info");
+    addLog(
+      `开始下载 ${filesToDownload.length} 个文件（并发 ${maxConcurrent}，共 ${totalBatches} 批）...`,
+      "info",
+    );
 
     try {
-      // 串行下载可保持日志顺序、进度计算和后端请求节奏一致。
-      for (let i = 0; i < filesToDownload.length; i++) {
-        const file = filesToDownload[i];
+      // 按用户指定并发数切块；每一批全部完成后再进入下一批。
+      for (let i = 0; i < filesToDownload.length; i += maxConcurrent) {
+        const batch = filesToDownload.slice(i, i + maxConcurrent);
+        const batchIndex = Math.floor(i / maxConcurrent) + 1;
 
-        if (!file.name) {
-          addLog(`文件 ${file.id} 缺少名称，跳过`, "error");
-          continue;
+        if (!isDownloading.value || !isSessionActive(sessionId)) {
+          break;
         }
 
-        currentFile.value = file.name;
+        currentFile.value = `第 ${batchIndex}/${totalBatches} 批`;
         addLog(
-          `下载中 ${i + 1}/${filesToDownload.length}: ${file.name}`,
+          `开始第 ${batchIndex}/${totalBatches} 批（${batch.length} 个）`,
           "info",
         );
 
-        const result = await tgDownloadFile({
-          fileId: file.id,
-          fileName: file.name,
-          tgMessageId: file.tgMessageId,
-        });
+        const invalidFiles = batch
+          .filter((file) => !file.name || !file.tgMessageId)
+          .map((file) => ({
+            success: false,
+            file,
+            error: !file.name ? "文件缺少名称" : "文件缺少 tgMessageId",
+          }));
 
-        if (result.success) {
-          if (result.skipped) {
-            addLog(`文件已存在，跳过: ${file.name}`, "warn");
-          } else if (result.path) {
-            addLog(`下载成功: ${file.name}`, "success");
-          }
-        } else {
-          addLog(`下载失败: ${file.name} - ${result.error}`, "error");
+        const validItems = batch
+          .filter((file) => file.name && file.tgMessageId)
+          .map((file) => ({
+            fileId: file.id,
+            fileName: file.name,
+            tgMessageId: file.tgMessageId,
+          }));
+
+        const batchResult =
+          validItems.length > 0
+            ? await tgDownloadFiles({
+                batchIndex,
+                totalBatches,
+                items: validItems,
+                concurrency: maxConcurrent,
+              })
+            : { results: [] };
+
+        if (!isSessionActive(sessionId)) {
+          return;
         }
 
-        downloadedCount.value++;
+        const normalizedResults = (batchResult.results || []).map((result) => ({
+          success: result.success,
+          skipped: result.skipped,
+          file: batch.find(
+            (item) =>
+              item.tgMessageId === result.tgMessageId &&
+              item.id === result.fileId,
+          ) ||
+            batch.find((item) => item.tgMessageId === result.tgMessageId) || {
+              id: result.fileId,
+              name: result.fileName,
+            },
+          error: result.error || result.msg,
+        }));
+
+        const results = [...normalizedResults, ...invalidFiles];
+
+        for (const result of results) {
+          const displayName = result.file.name || result.file.id;
+
+          if (result.success) {
+            if (result.skipped) {
+              addLog(`文件已存在，跳过: ${displayName}`, "warn");
+            } else {
+              addLog(`下载成功: ${displayName}`, "success");
+            }
+          } else {
+            addLog(`下载失败: ${displayName} - ${result.error}`, "error");
+          }
+        }
+
+        downloadedCount.value += results.length;
         progressPercent.value = Math.round(
           (downloadedCount.value / filesToDownload.length) * 100,
         );
+      }
+
+      if (!isSessionActive(sessionId)) {
+        return;
       }
 
       try {
@@ -280,16 +350,22 @@ export const useTgDownloaderWorkflow = () => {
         addLog(`无法获取下载路径: ${e.message}`, "warn");
       }
     } catch (e) {
-      addLog(`下载失败: ${e.message}`, "error");
+      if (isSessionActive(sessionId)) {
+        addLog(`下载失败: ${e.message}`, "error");
+      }
     } finally {
-      isDownloading.value = false;
-      currentFile.value = "";
+      if (isSessionActive(sessionId)) {
+        isDownloading.value = false;
+        currentFile.value = "";
+      }
     }
   };
 
-  // 当前仅重置前端状态；进行中的单个下载请求会在本次 await 后自然结束。
+  // 取消当前会话：进行中的 IPC 可能仍会自然结束，但旧结果不会再回写当前 UI。
   const cancelDownload = () => {
+    createSession();
     isDownloading.value = false;
+    currentFile.value = "";
     addLog("下载已取消", "warn");
   };
 
@@ -322,7 +398,9 @@ export const useTgDownloaderWorkflow = () => {
     isDownloading,
     downloadedCount,
     progressPercent,
+    downloadTotalCount,
     currentFile,
+    concurrentCount,
     logs,
     displayedFiles,
     totalPages,

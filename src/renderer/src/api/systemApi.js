@@ -1,67 +1,73 @@
-const systemBridge = window.api.system || {};
-// window 控制能力在不同 preload 版本里可能挂在 system.windowControls 或 window.api.windowControls。
-const windowControlsBridge =
-  systemBridge.windowControls || window.api.windowControls;
+import { callBridge, getApiNamespace, getWindowApi, noop } from './bridge';
 
-// 读取类系统 API 的统一入口：新 bridge 缺失时回退历史平铺方法名。
-const callSystem = (method, fallback, ...args) =>
-  typeof systemBridge[method] === "function"
-    ? systemBridge[method](...args)
-    : window.api[fallback](...args);
+const getWindowControlsBridge = () => {
+  const systemBridge = getApiNamespace('system');
+  const api = getWindowApi();
+  return systemBridge.windowControls || api.windowControls || {};
+};
 
-// 窗口控制在非桌面运行环境可能不可用，统一返回 null 让上层按“能力缺失”处理。
-const callWindowControl = (method) =>
-  typeof windowControlsBridge?.[method] === "function"
-    ? windowControlsBridge[method]()
-    : null;
+const callWindowControl = (method) => {
+  const bridge = getWindowControlsBridge();
+  return typeof bridge?.[method] === 'function' ? bridge[method]() : null;
+};
 
 export const readImageAsBase64 = (filePath) =>
-  callSystem("readImageAsBase64", "readImageAsBase64", filePath);
+  callBridge({
+    namespace: 'system',
+    method: 'readImageAsBase64',
+    fallbacks: ['readImageAsBase64'],
+    args: [filePath],
+  });
 
 export const getDefaultAvatar = () =>
-  callSystem("getDefaultAvatar", "getDefaultAvatar");
+  callBridge({
+    namespace: 'system',
+    method: 'getDefaultAvatar',
+    fallbacks: ['getDefaultAvatar'],
+  });
 
-export const clearCache = (cacheFile = "recent_activity.json") =>
-  callSystem("clearCache", "clearCache", cacheFile);
+export const clearCache = (cacheFile = 'recent_activity.json') =>
+  callBridge({
+    namespace: 'system',
+    method: 'clearCache',
+    fallbacks: ['clearCache'],
+    args: [cacheFile],
+  });
 
-export const minimizeWindow = () => callWindowControl("minimize");
+export const minimizeWindow = () => callWindowControl('minimize');
+export const toggleMaximizeWindow = () => callWindowControl('toggleMaximize');
+export const closeWindow = () => callWindowControl('close');
+export const isWindowMaximized = () => callWindowControl('isMaximized');
+export const getWindowState = () => callWindowControl('getState');
+export const getWindowBounds = () => callWindowControl('getBounds');
 
-export const toggleMaximizeWindow = () => callWindowControl("toggleMaximize");
-
-export const closeWindow = () => callWindowControl("close");
-
-export const isWindowMaximized = () => callWindowControl("isMaximized");
-
-export const getWindowState = () => callWindowControl("getState");
-
-export const getWindowBounds = () => callWindowControl("getBounds");
-
-export const setWindowBounds = (bounds) =>
-  typeof windowControlsBridge?.setBounds === "function"
-    ? windowControlsBridge.setBounds(bounds)
-    : null;
+export const setWindowBounds = (bounds) => {
+  const bridge = getWindowControlsBridge();
+  return typeof bridge?.setBounds === 'function' ? bridge.setBounds(bounds) : null;
+};
 
 export const onWindowStateChanged = (callback) => {
-  // 订阅函数可能不存在，始终返回可调用的取消函数以简化调用方清理逻辑。
+  const systemBridge = getApiNamespace('system');
+  const api = getWindowApi();
   const subscribe =
-    typeof systemBridge.onWindowStateChanged === "function"
+    typeof systemBridge.onWindowStateChanged === 'function'
       ? systemBridge.onWindowStateChanged
-      : window.api?.onWindowStateChanged;
+      : api?.onWindowStateChanged;
 
-  if (typeof subscribe !== "function") {
-    return () => {};
+  if (typeof subscribe !== 'function') {
+    return noop;
   }
 
-  // 状态对象兜底为空对象，避免上游在字段缺失时解构报错。
   const unsubscribe = subscribe((state) => {
     callback(state || {});
   });
 
-  return typeof unsubscribe === "function" ? unsubscribe : () => {};
+  return typeof unsubscribe === 'function' ? unsubscribe : noop;
 };
 
-export const isWindowControlSupported = () =>
-  // 新版显式提供 supported 标志；旧版退化为基于核心方法存在性的能力探测。
-  typeof windowControlsBridge?.supported === "boolean"
-    ? windowControlsBridge.supported
-    : typeof windowControlsBridge?.minimize === "function";
+export const isWindowControlSupported = () => {
+  const bridge = getWindowControlsBridge();
+  return typeof bridge?.supported === 'boolean'
+    ? bridge.supported
+    : typeof bridge?.minimize === 'function';
+};

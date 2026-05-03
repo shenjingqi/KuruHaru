@@ -68,6 +68,12 @@
                 <span class="node-meta">
                   <strong>{{ nodeDef.label }}</strong>
                   <small>{{ nodeDef.type }}</small>
+                  <small v-if="nodeDef.schemaSummary" class="node-schema">{{
+                    nodeDef.schemaSummary
+                  }}</small>
+                  <small v-if="nodeDef.description" class="node-desc">{{
+                    nodeDef.description
+                  }}</small>
                 </span>
               </button>
             </section>
@@ -413,7 +419,7 @@ const handleDragStart = (event, nodeType) => {
 .palette-node {
   width: 100%;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.72rem;
   padding: 0.74rem 0.82rem;
   border-radius: 1rem;
@@ -457,6 +463,15 @@ const handleDragStart = (event, nodeType) => {
 .saved-item-main strong {
   font-size: 0.92rem;
   line-height: 1.3;
+}
+
+.node-schema {
+  color: color-mix(in srgb, var(--wf-panel-accent) 72%, #ffffff 28%);
+}
+
+.node-desc {
+  white-space: normal;
+  line-height: 1.35;
 }
 
 .saved-item {

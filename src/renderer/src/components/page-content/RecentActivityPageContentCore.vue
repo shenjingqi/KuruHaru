@@ -177,7 +177,7 @@
       <div class="progress-info">
         <span
           >{{ downloadedCount + skippedCount + failedFiles.length }} /
-          {{ selectedFiles.length }}</span
+          {{ downloadTotalCount }}</span
         >
         <span class="current-file">{{ currentFile || "准备中..." }}</span>
       </div>
@@ -224,6 +224,7 @@ const {
   downloadedCount,
   skippedCount,
   downloadProgress,
+  downloadTotalCount,
   currentFile,
   failedFiles,
   concurrentCount,

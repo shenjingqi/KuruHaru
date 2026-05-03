@@ -21,11 +21,13 @@
           :skip-count="skipFiles.length"
           :download-count="downloadFiles.length"
           :selected-count="selectedFiles.length"
+          :concurrent-count="concurrentCount"
           :is-downloading="isDownloading"
           @select-all="selectAll"
           @deselect-all="deselectAll"
           @reload-and-scan="reloadAndScan"
           @start-download="startDownload"
+          @update:concurrent-count="concurrentCount = $event"
         />
 
         <div class="files-list">
@@ -70,7 +72,7 @@
         v-if="isDownloading"
         :progress-percent="progressPercent"
         :downloaded-count="downloadedCount"
-        :selected-count="selectedFiles.length"
+        :selected-count="downloadTotalCount"
         :current-file="currentFile"
         @cancel="cancelDownload"
       />
@@ -104,7 +106,9 @@ const {
   isDownloading,
   downloadedCount,
   progressPercent,
+  downloadTotalCount,
   currentFile,
+  concurrentCount,
   logs,
   displayedFiles,
   totalPages,

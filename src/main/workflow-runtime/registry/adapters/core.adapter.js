@@ -80,6 +80,20 @@ export const CORE_NODE_DEFINITIONS = [
     defaultConfig: {
       value: "",
     },
+    io: {
+      input: [
+        {
+          key: "inputValues[0]",
+          label: "上游首个输入（可选）",
+        },
+      ],
+      output: [
+        {
+          key: "value",
+          label: "透传值/手动值",
+        },
+      ],
+    },
     execute: async ({ config, inputValues, inputMap, signal }) => {
       ensureAbort(signal);
       if (Object.prototype.hasOwnProperty.call(config || {}, "value")) {
@@ -97,6 +111,24 @@ export const CORE_NODE_DEFINITIONS = [
     defaultConfig: {
       path: "",
       encoding: "utf-8",
+    },
+    io: {
+      input: [
+        {
+          key: "path",
+          label: "文件路径（path/上游）",
+        },
+      ],
+      output: [
+        {
+          key: "path",
+          label: "实际读取路径",
+        },
+        {
+          key: "content",
+          label: "文本内容",
+        },
+      ],
     },
     execute: async ({ config, inputValues, inputMap, signal }) => {
       ensureAbort(signal);
@@ -127,6 +159,28 @@ export const CORE_NODE_DEFINITIONS = [
       content: "",
       encoding: "utf-8",
     },
+    io: {
+      input: [
+        {
+          key: "path",
+          label: "写入路径（path/上游）",
+        },
+        {
+          key: "content",
+          label: "文本内容（content/上游）",
+        },
+      ],
+      output: [
+        {
+          key: "path",
+          label: "写入文件路径",
+        },
+        {
+          key: "bytes",
+          label: "写入字节数",
+        },
+      ],
+    },
     execute: async ({ config, inputValues, inputMap, signal }) => {
       ensureAbort(signal);
       const filePath = resolvePath({ config, inputValues, inputMap });
@@ -156,6 +210,20 @@ export const CORE_NODE_DEFINITIONS = [
     description: "按配置等待指定毫秒数",
     defaultConfig: {
       ms: 500,
+    },
+    io: {
+      input: [
+        {
+          key: "ms",
+          label: "延时毫秒（config.ms）",
+        },
+      ],
+      output: [
+        {
+          key: "delayedMs",
+          label: "实际延时毫秒",
+        },
+      ],
     },
     execute: async ({ config, signal }) => {
       ensureAbort(signal);
@@ -197,6 +265,20 @@ export const CORE_NODE_DEFINITIONS = [
     category: "output",
     description: "透传上游输入，便于在运行记录中检查数据",
     defaultConfig: {},
+    io: {
+      input: [
+        {
+          key: "inputValues/inputMap",
+          label: "上游任意输出",
+        },
+      ],
+      output: [
+        {
+          key: "inspectPayload",
+          label: "透传调试数据",
+        },
+      ],
+    },
     execute: async ({ inputValues, inputMap, signal }) => {
       ensureAbort(signal);
       if (Array.isArray(inputValues) && inputValues.length === 1) {

@@ -304,7 +304,10 @@ import {
 } from "naive-ui";
 import AppTitleBar from "./components/AppTitleBar.vue";
 import { useAppShellController } from "./composables/useAppShellController";
-import { resolveNavIcon } from "./modules/navigation/icons";
+import * as navIconModule from "./modules/navigation/icons";
+
+const resolveNavIcon =
+  navIconModule.resolveNavIcon || navIconModule.default || (() => null);
 
 const {
   currentView,

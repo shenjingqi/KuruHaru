@@ -1,12 +1,20 @@
-// 从单行文本提取 RJ 编号，兼容 "RJ123" 与纯数字输入。
-export function extractRjNumberFromLine(line = "") {
-  const match = line.match(/RJ?(\d+)/i);
-  if (match) {
-    return match[1];
+const PREFIXED_WORK_CODE_REGEX = /(RJ|VJ|BJ)(\d+)/i;
+const EXACT_PREFIXED_WORK_CODE_REGEX = /^(RJ|VJ|BJ)(\d+)$/i;
+
+function normalizeComparableWorkCode(rawCode = "") {
+  const trimmed = String(rawCode || "").trim();
+  if (!trimmed) {
+    return null;
   }
 
-  const trimmed = line.trim();
-  // 某些来源只给数字，不带 RJ 前缀时保留为可匹配编号。
+  const prefixedMatch = trimmed.match(EXACT_PREFIXED_WORK_CODE_REGEX);
+  if (prefixedMatch) {
+    const prefix = prefixedMatch[1].toUpperCase();
+    const number = prefixedMatch[2];
+
+    return prefix === "RJ" ? number : `${prefix}${number}`;
+  }
+
   if (/^\d+$/.test(trimmed)) {
     return trimmed;
   }
@@ -14,7 +22,19 @@ export function extractRjNumberFromLine(line = "") {
   return null;
 }
 
-// 批量提取并去重 RJ 编号，返回 Set 供后续匹配流程复用。
+// 从单行文本提取可比较的作品编号，支持 RJ/VJ/BJ；RJ 仍兼容纯数字输入。
+export function extractRjNumberFromLine(line = "") {
+  const prefixedMatch = String(line || "").match(PREFIXED_WORK_CODE_REGEX);
+  if (prefixedMatch) {
+    return normalizeComparableWorkCode(
+      `${prefixedMatch[1].toUpperCase()}${prefixedMatch[2]}`,
+    );
+  }
+
+  return normalizeComparableWorkCode(line);
+}
+
+// 批量提取并去重可比较的作品编号，返回 Set 供后续匹配流程复用。
 export function collectRjNumbersFromLines(lines = []) {
   const rjNumbers = new Set();
 
@@ -28,11 +48,18 @@ export function collectRjNumbersFromLines(lines = []) {
   return rjNumbers;
 }
 
-// 不同接口字段不统一，按优先级折叠成一个可比较的 RJ 值。
+// 不同接口字段不统一，按优先级折叠成一个可比较的作品编号值。
 export function getWorkComparableRjNumber(work = {}) {
-  return (
-    work.rj_number || work.rj_code || work.id?.replace("RJ", "") || work.id
-  );
+  const candidates = [work.source_id, work.rj_number, work.rj_code, work.id];
+
+  for (const candidate of candidates) {
+    const normalizedCode = normalizeComparableWorkCode(candidate);
+    if (normalizedCode) {
+      return normalizedCode;
+    }
+  }
+
+  return null;
 }
 
 // 精确匹配：保持 rjCodes 输入顺序，同时收集未命中的编号。

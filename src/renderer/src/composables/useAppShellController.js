@@ -13,6 +13,32 @@ import { useTgAuthBridge } from "./useTgAuthBridge";
 import { useWindowShellState } from "./useWindowShellState";
 import { useWindowManualResize } from "./useWindowManualResize";
 
+const LEGACY_VIEW_ALIASES = Object.freeze({
+  workflow: "workflow.templates",
+  "workflow-designer": "workflow.designer",
+});
+
+const DISABLED_VIEW_KEYS = new Set([
+  "workflow.templates",
+  "workflow.designer",
+  "workflow.runtime",
+  "workflow.docs",
+]);
+
+const normalizeViewKey = (rawValue) => {
+  const normalized = String(rawValue || "").trim();
+  if (!normalized) {
+    return "";
+  }
+
+  const resolved = LEGACY_VIEW_ALIASES[normalized] || normalized;
+  if (DISABLED_VIEW_KEYS.has(resolved)) {
+    return "home";
+  }
+
+  return resolved;
+};
+
 const normalizeAccentColor = (rawValue) => {
   if (typeof rawValue === "string" && /^#[0-9a-fA-F]{6}$/.test(rawValue)) {
     return rawValue.toLowerCase();
@@ -32,6 +58,22 @@ const shiftHexColor = (hex, delta) => {
   return `#${[r, g, b]
     .map((value) => value.toString(16).padStart(2, "0"))
     .join("")}`;
+};
+
+const resolveInitialViewFromLocation = () => {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  try {
+    return normalizeViewKey(
+      String(
+        new URLSearchParams(window.location.search).get("view") || "",
+      ).trim(),
+    );
+  } catch {
+    return "";
+  }
 };
 
 const createThemeTokens = ({ isDark, accentColor }) => {
@@ -115,20 +157,20 @@ const createThemeTokens = ({ isDark, accentColor }) => {
 };
 
 export const useAppShellController = () => {
-  const currentView = ref("home");
-  const sidebarCollapsed = ref(false);
+  const requestedInitialView = resolveInitialViewFromLocation();
+  const defaultView = requestedInitialView || "home";
+  const currentView = ref(defaultView);
+  const sidebarCollapsed = ref(defaultView === "workflow.designer");
 
   const { userAvatarBase64, defaultAvatarBase64, loadUserConfig } =
     useProfileBootstrap();
 
   const { pendingAuthData } = useTgAuthBridge({
     onAuthRequired: () => {
-      // 认证挑战统一跳转设置页，避免业务页处理登录中断状态。
       currentView.value = "settings";
     },
   });
 
-  // 向子树透传认证上下文，避免多层组件逐级透传 props。
   provide("pendingAuthData", pendingAuthData);
 
   const {
@@ -182,7 +224,23 @@ export const useAppShellController = () => {
   };
 
   onMounted(() => {
-    // 启动时先恢复导航展开态与最近访问，再按当前视图修正展开组。
+    if (typeof window !== "undefined") {
+      window.__appShell = {
+        setView: (nextView) => {
+          const normalizedView = normalizeViewKey(nextView);
+          if (!normalizedView) {
+            return currentView.value;
+          }
+          currentView.value = normalizedView;
+          if (normalizedView === "workflow.designer") {
+            sidebarCollapsed.value = true;
+          }
+          ensureGroupExpandedByView(normalizedView);
+          return currentView.value;
+        },
+      };
+    }
+
     restoreExpandedGroups();
     restoreRecentViews();
     ensureGroupExpandedByView(currentView.value);
@@ -190,7 +248,6 @@ export const useAppShellController = () => {
   });
 
   const activeComponent = computed(() =>
-    // 视图标识只在这里映射为组件，收敛路由/菜单的耦合点。
     resolveAppActiveComponent(currentView.value),
   );
 

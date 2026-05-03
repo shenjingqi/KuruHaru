@@ -63,6 +63,11 @@ function buildCandidateLinks({
 }) {
   const candidates = [];
 
+  if (username) {
+    candidates.push(`https://t.me/${username}/${messageId}`);
+    candidates.push(`tg://resolve?domain=${username}&post=${messageId}`);
+  }
+
   if (internalChannelId) {
     candidates.push(`https://t.me/c/${internalChannelId}/${messageId}`);
     // tg:// 在 Telegram 客户端里通常更稳，保留为备用深链。
@@ -71,15 +76,10 @@ function buildCandidateLinks({
     );
   }
 
-  if (username) {
-    candidates.push(`https://t.me/${username}/${messageId}`);
-    candidates.push(`tg://resolve?domain=${username}&post=${messageId}`);
-  }
-
   return createLinkResult(candidates);
 }
 
-// 基于 Telegram chat 对象构造消息链接集合：优先内部 ID（更稳定）再回退 username。
+// 基于 Telegram chat 对象构造消息链接集合：优先公开 username 链接，回退内部 ID。
 export function buildMessageLinksByChat(chat, rawMessageId) {
   if (!chat) return createLinkResult([]);
 
@@ -111,8 +111,8 @@ export function buildMessageLinksByEntity(
 
   return buildCandidateLinks({
     username:
-      normalizeUsername(entity?.username) ||
-      normalizeUsername(fallbackNormalized),
+      normalizeUsername(fallbackNormalized) ||
+      normalizeUsername(entity?.username),
     internalChannelId:
       toInternalChannelId(entity?.id) ||
       toInternalChannelId(fallbackNormalized),

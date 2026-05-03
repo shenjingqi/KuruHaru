@@ -10,13 +10,6 @@
       </div>
 
       <div class="header-right">
-        <div class="page-header-meta">
-          <span class="header-chip">{{ recentHistory.length }} 条最近记录</span>
-          <span class="header-chip accent">{{
-            isLoading ? "正在扫描讨论组" : "主系统待机中"
-          }}</span>
-        </div>
-
         <div class="header-actions">
           <button
             class="btn-secondary"
@@ -96,6 +89,69 @@
           <div class="stat-label">今日上传</div>
         </div>
       </div>
+
+      <div class="stat-card">
+        <div class="stat-icon amber">
+          <n-icon :size="22">
+            <CalendarLtr24Regular />
+          </n-icon>
+        </div>
+        <div class="stat-content">
+          <div class="stat-kicker">ASMR.one</div>
+          <div class="stat-value">
+            <span class="stat-number">
+              {{ asmrNoUpdateDisplay.number }}
+            </span>
+            <span v-if="asmrNoUpdateDisplay.suffix" class="stat-suffix">
+              {{ asmrNoUpdateDisplay.suffix }}
+            </span>
+          </div>
+          <div class="stat-label">持续未更新</div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon slate">
+          <n-icon :size="22">
+            <Timer24Regular />
+          </n-icon>
+        </div>
+        <div class="stat-content">
+          <div class="stat-kicker">缓存节奏</div>
+          <div class="stat-value">
+            <span class="stat-number">
+              {{ asmrTheoreticalIntervalDisplay.number }}
+            </span>
+            <span
+              v-if="asmrTheoreticalIntervalDisplay.suffix"
+              class="stat-suffix"
+            >
+              {{ asmrTheoreticalIntervalDisplay.suffix }}
+            </span>
+          </div>
+          <div class="stat-label">理论间隔</div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon slate">
+          <n-icon :size="22">
+            <Timer24Regular />
+          </n-icon>
+        </div>
+        <div class="stat-content">
+          <div class="stat-kicker">缓存节奏</div>
+          <div class="stat-value">
+            <span class="stat-number">
+              {{ asmrLastCheckedAgoDisplay.number }}
+            </span>
+            <span v-if="asmrLastCheckedAgoDisplay.suffix" class="stat-suffix">
+              {{ asmrLastCheckedAgoDisplay.suffix }}
+            </span>
+          </div>
+          <div class="stat-label">距上次检查</div>
+        </div>
+      </div>
     </div>
 
     <div class="card history-card">
@@ -105,28 +161,37 @@
             <n-icon class="section-title-icon" :size="18">
               <CalendarLtr24Regular />
             </n-icon>
-            <span>最近发布记录</span>
+            <span>ASMR.one 最近更新作品</span>
           </h3>
-          <p class="card-caption">用于快速回顾近期处理的条目与发布时间。</p>
+          <p class="card-caption">
+            以最新收录为主，展示当前热缓存最近同步到的作品号。
+          </p>
         </div>
 
         <div class="card-toolbar">
-          <span class="summary-chip">{{ recentHistory.length }} 条记录</span>
+          <span class="summary-chip">{{ recentAsmrWorks.length }} 条作品</span>
         </div>
       </div>
 
       <div class="history-list">
-        <div v-if="recentHistory.length > 0">
+        <div v-if="recentAsmrWorks.length > 0">
           <div
-            v-for="item in recentHistory"
+            v-for="item in recentAsmrWorks"
             :key="item.id"
             class="history-item"
           >
             <div class="item-left">
               <span class="code-badge">{{ item.id }}</span>
-              <span v-if="item.name" class="file-name">{{ item.name }}</span>
+              <div class="history-copy">
+                <span v-if="item.title" class="file-name">{{
+                  item.title
+                }}</span>
+                <span v-if="item.subtitle" class="history-subtitle">{{
+                  item.subtitle
+                }}</span>
+              </div>
             </div>
-            <span class="time">{{ item.date || "未知时间" }}</span>
+            <span class="time">{{ item.time }}</span>
           </div>
         </div>
         <div v-else class="empty-state">
@@ -135,7 +200,7 @@
               <MailInbox24Regular />
             </n-icon>
           </span>
-          <p>暂无记录</p>
+          <p>暂无 ASMR.one 热缓存记录</p>
         </div>
       </div>
     </div>
@@ -159,8 +224,11 @@ const dialog = useDialog();
 
 const {
   daysSinceUpdate,
+  asmrNoUpdateText,
+  asmrTheoreticalIntervalText,
+  asmrLastCheckedAgoText,
   isLoading,
-  recentHistory,
+  recentAsmrWorks,
   totalUploads,
   todayUploads,
   handleManualScan,
@@ -185,6 +253,15 @@ const normalizeStatValue = (value) => {
 
 const daysSinceUpdateDisplay = computed(() =>
   normalizeStatValue(daysSinceUpdate.value),
+);
+const asmrNoUpdateDisplay = computed(() =>
+  normalizeStatValue(asmrNoUpdateText.value),
+);
+const asmrTheoreticalIntervalDisplay = computed(() =>
+  normalizeStatValue(asmrTheoreticalIntervalText.value),
+);
+const asmrLastCheckedAgoDisplay = computed(() =>
+  normalizeStatValue(asmrLastCheckedAgoText.value),
 );
 const totalUploadsDisplay = computed(() =>
   normalizeStatValue(totalUploads.value),
@@ -341,6 +418,18 @@ const todayUploadsDisplay = computed(() =>
   border-color: color-mix(in srgb, #b8c17b 30%, transparent);
 }
 
+.stat-icon.amber {
+  background: color-mix(in srgb, #d7bb6d 22%, transparent);
+  color: #fff4d0;
+  border-color: color-mix(in srgb, #d7bb6d 34%, transparent);
+}
+
+.stat-icon.slate {
+  background: color-mix(in srgb, #8ca0ba 18%, transparent);
+  color: #eef4ff;
+  border-color: color-mix(in srgb, #8ca0ba 30%, transparent);
+}
+
 .stat-content {
   display: flex;
   flex-direction: column;
@@ -446,6 +535,13 @@ const todayUploadsDisplay = computed(() =>
   min-width: 0;
 }
 
+.history-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
 .code-badge {
   background: color-mix(in srgb, var(--accent, #adb571) 16%, transparent);
   color: var(--accent, #adb571);
@@ -460,6 +556,16 @@ const todayUploadsDisplay = computed(() =>
 .file-name {
   color: var(--text-muted, #66614f);
   font-size: 14px;
+  font-weight: 600;
+  max-width: 460px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-subtitle {
+  color: var(--page-text-muted, #8e8a78);
+  font-size: 12px;
   max-width: 460px;
   overflow: hidden;
   text-overflow: ellipsis;

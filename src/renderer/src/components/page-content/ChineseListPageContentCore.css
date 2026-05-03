@@ -5,11 +5,24 @@
   gap: 16px;
   padding: 20px;
   box-sizing: border-box;
+  --list-text-strong: var(--comp-text, var(--page-text-strong, #26251f));
+  --list-text-muted: var(--comp-muted, var(--page-text-muted, #7f7a68));
+  --list-text-soft: color-mix(in srgb, var(--list-text-muted) 78%, transparent);
+  --list-surface: var(--comp-surface-1, var(--page-panel-bg, #fff));
+  --list-surface-muted: color-mix(in srgb, var(--list-surface) 86%, #ffffff 14%);
+  --list-control-bg: var(--comp-control-bg, var(--page-control-bg, #fff));
+  --list-control-border: var(
+    --comp-control-border,
+    var(--page-control-border, #cfc6ad)
+  );
+  --list-divider: var(--page-divider, color-mix(in srgb, var(--list-control-border) 76%, transparent));
+  --list-accent: var(--comp-accent, var(--accent, #adb571));
+  color: var(--list-text-strong);
 }
 
 .page-header {
   padding: 16px 20px;
-  background: #fff;
+  background: var(--list-surface);
   border-radius: 12px;
   display: flex;
   justify-content: space-between;
@@ -20,11 +33,11 @@
   margin: 0;
   font-size: 20px;
   font-weight: 600;
-  color: #26251f;
+  color: var(--list-text-strong);
 }
 
 .card {
-  background: #fff;
+  background: var(--list-surface);
   border-radius: 12px;
   padding: 16px 20px;
 }
@@ -32,10 +45,10 @@
 .section-title {
   font-size: 14px;
   font-weight: 600;
-  color: #26251f;
+  color: var(--list-text-strong);
   margin: 0 0 12px 0;
   padding-bottom: 8px;
-  border-bottom: 1px solid #ece6d8;
+  border-bottom: 1px solid var(--list-divider);
 }
 
 .source-item {
@@ -59,17 +72,18 @@
 
 .source-label {
   font-size: 14px;
-  color: #333;
+  color: var(--list-text-strong);
 }
 
 .source-desc {
   font-size: 12px;
-  color: #999;
+  color: var(--list-text-muted);
+  line-height: 1.55;
   margin: 0 0 8px 0;
 }
 
 .drop-zone {
-  border: 2px dashed #cfc6ad;
+  border: 2px dashed var(--list-control-border);
   border-radius: 8px;
   padding: 20px;
   text-align: center;
@@ -79,14 +93,15 @@
 
 .drop-zone:hover,
 .drop-zone.active {
-  border-color: #adb571;
-  background: #e8f1fa;
+  border-color: var(--list-accent);
+  background: color-mix(in srgb, var(--list-accent) 14%, var(--list-control-bg) 86%);
 }
 
 .drop-zone p {
   margin: 0;
   font-size: 13px;
-  color: #999;
+  color: var(--list-text-muted);
+  line-height: 1.55;
 }
 
 .api-options {
@@ -98,7 +113,7 @@
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: #666;
+  color: var(--list-text-muted);
 }
 
 .option-item input[type="checkbox"] {
@@ -108,7 +123,7 @@
 
 .stop-condition-text {
   font-size: 13px;
-  color: #666;
+  color: var(--list-text-muted);
 }
 
 .cache-status {
@@ -117,13 +132,14 @@
   gap: 12px;
   margin-bottom: 8px;
   padding: 8px 12px;
-  background: #f2ede0;
+  background: var(--list-surface-muted);
   border-radius: 6px;
 }
 
 .cache-info {
   font-size: 13px;
-  color: #666;
+  color: var(--list-text-muted);
+  line-height: 1.5;
 }
 
 .btn-warning {
@@ -142,9 +158,11 @@
 
 .select-small {
   padding: 4px 8px;
-  border: 1px solid #cfc6ad;
+  border: 1px solid var(--list-control-border);
   border-radius: 4px;
   font-size: 13px;
+  color: var(--list-text-strong);
+  background: var(--list-control-bg);
 }
 
 .path-setting {
@@ -153,23 +171,24 @@
   gap: 8px;
   margin-bottom: 8px;
   padding: 8px 12px;
-  background: #f2ede0;
+  background: var(--list-surface-muted);
   border-radius: 6px;
 }
 
 .path-label {
   font-size: 13px;
-  color: #666;
+  color: var(--list-text-muted);
   white-space: nowrap;
 }
 
 .path-input {
   flex: 1;
   padding: 4px 8px;
-  border: 1px solid #cfc6ad;
+  border: 1px solid var(--list-control-border);
   border-radius: 4px;
   font-size: 12px;
-  color: #333;
+  color: var(--list-text-strong);
+  background: var(--list-control-bg);
 }
 
 .btn-small {
@@ -187,19 +206,19 @@
 .stat-item {
   text-align: center;
   padding: 12px;
-  background: #f7f2e8;
+  background: var(--list-surface-muted);
   border-radius: 8px;
 }
 
 .stat-item.highlight {
-  background: #e8f1fa;
+  background: color-mix(in srgb, var(--list-accent) 16%, var(--list-control-bg) 84%);
 }
 
 .stat-value {
   display: block;
   font-size: 24px;
   font-weight: 600;
-  color: #adb571;
+  color: var(--list-accent);
 }
 
 .stat-item.highlight .stat-value {
@@ -208,7 +227,8 @@
 
 .stat-label {
   font-size: 12px;
-  color: #999;
+  color: var(--list-text-muted);
+  font-weight: 600;
 }
 
 .new-count {
@@ -241,7 +261,7 @@
   border: 1px solid #91d5ff;
   border-radius: 4px;
   font-size: 12px;
-  color: #adb571;
+  color: var(--list-accent);
 }
 
 .badge-warning {
@@ -262,7 +282,7 @@
 }
 
 .btn-primary {
-  background: #adb571;
+  background: var(--list-accent);
   color: #fff;
   border: none;
   padding: 8px 16px;
@@ -276,14 +296,14 @@
 }
 
 .btn-primary:disabled {
-  background: #cfc6ad;
+  background: color-mix(in srgb, var(--list-control-border) 84%, var(--list-surface) 16%);
   cursor: not-allowed;
 }
 
 .btn-secondary {
-  background: #fff;
-  color: #333;
-  border: 1px solid #cfc6ad;
+  background: var(--list-control-bg);
+  color: var(--list-text-strong);
+  border: 1px solid var(--list-control-border);
   padding: 8px 16px;
   border-radius: 6px;
   cursor: pointer;
@@ -291,13 +311,14 @@
 }
 
 .btn-secondary:hover {
-  color: #adb571;
-  border-color: #adb571;
+  color: var(--list-accent);
+  border-color: var(--list-accent);
+  background: color-mix(in srgb, var(--list-accent) 10%, var(--list-control-bg) 90%);
 }
 
 .btn-secondary:disabled {
-  color: #cfc6ad;
-  border-color: #cfc6ad;
+  color: var(--list-text-soft);
+  border-color: var(--list-control-border);
   cursor: not-allowed;
 }
 
@@ -321,7 +342,7 @@
 }
 
 .modal-content {
-  background: #fff;
+  background: var(--list-surface);
   border-radius: 12px;
   padding: 24px;
   max-width: 500px;
@@ -332,18 +353,19 @@
 .modal-content h3 {
   margin: 0 0 16px 0;
   font-size: 18px;
+  color: var(--list-text-strong);
 }
 
 .help-content h4 {
   font-size: 14px;
   margin: 16px 0 8px 0;
-  color: #333;
+  color: var(--list-text-strong);
 }
 
 .help-content p,
 .help-content li {
   font-size: 13px;
-  color: #666;
+  color: var(--list-text-muted);
   line-height: 1.6;
 }
 

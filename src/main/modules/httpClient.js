@@ -24,6 +24,44 @@ const DEFAULT_PROXIES = [
   "http://127.0.0.1:1080",
   "http://localhost:7890",
 ];
+const MAX_PROXY_RETRY_COUNT = DEFAULT_PROXIES.length + 1;
+
+function getProxyRetryState(config = {}) {
+  const state = config?._proxyRetryState;
+  const triedProxies = Array.isArray(state?.triedProxies)
+    ? [...new Set(state.triedProxies.filter(Boolean))]
+    : [];
+
+  return {
+    triedProxies,
+    retryCount: Number.isFinite(state?.retryCount) ? state.retryCount : 0,
+  };
+}
+
+function attachProxyRetryState(config = {}, state = {}) {
+  return {
+    ...config,
+    _proxyRetryState: {
+      triedProxies: Array.isArray(state?.triedProxies)
+        ? [...new Set(state.triedProxies.filter(Boolean))]
+        : [],
+      retryCount: Number.isFinite(state?.retryCount) ? state.retryCount : 0,
+    },
+  };
+}
+
+function updateScopedClientCache(name, client, proxyUrl) {
+  if (name === "asmr") {
+    asmrClient = client;
+    asmrProxyInUse = proxyUrl;
+    return;
+  }
+
+  if (name === "tg") {
+    tgClient = client;
+    tgProxyInUse = proxyUrl;
+  }
+}
 
 function resolveProxyUrl(config, scope) {
   // 全局代理优先，其次使用模块代理，再回落默认代理。
@@ -116,16 +154,29 @@ function createClientWithInterceptors(name, proxyUrl) {
     },
     async (error) => {
       const normalized = normalizeError(error);
+      const requestConfig = error?.config || {};
+      const retryState = getProxyRetryState(requestConfig);
 
       // 如果是网络错误，尝试切换代理
       if (normalized.error.type === "network" && shouldRetryWithProxy(error)) {
+        if (retryState.retryCount >= MAX_PROXY_RETRY_COUNT) {
+          logger.error(`[${name}] 代理重试次数已达上限，停止继续重试`);
+          return Promise.reject(normalized);
+        }
+
         logger.warn(`[${name}] 网络错误，尝试切换代理...`);
-        const newProxy = await tryNextProxy(name, proxyUrl);
+        const triedProxies = [...new Set([...retryState.triedProxies, proxyUrl])];
+        const newProxy = await tryNextProxy(name, proxyUrl, triedProxies);
         if (newProxy) {
           logger.info(`[${name}] 切换代理成功: ${newProxy}`);
-          // 重新创建客户端
-          return createClientWithInterceptors(name, newProxy).request(
-            error.config,
+          const nextClient = createClientWithInterceptors(name, newProxy);
+          updateScopedClientCache(name, nextClient, newProxy);
+
+          return nextClient.request(
+            attachProxyRetryState(requestConfig, {
+              triedProxies: [...triedProxies, newProxy],
+              retryCount: retryState.retryCount + 1,
+            }),
           );
         }
       }
@@ -155,9 +206,10 @@ function shouldRetryWithProxy(error) {
 /**
  * 尝试下一个代理
  */
-async function tryNextProxy(name, currentProxy) {
+async function tryNextProxy(name, currentProxy, triedProxies = []) {
+  const skipped = new Set([currentProxy, ...triedProxies].filter(Boolean));
   const proxies = [currentProxy, ...DEFAULT_PROXIES].filter(
-    (p) => p !== currentProxy,
+    (proxy) => proxy && !skipped.has(proxy),
   );
 
   for (const proxy of proxies) {

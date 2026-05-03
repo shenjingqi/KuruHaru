@@ -19,6 +19,8 @@
 - `src/renderer/src/components/TgDownloader.vue`
 - `src/renderer/src/components/HomePanel.vue`
 
+> 说明：`HomePanel.vue` 仍保留最近活动统计与“扫描讨论组”入口；首页原有“距上次更新”卡片继续基于最近活动元数据计算。同时新增 `ASMR.one` 独立状态卡片（持续未更新天数、理论间隔、距上次检查），并将首页列表区域切换为展示 `ASMR.one /works` 热缓存最近同步到的最多 100 个作品号（以最新收录为主），不再直接复用 `recent_activity.json` 的最近记录列表。
+
 ### 1.3 前端桥接
 
 - `src/preload/index.js`

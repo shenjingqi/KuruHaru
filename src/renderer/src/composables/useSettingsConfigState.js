@@ -112,6 +112,7 @@ export const useSettingsConfigState = () => {
       password: "",
       token: "",
       playlistId: "",
+      translationQueuePlaylistId: "",
       rememberMe: false,
       proxyUrl: "",
     },

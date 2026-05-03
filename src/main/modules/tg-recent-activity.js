@@ -24,6 +24,10 @@ import {
 } from "./tg-recent-activity-core/message-files";
 import { parseRjListFromContent } from "./tg-recent-activity-core/rj-list-parser";
 import { normalizePeerEntityInput } from "./tg-common-core/peer-entity";
+import {
+  normalizeBatchDownloadPayload,
+  summarizeBatchDownloadResults,
+} from "./tg-recent-activity-core/download-batch";
 
 // ==========================================
 // 全局配置与状态
@@ -371,15 +375,22 @@ export async function scanAndSaveRecentActivity() {
 // 下载功能 (核心修复)
 // ==========================================
 
-async function downloadTelegramFileByMessage(messageId, savePath) {
+async function downloadTelegramFileByMessage(
+  messageId,
+  savePath,
+  context = {},
+) {
   try {
-    const telegramClient = await getConnectedClient();
-    const config = getConfig();
-    const chatIdStr = config.tg.discussion || config.tg.channel;
+    const telegramClient =
+      context.telegramClient || (await getConnectedClient());
+    const config = context.config || getConfig();
+    const chatIdStr =
+      context.chatIdStr || config.tg.discussion || config.tg.channel;
 
     logger.info(`准备下载消息 ID: ${messageId} 到 ${savePath}`);
 
-    const entity = await resolveEntity(telegramClient, chatIdStr);
+    const entity =
+      context.entity || (await resolveEntity(telegramClient, chatIdStr));
 
     // 获取单条消息对象
     const messages = await telegramClient.getMessages(entity, {
@@ -405,11 +416,132 @@ async function downloadTelegramFileByMessage(messageId, savePath) {
     });
 
     logger.info("下载完成");
-    return { success: true };
+    return { success: true, path: savePath };
   } catch (e) {
     logger.error(`下载失败: ${e.message}`);
     return { success: false, error: e.message };
   }
+}
+
+function resolveTelegramDownloadPath(downloadDir, item) {
+  const safeFileName = item.fileName || `download_${item.tgMessageId}.zip`;
+
+  return {
+    fileName: safeFileName,
+    filePath: path.join(downloadDir, safeFileName),
+  };
+}
+
+async function downloadTelegramFilesBatch(payload) {
+  const { items, concurrency } = normalizeBatchDownloadPayload(payload);
+  const rawPayload =
+    payload && typeof payload === "object" && !Array.isArray(payload)
+      ? payload
+      : {};
+  const batchIndex = Number(rawPayload.batchIndex);
+  const totalBatches = Number(rawPayload.totalBatches);
+  const hasBatchMeta =
+    Number.isInteger(batchIndex) &&
+    batchIndex > 0 &&
+    Number.isInteger(totalBatches) &&
+    totalBatches >= batchIndex;
+
+  if (items.length === 0) {
+    return {
+      success: false,
+      error: "缺少有效的 tgMessageId",
+      results: [],
+      totalCount: 0,
+      successCount: 0,
+      skippedCount: 0,
+      failedCount: 0,
+    };
+  }
+
+  const config = getConfig();
+  const downloadDir =
+    config.paths?.tgDownloadDir ||
+    path.join(app.getPath("downloads"), "TG_Downloads");
+
+  if (!fs.existsSync(downloadDir)) {
+    fs.mkdirSync(downloadDir, { recursive: true });
+  }
+
+  const telegramClient = await getConnectedClient();
+  const chatIdStr = config.tg.discussion || config.tg.channel;
+  const entity = await resolveEntity(telegramClient, chatIdStr);
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  const workerCount = Math.min(concurrency, items.length);
+  const batchLabel = hasBatchMeta
+    ? `第 ${batchIndex}/${totalBatches} 批`
+    : "当前批次";
+
+  logger.info(
+    `[批量下载] ${batchLabel} 开始，本批 ${items.length} 个，并发 ${workerCount}`,
+  );
+
+  const worker = async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+
+      const item = items[currentIndex];
+      const { fileName, filePath } = resolveTelegramDownloadPath(
+        downloadDir,
+        item,
+      );
+
+      if (fs.existsSync(filePath)) {
+        results[currentIndex] = {
+          ...item,
+          fileName,
+          path: filePath,
+          success: true,
+          skipped: true,
+          msg: "文件已存在",
+        };
+        continue;
+      }
+
+      const result = await downloadTelegramFileByMessage(
+        item.tgMessageId,
+        filePath,
+        {
+          telegramClient,
+          entity,
+          config,
+          chatIdStr,
+        },
+      );
+
+      results[currentIndex] = {
+        ...item,
+        fileName,
+        ...result,
+        path: result.path || filePath,
+      };
+    }
+  };
+
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+  const summary = summarizeBatchDownloadResults(results);
+
+  logger.info(
+    `[批量下载] ${batchLabel} 完成，成功 ${summary.successCount}，跳过 ${summary.skippedCount}，失败 ${summary.failedCount}`,
+  );
+
+  return {
+    success: summary.failedCount === 0,
+    downloadDir,
+    concurrency: workerCount,
+    batchIndex: hasBatchMeta ? batchIndex : null,
+    totalBatches: hasBatchMeta ? totalBatches : null,
+    results,
+    ...summary,
+  };
 }
 
 // ==========================================
@@ -494,6 +626,7 @@ export function setupTgHistoryIPC() {
     "tg-read-recent-activity",
     "get-recent-activity",
     "download-tg-file",
+    "download-tg-files",
     "clear-cache",
     "tg-get-statistics",
     "read-rj-list",
@@ -552,9 +685,10 @@ export function setupTgHistoryIPC() {
         if (!fs.existsSync(downloadDir))
           fs.mkdirSync(downloadDir, { recursive: true });
 
-        // 自动修正文件名
-        const safeFileName = fileName || `download_${tgMessageId}.zip`;
-        const filePath = path.join(downloadDir, safeFileName);
+        const { filePath } = resolveTelegramDownloadPath(downloadDir, {
+          tgMessageId,
+          fileName,
+        });
 
         // 检查文件是否存在
         if (fs.existsSync(filePath)) {
@@ -574,6 +708,22 @@ export function setupTgHistoryIPC() {
       }
     },
   );
+
+  ipcMain.handle("download-tg-files", async (event, payload) => {
+    try {
+      return await downloadTelegramFilesBatch(payload);
+    } catch (e) {
+      return {
+        success: false,
+        error: e.message,
+        results: [],
+        totalCount: 0,
+        successCount: 0,
+        skippedCount: 0,
+        failedCount: 0,
+      };
+    }
+  });
 
   // 4. 清除缓存
   ipcMain.handle("clear-cache", async (event, { cacheFile }) => {

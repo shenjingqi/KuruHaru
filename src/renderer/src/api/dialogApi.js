@@ -1,18 +1,32 @@
-const dialogBridge = window.api.dialog || {};
-
-const callDialog = (method, fallback, ...args) =>
-  typeof dialogBridge[method] === "function"
-    ? dialogBridge[method](...args)
-    : window.api[fallback](...args);
+import { callBridge } from './bridge';
 
 export const openDirectory = () =>
-  callDialog("openDirectory", "dialogOpenDirectory");
+  callBridge({
+    namespace: 'dialog',
+    method: 'openDirectory',
+    fallbacks: ['dialogOpenDirectory'],
+  });
 
 export const openFile = (options) =>
-  callDialog("openFile", "dialogOpenFile", options);
+  callBridge({
+    namespace: 'dialog',
+    method: 'openFile',
+    fallbacks: ['dialogOpenFile'],
+    args: [options],
+  });
 
 export const selectFile = (type) =>
-  callDialog("selectFile", "selectFile", type);
+  callBridge({
+    namespace: 'dialog',
+    method: 'selectFile',
+    fallbacks: ['selectFile'],
+    args: [type],
+  });
 
 export const saveFile = (options) =>
-  callDialog("saveFile", "dialogSaveFile", options);
+  callBridge({
+    namespace: 'dialog',
+    method: 'saveFile',
+    fallbacks: ['dialogSaveFile'],
+    args: [options],
+  });

@@ -47,6 +47,15 @@ const makeErrorPayload = (error) => ({
   message: error?.message || String(error || "Unknown error"),
 });
 
+const toDurationMs = (startedAt, endedAt = new Date().toISOString()) => {
+  const startTs = Date.parse(startedAt || "");
+  const endTs = Date.parse(endedAt || "");
+  if (!Number.isFinite(startTs) || !Number.isFinite(endTs)) {
+    return null;
+  }
+  return Math.max(0, endTs - startTs);
+};
+
 const makeOutputPreview = (value) => {
   if (value === null || value === undefined) {
     return value;
@@ -356,10 +365,12 @@ const executeNodeInvocation = async ({
     ensureRunNotCancelled(abortController.signal);
 
     const outputPreview = makeOutputPreview(output);
+    const endedAt = new Date().toISOString();
 
     syncNodeState(node.id, {
       status: "success",
-      endedAt: new Date().toISOString(),
+      endedAt,
+      durationMs: toDurationMs(nodeStartAt, endedAt),
       outputPreview,
     });
 
@@ -381,9 +392,11 @@ const executeNodeInvocation = async ({
     return { output, emittedItemCount };
   } catch (error) {
     const normalizedError = makeErrorPayload(error);
+    const endedAt = new Date().toISOString();
     syncNodeState(node.id, {
       status: "failed",
-      endedAt: new Date().toISOString(),
+      endedAt,
+      durationMs: toDurationMs(nodeStartAt, endedAt),
       error: normalizedError,
     });
 
@@ -574,6 +587,7 @@ const executeRun = async ({
       nodeStates,
       summary,
       runtime,
+      workflowSnapshot: cloneJsonValue(workflow, {}),
     });
 
     emitWorkflowEvent({
@@ -601,6 +615,7 @@ const executeRun = async ({
       nodeStates,
       summary,
       runtime,
+      workflowSnapshot: cloneJsonValue(workflow, {}),
       error: normalizedError,
     });
 
@@ -656,6 +671,7 @@ export const startWorkflowExecution = ({
     workflowName: workflow.name,
     startedAt,
     runtime: normalizeWorkflowRuntimeConfig(workflow.runtime),
+    workflowSnapshot: cloneJsonValue(workflow, {}),
     validation: {
       ok: validation.ok,
       errors: validation.errors,

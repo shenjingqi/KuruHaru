@@ -26,9 +26,26 @@
 ## 已去除的敏感信息
 
 - **Telegram**: apiId, apiHash, phone, session
-- **ASMR ONE**: username, password, token, playlistId
+- **ASMR ONE**: username, password, token, playlistId, translationQueuePlaylistId
+
+## 新增待翻译队列配置（2026-03-16）
+
+- `asmr.translationQueuePlaylistId`: Telegram Bot `/search` 未命中本地资源时，转入 One 站待翻译队列使用的独立 playlist ID
+- 留空时会兼容回退到 `asmr.playlistId`
 - **用户资料**: username (已改为 "User")
 - **自定义路径**: 所有 paths 字段已清空，将使用默认路径
+
+## 新增 TG 信息热缓存配置（2026-03-31）
+
+- `tg.infoHotCacheEnabled`: 是否启用 `asmr.one/works` 首页热缓存定时同步
+- `tg.infoHotCacheIntervalMs`: 常态检查间隔，默认 `3600000`（1 小时）
+- `tg.infoHotCacheActiveIntervalMs`: 检测到更新后的高频检查间隔，默认 `1200000`（20 分钟）
+- `tg.infoHotCacheCoolIntervalMs`: 连续 3 天无变化后的降频检查间隔，默认 `10800000`（3 小时）
+- `tg.infoHotCacheActiveWindowMs`: 发现更新后保持高频的窗口，默认 `86400000`（24 小时）
+- `tg.infoHotCacheCoolAfterMs`: 连续无变化进入降频的阈值，默认 `259200000`（72 小时）
+- `tg.infoHotCachePageSize`: 首页热缓存拉取条数，默认 `100`
+- `tg.infoHotCacheStartupDelayMs`: 启动后首次热缓存同步延迟，默认 `1500`
+- 热缓存写入目标仍为 `tg-info-cache.json`，仅新增缺失记录，不更新已有记录，也不会替代原有详情缓存逻辑
 
 ## 恢复原始配置
 
@@ -58,6 +75,7 @@ npm run build:win
 - `blurEnabled`: 是否启用毛玻璃
 - `blurIntensity`: 毛玻璃强度（0 - 40）
 - `accentColor`: 主题强调色（`#RRGGBB`）
+
 ## 日志等级默认行为（2026-03-07）
 
 - `logging.level` 默认值为 `info`

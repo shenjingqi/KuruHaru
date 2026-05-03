@@ -70,7 +70,7 @@ export const useRjFilter = () => {
           isNew: true,
         }));
 
-        addLog(`处理完成！共获取 ${result.total} 个RJ号`, "success");
+        addLog(`处理完成！共获取 ${result.total} 个作品号`, "success");
         addLog(`筛选后: ${resultList.value.length} 个`, "success");
       } else {
         addLog("处理失败: " + result.msg, "error");
@@ -89,7 +89,7 @@ export const useRjFilter = () => {
 
     try {
       const res = await saveFile({
-        defaultPath: `rj_filter_result_${new Date().toISOString().slice(0, 10)}.txt`,
+        defaultPath: `work_code_filter_result_${new Date().toISOString().slice(0, 10)}.txt`,
         filters: [{ name: "Text Files", extensions: ["txt"] }],
       });
 

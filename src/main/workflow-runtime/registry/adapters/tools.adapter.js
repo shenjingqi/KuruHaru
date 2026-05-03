@@ -7,10 +7,19 @@ import { scanForArchives } from "../../../utils/archive-scanner";
 import { getConfig } from "../../../modules/config";
 import { getAsmrClient } from "../../../modules/httpClient";
 import { triggerCloudDataFetch } from "../../../modules/asmr-login";
-import { loadRecentActivity } from "../../../modules/tg-recent-activity";
+import {
+  loadRecentActivity,
+  scanAndSaveRecentActivity,
+} from "../../../modules/tg-recent-activity";
+import {
+  buildSubtitleCompletenessReport,
+  collectPackFilesInDirectory,
+  formatSubtitleCompletenessMessage,
+} from "../../../modules/whisper-pack-utils";
 import { matchWorkIdsByRjCodesCaseInsensitive } from "../../../modules/asmr-core/rj-filter-utils";
 import { normalizePeerEntityInput } from "../../../modules/tg-common-core/peer-entity";
 import { requireConnectedTelegramClient } from "../../../utils/telegram-login";
+import { syncSearchHistoryFromUploadRecords } from "../../../modules/tg-search-bot";
 import {
   commitPublishedContent,
   markDuplicateRecordsCleaned,
@@ -36,10 +45,12 @@ const ASMR_CLOUD_DELETE_RECENT_NODE_TYPE = "asmr.cloudDeleteRecentUploads";
 const FILES_LOCAL_DELETE_SCANNED_NODE_TYPE = "files.localDeleteScanned";
 const ALLOWED_SUB_FORMATS = new Set(["lrc", "srt", "vtt"]);
 const ARCHIVE_EXTENSIONS = [".zip", ".rar", ".7z"];
-const SUBTITLE_EXTENSIONS = new Set([".srt", ".lrc", ".vtt", ".txt", ".ass"]);
 const CLOUD_DELETE_ENDPOINT =
   "https://api.asmr.one/api/playlist/remove-works-from-playlist";
 const CLOUD_LIST_PAGE_SIZE = 100;
+const RUN_UPLOAD_MEMO_TTL_MS = 6 * 60 * 60 * 1000;
+const runUploadMemoByRunId = new Map();
+const runRecentUploadIndexByRunId = new Map();
 
 const collectRjCodesFromText = (rawText) => {
   const matches = String(rawText || "").match(/(RJ|VJ|BJ)\d{6,8}/gi) || [];
@@ -149,6 +160,278 @@ const waitWithAbort = (ms, signal) =>
     signal?.addEventListener("abort", onAbort, { once: true });
   });
 
+const pruneRunUploadMemo = () => {
+  const now = Date.now();
+  for (const [runId, entry] of runUploadMemoByRunId.entries()) {
+    if (
+      !entry ||
+      !entry.touchedAt ||
+      now - entry.touchedAt > RUN_UPLOAD_MEMO_TTL_MS
+    ) {
+      runUploadMemoByRunId.delete(runId);
+      runRecentUploadIndexByRunId.delete(runId);
+    }
+  }
+};
+
+const getRunUploadMemo = (runId) => {
+  const normalizedRunId = String(runId || "").trim();
+  if (!normalizedRunId) {
+    return null;
+  }
+
+  pruneRunUploadMemo();
+
+  const existing = runUploadMemoByRunId.get(normalizedRunId);
+  if (existing && existing.keys instanceof Set) {
+    existing.touchedAt = Date.now();
+    return existing.keys;
+  }
+
+  const created = {
+    touchedAt: Date.now(),
+    keys: new Set(),
+  };
+  runUploadMemoByRunId.set(normalizedRunId, created);
+  return created.keys;
+};
+
+const buildRunUploadArchiveKey = ({ channelId, archivePath }) => {
+  const normalizedChannel = String(channelId || "")
+    .trim()
+    .toLowerCase();
+  const normalizedPath = String(archivePath || "")
+    .trim()
+    .toLowerCase();
+  if (!normalizedChannel || !normalizedPath) {
+    return "";
+  }
+  return normalizedChannel + "|" + normalizedPath;
+};
+
+const resolveSingleRjCodeHint = (rawValue) => {
+  const nodeInput = rawValue && typeof rawValue === "object" ? rawValue : null;
+  const directCandidates = [
+    nodeInput?.currentRj,
+    nodeInput?.rjCode,
+    nodeInput?.code,
+    nodeInput?.archiveCode,
+  ]
+    .map((item) =>
+      String(item || "")
+        .trim()
+        .toUpperCase(),
+    )
+    .filter((item) => /^(RJ|VJ|BJ)\d{6,8}$/i.test(item));
+
+  if (directCandidates.length > 0) {
+    return directCandidates[0];
+  }
+
+  const discovered = collectRjCodesFromText(JSON.stringify(rawValue || {}));
+  const unique = [...new Set(discovered)];
+  if (unique.length === 1) {
+    return unique[0];
+  }
+
+  return "";
+};
+
+const filterArchivesBySingleRjCode = (archives = [], rjCode = "") => {
+  const normalizedCode = String(rjCode || "")
+    .trim()
+    .toUpperCase();
+  if (!normalizedCode || !Array.isArray(archives) || archives.length === 0) {
+    return archives;
+  }
+
+  const filtered = archives.filter((archive) => {
+    const archiveCode = String(archive?.code || "")
+      .trim()
+      .toUpperCase();
+    if (archiveCode && archiveCode === normalizedCode) {
+      return true;
+    }
+
+    const archiveName = String(
+      archive?.name || path.basename(String(archive?.path || "")),
+    )
+      .trim()
+      .toUpperCase();
+    if (archiveName.includes(normalizedCode)) {
+      return true;
+    }
+
+    const archivePath = String(archive?.path || "")
+      .trim()
+      .toUpperCase();
+    return archivePath.includes(normalizedCode);
+  });
+
+  return filtered.length > 0 ? filtered : archives;
+};
+const createEmptyRecentUploadIndex = () => ({
+  codes: new Set(),
+  names: new Set(),
+  paths: new Set(),
+  totalFiles: 0,
+});
+
+const buildRecentUploadIndexFromData = (recentData) => {
+  const index = createEmptyRecentUploadIndex();
+  const files = Array.isArray(recentData?.files) ? recentData.files : [];
+
+  files.forEach((file) => {
+    const rawCodeCandidates = [
+      file?.rjCode,
+      file?.id,
+      file?.name,
+      file?.fileName,
+      file?.path,
+    ];
+    rawCodeCandidates.forEach((candidate) => {
+      collectRjCodesFromText(candidate).forEach((code) =>
+        index.codes.add(code),
+      );
+    });
+
+    const nameCandidates = [file?.name, file?.fileName];
+    nameCandidates.forEach((candidate) => {
+      const normalizedName = String(candidate || "")
+        .trim()
+        .toLowerCase();
+      if (normalizedName) {
+        index.names.add(normalizedName);
+      }
+    });
+
+    const normalizedPath = String(file?.path || "")
+      .trim()
+      .toLowerCase();
+    if (normalizedPath) {
+      index.paths.add(normalizedPath);
+      index.paths.add(path.basename(normalizedPath));
+    }
+  });
+
+  index.totalFiles = files.length;
+  return index;
+};
+
+const mergeArchiveIntoRecentUploadIndex = (index, archive) => {
+  if (!index || !archive) {
+    return;
+  }
+
+  const archiveCode = String(
+    archive.code || extractFirstWorkCode(archive.path || archive.name || ""),
+  )
+    .trim()
+    .toUpperCase();
+  if (archiveCode) {
+    index.codes.add(archiveCode);
+  }
+
+  const fileName = String(archive.name || path.basename(archive.path || ""))
+    .trim()
+    .toLowerCase();
+  if (fileName) {
+    index.names.add(fileName);
+  }
+
+  const archivePath = String(archive.path || "")
+    .trim()
+    .toLowerCase();
+  if (archivePath) {
+    index.paths.add(archivePath);
+    index.paths.add(path.basename(archivePath));
+  }
+};
+
+const shouldSkipArchiveByRecentUploadIndex = (index, archive) => {
+  if (!index || !archive) {
+    return false;
+  }
+
+  const archiveCode = String(
+    archive.code || extractFirstWorkCode(archive.path || archive.name || ""),
+  )
+    .trim()
+    .toUpperCase();
+  if (archiveCode && index.codes.has(archiveCode)) {
+    return true;
+  }
+
+  const fileName = String(archive.name || path.basename(archive.path || ""))
+    .trim()
+    .toLowerCase();
+  if (fileName && index.names.has(fileName)) {
+    return true;
+  }
+
+  const archivePath = String(archive.path || "")
+    .trim()
+    .toLowerCase();
+  if (!archivePath) {
+    return false;
+  }
+
+  return (
+    index.paths.has(archivePath) || index.paths.has(path.basename(archivePath))
+  );
+};
+
+const resolveRecentUploadIndexForContext = async ({
+  runId,
+  uploadHistoryDir,
+  refreshBeforeUse = true,
+  emit,
+}) => {
+  const normalizedRunId = String(runId || "").trim();
+
+  if (normalizedRunId) {
+    const cached = runRecentUploadIndexByRunId.get(normalizedRunId);
+    if (cached && cached.index) {
+      cached.touchedAt = Date.now();
+      return cached.index;
+    }
+  }
+
+  if (refreshBeforeUse) {
+    try {
+      emitNodeLog(
+        emit,
+        "Refreshing recent upload history before upload dedupe",
+      );
+      const refreshResult = await scanAndSaveRecentActivity();
+      if (!refreshResult?.success) {
+        emitNodeLog(
+          emit,
+          `Recent upload history refresh failed: ${refreshResult?.error || "unknown"}`,
+        );
+      }
+    } catch (error) {
+      emitNodeLog(
+        emit,
+        `Recent upload history refresh exception: ${error?.message || error}`,
+      );
+    }
+  }
+
+  const recentResult = loadRecentActivity(uploadHistoryDir);
+  const index = recentResult?.success
+    ? buildRecentUploadIndexFromData(recentResult.data)
+    : createEmptyRecentUploadIndex();
+
+  if (normalizedRunId) {
+    runRecentUploadIndexByRunId.set(normalizedRunId, {
+      touchedAt: Date.now(),
+      index,
+    });
+  }
+
+  return index;
+};
 const extractNumberPart = (rawCode = "") => {
   const match = String(rawCode || "").match(/\d+/);
   return match ? match[0] : "";
@@ -455,6 +738,7 @@ const executeWhisperTranslateNode = async ({
   emitProgressLog(`Executable: ${exePath}`);
 
   const startedAt = Date.now();
+  let itemDispatchQueue = Promise.resolve();
 
   await new Promise((resolve, reject) => {
     ensureAbort(signal);
@@ -490,7 +774,6 @@ const executeWhisperTranslateNode = async ({
     };
 
     let stderrBuffer = "";
-    let itemDispatchQueue = Promise.resolve();
 
     const enqueueWorkItem = (workCode) => {
       if (
@@ -603,9 +886,10 @@ const executeWhisperTranslateNode = async ({
         completedWorkCodes.clear();
         knownWorkCodes.forEach((workCode) => {
           completedWorkCodes.add(workCode);
+          enqueueWorkItem(workCode);
         });
         emitProgressLog("字幕翻译完成");
-        resolve();
+        itemDispatchQueue.then(resolve).catch(reject);
         return;
       }
 
@@ -750,38 +1034,12 @@ const collectSubtitleFilesInDirectory = async ({
   basePath,
   signal,
 }) => {
-  const subtitleFiles = [];
-  let latestMtimeMs = 0;
-
-  await scanFilesRecursively(
+  return collectPackFilesInDirectory({
     folderPath,
-    async (fullPath, fileName) => {
-      ensureAbort(signal);
-      const ext = path.extname(fileName).toLowerCase();
-      if (!SUBTITLE_EXTENSIONS.has(ext)) {
-        return;
-      }
-
-      let stat;
-      try {
-        stat = await fs.promises.stat(fullPath);
-      } catch {
-        return;
-      }
-
-      latestMtimeMs = Math.max(latestMtimeMs, stat.mtimeMs || 0);
-      subtitleFiles.push({
-        fullPath,
-        relativePath: path.relative(basePath, fullPath),
-      });
-    },
+    basePath,
     signal,
-  );
-
-  return {
-    subtitleFiles,
-    latestMtimeMs,
-  };
+    ensureAbort,
+  });
 };
 
 const createCancelledError = () => {
@@ -801,12 +1059,17 @@ const packSubtitleFolderToZip = async ({
 
   const outputFileName = `${rjCode}.zip`;
   const outputPath = path.join(outputDir, outputFileName);
-  const { subtitleFiles, latestMtimeMs } =
+  const { subtitleFiles, audioFiles, latestSubtitleMtimeMs } =
     await collectSubtitleFilesInDirectory({
       folderPath,
       basePath: folderPath,
       signal,
     });
+
+  const completeness = buildSubtitleCompletenessReport({
+    audioFiles,
+    subtitleFiles,
+  });
 
   if (!subtitleFiles.length) {
     return {
@@ -820,11 +1083,24 @@ const packSubtitleFolderToZip = async ({
     };
   }
 
+  if (!completeness.isComplete) {
+    return {
+      success: false,
+      skipped: false,
+      reason: "missing-subtitles",
+      rjCode,
+      outputPath,
+      fileCount: subtitleFiles.length,
+      validation: completeness,
+      msg: formatSubtitleCompletenessMessage(completeness),
+    };
+  }
+
   await fs.promises.mkdir(outputDir, { recursive: true });
 
   try {
     const zipStat = await fs.promises.stat(outputPath);
-    if (latestMtimeMs > 0 && zipStat.mtimeMs >= latestMtimeMs) {
+    if (latestSubtitleMtimeMs > 0 && zipStat.mtimeMs >= latestSubtitleMtimeMs) {
       return {
         success: true,
         skipped: true,
@@ -940,10 +1216,13 @@ const executeWhisperPackSubtitlesNode = async ({
   }
 
   const outputDir = normalizeDirPath(config?.outputDir) || targetPath;
+  const nodeInput = resolveNodePrimaryInput(inputValues, inputMap);
+  const singleRjCodeHint = resolveSingleRjCodeHint(nodeInput);
   const pathMatch = targetPath.match(/(RJ|VJ|BJ)\d{6,8}/i);
   const results = [];
   let totalPacked = 0;
   let totalSkipped = 0;
+  let totalFailed = 0;
 
   emitNodeLog(emit, `Scanning pack target: ${targetPath}`);
 
@@ -962,24 +1241,66 @@ const executeWhisperPackSubtitlesNode = async ({
       totalSkipped += 1;
     } else if (singleResult.success) {
       totalPacked += 1;
+    } else {
+      totalFailed += 1;
     }
   } else {
     const entries = await fs.promises.readdir(targetPath, {
       withFileTypes: true,
     });
     const folders = entries.filter((entry) => entry.isDirectory());
-    for (const folder of folders) {
-      ensureAbort(signal);
-      const folderMatch = folder.name.match(/(RJ|VJ|BJ)\d{6,8}/i);
-      if (!folderMatch) {
-        continue;
-      }
+    const candidateFolders = folders
+      .map((folder) => {
+        const folderMatch = folder.name.match(/(RJ|VJ|BJ)\d{6,8}/i);
+        if (!folderMatch) {
+          return null;
+        }
 
-      const folderPath = path.join(targetPath, folder.name);
-      const rjCode = folderMatch[0].toUpperCase();
+        const rjCode = folderMatch[0].toUpperCase();
+        if (singleRjCodeHint && rjCode !== singleRjCodeHint) {
+          return null;
+        }
+
+        return {
+          folderPath: path.join(targetPath, folder.name),
+          rjCode,
+        };
+      })
+      .filter(Boolean);
+
+    if (singleRjCodeHint && candidateFolders.length === 0) {
+      emitNodeLog(
+        emit,
+        "Pack scope hint " +
+          singleRjCodeHint +
+          " not found under " +
+          targetPath +
+          ", fallback to full scan",
+      );
+    }
+
+    const foldersToPack =
+      candidateFolders.length > 0 || !singleRjCodeHint
+        ? candidateFolders
+        : folders
+            .map((folder) => {
+              const folderMatch = folder.name.match(/(RJ|VJ|BJ)\d{6,8}/i);
+              if (!folderMatch) {
+                return null;
+              }
+
+              return {
+                folderPath: path.join(targetPath, folder.name),
+                rjCode: folderMatch[0].toUpperCase(),
+              };
+            })
+            .filter(Boolean);
+
+    for (const folderInfo of foldersToPack) {
+      ensureAbort(signal);
       const result = await packSubtitleFolderToZip({
-        folderPath,
-        rjCode,
+        folderPath: folderInfo.folderPath,
+        rjCode: folderInfo.rjCode,
         outputDir,
         signal,
         emit,
@@ -990,26 +1311,29 @@ const executeWhisperPackSubtitlesNode = async ({
         totalSkipped += 1;
       } else if (result.success) {
         totalPacked += 1;
+      } else {
+        totalFailed += 1;
       }
 
       emitNodeProgress(emit, {
-        totalWorks: folders.length,
-        completedWorks: totalPacked + totalSkipped,
+        totalWorks: foldersToPack.length,
+        completedWorks: totalPacked + totalSkipped + totalFailed,
         remainingWorks: Math.max(
-          folders.length - totalPacked - totalSkipped,
+          foldersToPack.length - totalPacked - totalSkipped - totalFailed,
           0,
         ),
-        currentRj: rjCode,
+        currentRj: folderInfo.rjCode,
       });
     }
   }
 
   const successfulCount = results.filter((item) => item.success).length;
   if (!results.length || successfulCount === 0) {
-    throw new Error("No packable subtitle folders found");
+    const firstFailureMessage = results.find((item) => item?.msg)?.msg;
+    throw new Error(firstFailureMessage || "No packable subtitle folders found");
   }
 
-  const summary = `Pack finished: success ${totalPacked}, skipped ${totalSkipped}`;
+  const summary = `Pack finished: success ${totalPacked}, skipped ${totalSkipped}, failed ${totalFailed}`;
   emitNodeLog(emit, summary);
 
   return {
@@ -1019,6 +1343,7 @@ const executeWhisperPackSubtitlesNode = async ({
     outputDir,
     totalPacked,
     totalSkipped,
+    totalFailed,
     results,
     outputPaths: results
       .filter((item) => item.success)
@@ -1169,6 +1494,7 @@ const executeTgUploadSubtitlesNode = async ({
   context = {},
 }) => {
   const nodeInput = resolveNodePrimaryInput(inputValues, inputMap);
+  const singleRjCodeHint = resolveSingleRjCodeHint(nodeInput);
   let archives = collectArchiveRecordsFromInput(nodeInput);
 
   const scanPath = resolvePathFromConfigOrInput({
@@ -1194,6 +1520,20 @@ const executeTgUploadSubtitlesNode = async ({
     scanForArchives(scanPath, scanResults);
     ensureAbort(signal);
     archives = normalizeArchiveRecords(buildScanArchiveResult(scanResults));
+  }
+
+  if (singleRjCodeHint && archives.length > 1) {
+    const scopedArchives = filterArchivesBySingleRjCode(
+      archives,
+      singleRjCodeHint,
+    );
+    if (scopedArchives.length !== archives.length) {
+      emitNodeLog(
+        emit,
+        `Scoped upload list to hint ${singleRjCodeHint}: ${archives.length} -> ${scopedArchives.length}`,
+      );
+    }
+    archives = scopedArchives;
   }
 
   const failOnEmpty = config?.failOnEmpty !== false;
@@ -1234,6 +1574,24 @@ const executeTgUploadSubtitlesNode = async ({
     );
   }
 
+  const runUploadMemo = getRunUploadMemo(context?.runId);
+  const useRecentUploadGuard = config?.recentUploadGuard !== false;
+  const refreshRecentUploadGuard = config?.refreshRecentUploadGuard !== false;
+  const recentUploadIndex = useRecentUploadGuard
+    ? await resolveRecentUploadIndexForContext({
+        runId: context?.runId,
+        uploadHistoryDir: appConfig?.paths?.uploadHistoryDir,
+        refreshBeforeUse: refreshRecentUploadGuard,
+        emit,
+      })
+    : createEmptyRecentUploadIndex();
+
+  if (useRecentUploadGuard) {
+    emitNodeLog(
+      emit,
+      `Recent upload guard loaded: codes=${recentUploadIndex.codes.size}, names=${recentUploadIndex.names.size}, paths=${recentUploadIndex.paths.size}`,
+    );
+  }
   const titleDelayMs = normalizeInteger(config?.titleDelayMs, 3500, 0, 120000);
   const betweenDelayMs = normalizeInteger(
     config?.betweenDelayMs,
@@ -1273,7 +1631,38 @@ const executeTgUploadSubtitlesNode = async ({
     const archive = archives[index];
     const fileName = path.basename(archive.path);
     const title = extractFileNameCore(fileName);
+    const runUploadKey = buildRunUploadArchiveKey({
+      channelId,
+      archivePath: archive.path,
+    });
 
+    if (runUploadMemo && runUploadKey && runUploadMemo.has(runUploadKey)) {
+      skippedFiles.push({
+        code: archive.code || extractFirstWorkCode(fileName),
+        path: archive.path,
+        name: fileName,
+        reason: "run-duplicate",
+      });
+      emitNodeLog(emit, `Skip run duplicate: ${fileName}`);
+      continue;
+    }
+
+    if (
+      useRecentUploadGuard &&
+      shouldSkipArchiveByRecentUploadIndex(recentUploadIndex, archive)
+    ) {
+      skippedFiles.push({
+        code: archive.code || extractFirstWorkCode(fileName),
+        path: archive.path,
+        name: fileName,
+        reason: "recent-history",
+      });
+      emitNodeLog(emit, `Skip recent-history duplicate: ${fileName}`);
+      if (runUploadMemo && runUploadKey) {
+        runUploadMemo.add(runUploadKey);
+      }
+      continue;
+    }
     emitNodeProgress(emit, {
       totalWorks: archives.length,
       completedWorks:
@@ -1383,6 +1772,12 @@ const executeTgUploadSubtitlesNode = async ({
         fileMessageId,
       });
 
+      if (runUploadMemo && runUploadKey) {
+        runUploadMemo.add(runUploadKey);
+      }
+      if (useRecentUploadGuard) {
+        mergeArchiveIntoRecentUploadIndex(recentUploadIndex, archive);
+      }
       if (guardianEnabled && reservationId && idempotencyKey) {
         const commitResult = await commitPublishedContent({
           reservationId,
@@ -1460,6 +1855,24 @@ const executeTgUploadSubtitlesNode = async ({
     emit,
     `Upload finished: success ${uploadedFiles.length}, skipped ${skippedFiles.length}, failed ${failedFiles.length}`,
   );
+
+  if (uploadedFiles.length > 0) {
+    try {
+      const cacheSyncResult = await syncSearchHistoryFromUploadRecords({
+        channelId,
+        uploadedFiles,
+      });
+      emitNodeLog(
+        emit,
+        `Search cache synced: updated ${cacheSyncResult.updatedCount || 0}`,
+      );
+    } catch (cacheSyncError) {
+      emitNodeLog(
+        emit,
+        `Search cache sync failed: ${cacheSyncError?.message || cacheSyncError}`,
+      );
+    }
+  }
 
   return {
     success: failedFiles.length === 0,
@@ -2085,6 +2498,24 @@ export const TOOL_NODE_DEFINITIONS = [
       targetPath: "",
       subFormats: ["lrc", "srt", "vtt"],
     },
+    io: {
+      input: [
+        {
+          key: "targetPath/path",
+          label: "媒体目录（可来自上游）",
+        },
+      ],
+      output: [
+        {
+          key: "items[]",
+          label: "已翻译作品列表",
+        },
+        {
+          key: "totalWorks",
+          label: "作品总数",
+        },
+      ],
+    },
     validateConfig: validateWhisperNodeConfig,
     execute: executeWhisperTranslateNode,
   },
@@ -2097,6 +2528,28 @@ export const TOOL_NODE_DEFINITIONS = [
     defaultConfig: {
       targetPath: "",
       outputDir: "",
+    },
+    io: {
+      input: [
+        {
+          key: "targetPath/path",
+          label: "字幕目录（可来自上游）",
+        },
+        {
+          key: "code",
+          label: "RJ/VJ/BJ 过滤提示（可选）",
+        },
+      ],
+      output: [
+        {
+          key: "outputPaths[]",
+          label: "打包后压缩包路径",
+        },
+        {
+          key: "results[]",
+          label: "逐目录打包结果",
+        },
+      ],
     },
     execute: executeWhisperPackSubtitlesNode,
   },
@@ -2116,6 +2569,34 @@ export const TOOL_NODE_DEFINITIONS = [
       guardianEnabled: true,
       autoCleanupDuplicates: true,
       guardianTtlMs: 1200000,
+      recentUploadGuard: true,
+      refreshRecentUploadGuard: true,
+    },
+    io: {
+      input: [
+        {
+          key: "archives/files",
+          label: "待上传压缩包列表（可选）",
+        },
+        {
+          key: "scanPath/path",
+          label: "扫描目录（无上游时使用）",
+        },
+      ],
+      output: [
+        {
+          key: "uploadedFiles[]",
+          label: "上传成功列表",
+        },
+        {
+          key: "skippedFiles[]",
+          label: "跳过列表",
+        },
+        {
+          key: "failedFiles[]",
+          label: "失败列表",
+        },
+      ],
     },
     execute: executeTgUploadSubtitlesNode,
   },
@@ -2132,6 +2613,28 @@ export const TOOL_NODE_DEFINITIONS = [
       refreshCloudFirst: true,
       failOnNoMatch: false,
     },
+    io: {
+      input: [
+        {
+          key: "rjCodes",
+          label: "待删除 RJ 编号（可选，来自上游）",
+        },
+      ],
+      output: [
+        {
+          key: "matchedWorkIds[]",
+          label: "匹配到的云端作品ID",
+        },
+        {
+          key: "deletedCount",
+          label: "删除成功数量",
+        },
+        {
+          key: "notFound[]",
+          label: "未匹配编号",
+        },
+      ],
+    },
     execute: executeCloudDeleteRecentUploadsNode,
   },
   {
@@ -2146,6 +2649,28 @@ export const TOOL_NODE_DEFINITIONS = [
       deleteFiles: true,
       failOnEmpty: false,
     },
+    io: {
+      input: [
+        {
+          key: "scanPath/path",
+          label: "扫描目录（可来自上游）",
+        },
+      ],
+      output: [
+        {
+          key: "files[]",
+          label: "扫描到的文件",
+        },
+        {
+          key: "deletedFiles[]",
+          label: "已删除文件",
+        },
+        {
+          key: "failedFiles[]",
+          label: "删除失败文件",
+        },
+      ],
+    },
     execute: executeLocalDeleteScannedNode,
   },
   {
@@ -2155,6 +2680,20 @@ export const TOOL_NODE_DEFINITIONS = [
     description: "扫描目录中的压缩包并输出归档列表",
     defaultConfig: {
       path: "",
+    },
+    io: {
+      input: [
+        {
+          key: "path",
+          label: "扫描目录",
+        },
+      ],
+      output: [
+        {
+          key: "archives[]",
+          label: "压缩包归档列表",
+        },
+      ],
     },
     execute: ({ config, signal }) => {
       ensureAbort(signal);
@@ -2179,6 +2718,24 @@ export const TOOL_NODE_DEFINITIONS = [
       outputDir: "",
       fileName: "filelist.txt",
     },
+    io: {
+      input: [
+        {
+          key: "sourceDir",
+          label: "源目录",
+        },
+      ],
+      output: [
+        {
+          key: "outputPath",
+          label: "结果文件路径",
+        },
+        {
+          key: "entries[]",
+          label: "提取条目列表",
+        },
+      ],
+    },
     execute: executeExtractFileNames,
   },
   {
@@ -2190,6 +2747,28 @@ export const TOOL_NODE_DEFINITIONS = [
       mainFile: "",
       compareDir: "",
       deleteFiles: false,
+    },
+    io: {
+      input: [
+        {
+          key: "mainFile",
+          label: "主文件（保留集合）",
+        },
+        {
+          key: "compareDir",
+          label: "待比对目录",
+        },
+      ],
+      output: [
+        {
+          key: "filesToDelete[]",
+          label: "可删除文件列表",
+        },
+        {
+          key: "filesToKeep[]",
+          label: "保留文件列表",
+        },
+      ],
     },
     execute: executeCleanData,
   },

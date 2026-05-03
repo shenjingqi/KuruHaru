@@ -6,7 +6,7 @@ import {
 } from "./link-builders";
 
 describe("tg-search-bot-core/link-builders", () => {
-  it("chat 同时有 id 和 username 时，优先输出更稳定的 c 链接", () => {
+  it("chat 同时有 id 和 username 时，优先输出频道名链接", () => {
     const result = buildMessageLinksByChat(
       {
         id: -1001234567890,
@@ -15,11 +15,11 @@ describe("tg-search-bot-core/link-builders", () => {
       9527,
     );
 
-    expect(result.primaryUrl).toBe("https://t.me/c/1001234567890/9527");
+    expect(result.primaryUrl).toBe("https://t.me/my_channel/9527");
     expect(result.alternateUrls).toEqual([
-      "tg://privatepost?channel=1001234567890&post=9527",
-      "https://t.me/my_channel/9527",
       "tg://resolve?domain=my_channel&post=9527",
+      "https://t.me/c/1001234567890/9527",
+      "tg://privatepost?channel=1001234567890&post=9527",
     ]);
   });
 
@@ -44,6 +44,18 @@ describe("tg-search-bot-core/link-builders", () => {
     ]);
   });
 
+  it("fallbackChannelId 为用户名时，优先使用该频道名生成主链接", () => {
+    const result = buildMessageLinksByEntity(
+      {
+        id: -1001234567890,
+        username: "other_channel",
+      },
+      "@kuruHaruga",
+      17809,
+    );
+
+    expect(result.primaryUrl).toBe("https://t.me/kuruHaruga/17809");
+  });
   it("旧接口 buildMessageLinkByEntity 仍返回主链接", () => {
     const url = buildMessageLinkByEntity(
       {
@@ -54,6 +66,6 @@ describe("tg-search-bot-core/link-builders", () => {
       12,
     );
 
-    expect(url).toBe("https://t.me/c/100123456789/12");
+    expect(url).toBe("https://t.me/stablechan/12");
   });
 });

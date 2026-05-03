@@ -1089,21 +1089,23 @@ export function setupAsmrIPC(historyPath) {
           }
         }
 
-        // TXT比对筛选
-        let existingRjs = new Set();
+        // TXT比对筛选（支持 RJ / VJ / BJ）
+        let existingWorkCodes = new Set();
         if (compareFilePath && fs.existsSync(compareFilePath)) {
           const content = fs.readFileSync(compareFilePath, "utf-8");
           const lines = content.split("\n").filter((l) => l.trim());
-          existingRjs = collectRjNumbersFromLines(lines);
-          logger.info(`已读取TXT文件，包含 ${existingRjs.size} 个RJ号`);
+          existingWorkCodes = collectRjNumbersFromLines(lines);
+          logger.info(
+            `已读取TXT文件，包含 ${existingWorkCodes.size} 个可比对作品号`,
+          );
         }
 
-        // 筛选出不存在的RJ号（以 source_id 为主）
+        // 筛选出不存在于 TXT 的作品号
         const filteredWorks = works.filter(
-          (work) => !existingRjs.has(getWorkComparableRjNumber(work)),
+          (work) => !existingWorkCodes.has(getWorkComparableRjNumber(work)),
         );
 
-        logger.info(`TXT比对后剩余 ${filteredWorks.length} 个RJ号`);
+        logger.info(`TXT比对后剩余 ${filteredWorks.length} 个作品号`);
 
         return {
           success: true,

@@ -169,7 +169,7 @@ Types → Config → Repo → DataAccess → Service → Runtime → UI
 | 开发环境 | ✅ 可用 | `npm run dev` 正常       |
 | 生产构建 | ✅ 可用 | `npm run build:win` 正常 |
 | Lint     | ✅ 可用 | ESLint + Prettier 已配置 |
-| 测试     | ✅ 可用 | Vitest 20 个测试通过     |
+| 测试     | ✅ 可用 | Vitest 42 个测试通过     |
 | 模块加载 | ✅ 可用 | 主进程模块化良好         |
 
 ---

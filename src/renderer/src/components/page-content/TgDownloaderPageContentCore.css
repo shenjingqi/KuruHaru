@@ -2,6 +2,19 @@
   max-width: 1200px;
   margin: 0 auto;
   padding: 20px;
+  --tg-text-strong: var(--comp-text, var(--page-text-strong, #26251f));
+  --tg-text-muted: var(--comp-muted, var(--page-text-muted, #7f7a68));
+  --tg-text-soft: color-mix(in srgb, var(--tg-text-muted) 78%, transparent);
+  --tg-surface: var(--comp-surface-1, var(--page-panel-bg, #fff));
+  --tg-surface-muted: color-mix(in srgb, var(--tg-surface) 84%, #ffffff 16%);
+  --tg-control-bg: var(--comp-control-bg, var(--page-control-bg, #fff));
+  --tg-control-border: var(--comp-control-border, var(--page-control-border, #e0e0e0));
+  --tg-control-hover: var(
+    --page-control-hover,
+    color-mix(in srgb, var(--tg-control-bg) 78%, #ffffff 22%)
+  );
+  --tg-accent: var(--comp-accent, var(--accent, #adb571));
+  color: var(--tg-text-strong);
 }
 
 .download-header {
@@ -11,7 +24,7 @@
 .download-header h2 {
   margin: 0;
   font-size: 24px;
-  color: #333;
+  color: var(--tg-text-strong);
 }
 
 .download-content {
@@ -24,7 +37,7 @@
 .files-section,
 .progress-section,
 .log-section {
-  background: #f8f9fa;
+  background: var(--tg-surface);
   border-radius: 12px;
   padding: 20px;
 }
@@ -125,7 +138,7 @@
   display: block;
   margin-bottom: 8px;
   font-weight: 600;
-  color: #333;
+  color: var(--tg-text-strong);
   font-size: 14px;
 }
 
@@ -137,30 +150,34 @@
 .file-input {
   flex: 1;
   padding: 12px 16px;
-  border: 2px solid #e0e0e0;
+  border: 2px solid var(--tg-control-border);
   border-radius: 8px;
   font-size: 14px;
   outline: none;
-  background: #fff;
+  background: var(--tg-control-bg);
+  color: var(--tg-text-strong);
 }
 
 .file-input:focus {
-  border-color: #adb571;
+  border-color: var(--tg-accent);
 }
 
 .browse-btn {
   padding: 12px 20px;
-  background: #fff;
-  border: 2px solid #e0e0e0;
+  background: var(--tg-control-bg);
+  border: 2px solid var(--tg-control-border);
   border-radius: 8px;
   cursor: pointer;
   font-size: 14px;
+  font-weight: 600;
+  color: var(--tg-text-strong);
   white-space: nowrap;
 }
 
 .browse-btn:hover {
-  border-color: #adb571;
-  color: #adb571;
+  border-color: var(--tg-accent);
+  color: var(--tg-accent);
+  background: var(--tg-control-hover);
 }
 
 .file-info {
@@ -190,7 +207,7 @@
 .files-header h3 {
   margin: 0;
   font-size: 16px;
-  color: #333;
+  color: var(--tg-text-strong);
 }
 
 .files-stats {
@@ -215,22 +232,25 @@
 
 .action-btn {
   padding: 8px 16px;
-  border: 2px solid #e0e0e0;
+  border: 2px solid var(--tg-control-border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--tg-control-bg);
   cursor: pointer;
   font-size: 13px;
+  font-weight: 600;
+  color: var(--tg-text-strong);
 }
 
 .action-btn:hover {
-  border-color: #adb571;
-  color: #adb571;
+  border-color: var(--tg-accent);
+  color: var(--tg-accent);
+  background: var(--tg-control-hover);
 }
 
 .action-btn.primary {
-  background: #adb571;
+  background: var(--tg-accent);
   color: #fff;
-  border-color: #adb571;
+  border-color: var(--tg-accent);
 }
 
 .action-btn.primary:hover:not(:disabled) {
@@ -255,7 +275,7 @@
   align-items: center;
   gap: 12px;
   padding: 10px 14px;
-  background: #fff;
+  background: var(--tg-control-bg);
   border-radius: 8px;
   cursor: pointer;
   font-size: 13px;
@@ -263,41 +283,42 @@
 }
 
 .file-item:hover {
-  background: #ece6d8;
+  background: var(--tg-control-hover);
 }
 
 .file-item.selected {
-  background: #e8f1fa;
-  border: 1px solid #adb571;
+  background: color-mix(in srgb, var(--tg-accent) 16%, var(--tg-control-bg) 84%);
+  border: 1px solid var(--tg-accent);
 }
 
 .file-item.skipped {
   opacity: 0.5;
-  background: #f2ede0;
+  background: var(--tg-surface-muted);
 }
 
 .file-rj {
   font-weight: 600;
-  color: #adb571;
+  color: var(--tg-accent);
   min-width: 90px;
 }
 
 .file-name {
   flex: 1;
-  color: #333;
+  color: var(--tg-text-strong);
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .file-date {
-  color: #999;
+  color: var(--tg-text-muted);
   font-size: 12px;
   min-width: 70px;
 }
 
 .file-size {
-  color: #999;
+  color: var(--tg-text-muted);
   font-size: 12px;
   min-width: 70px;
   text-align: right;
@@ -321,11 +342,12 @@
 
 .page-btn {
   padding: 6px 16px;
-  border: 1px solid #cfc6ad;
+  border: 1px solid var(--tg-control-border);
   border-radius: 4px;
-  background: #fff;
+  background: var(--tg-control-bg);
   cursor: pointer;
   font-size: 13px;
+  color: var(--tg-text-strong);
 }
 
 .page-btn:disabled {
@@ -335,16 +357,16 @@
 
 .page-info {
   font-size: 13px;
-  color: #666;
+  color: var(--tg-text-muted);
 }
 
 .progress-section {
-  background: #ece6d8;
+  background: var(--tg-surface-muted);
 }
 
 .progress-bar {
   height: 8px;
-  background: #e0e0e0;
+  background: color-mix(in srgb, var(--tg-control-border) 88%, transparent);
   border-radius: 4px;
   overflow: hidden;
   margin-bottom: 8px;
@@ -352,7 +374,7 @@
 
 .progress-fill {
   height: 100%;
-  background: #adb571;
+  background: var(--tg-accent);
   transition: width 0.3s;
 }
 
@@ -360,12 +382,12 @@
   display: flex;
   justify-content: space-between;
   font-size: 13px;
-  color: #666;
+  color: var(--tg-text-muted);
   margin-bottom: 8px;
 }
 
 .current-file {
-  color: #adb571;
+  color: var(--tg-accent);
   max-width: 400px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -380,7 +402,7 @@
   padding: 6px 16px;
   border: 1px solid #ff4d4f;
   border-radius: 4px;
-  background: #fff;
+  background: var(--tg-control-bg);
   color: #ff4d4f;
   cursor: pointer;
   font-size: 13px;
@@ -406,7 +428,7 @@
 .clear-log-btn {
   background: none;
   border: none;
-  color: #999;
+  color: var(--tg-text-muted);
   cursor: pointer;
   font-size: 12px;
 }
@@ -424,7 +446,7 @@
 
 .log-item {
   padding: 2px 0;
-  color: #ccc;
+  color: color-mix(in srgb, var(--tg-text-muted) 84%, #ffffff 16%);
 }
 
 .log-item.success {

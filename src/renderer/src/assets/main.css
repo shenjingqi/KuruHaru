@@ -25,14 +25,19 @@ body,
   overflow: hidden;
   font-family: var(--font-ui);
   font-weight: 400;
+  font-kerning: normal;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
   background: linear-gradient(180deg, #eef2f7 0%, #f6f8fb 100%);
   color: #18191c;
+  line-height: 1.55;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'kern' 1, 'liga' 1;
 }
 
 html[data-app-theme="dark"] body {

@@ -9,6 +9,7 @@ import { createSilentGramJsLogger } from "./gramjs-logger";
 import { ipcMain } from "electron";
 import path from "path";
 import { getConfig, saveConfig } from "../modules/config";
+import { syncSearchHistoryFromUploadRecords } from "../modules/tg-search-bot";
 
 // --- 全局状态 ---
 let client = null;
@@ -235,6 +236,9 @@ export async function requireConnectedTelegramClient() {
 async function processSerialUpload(file, channelId, index, total, event) {
   const fileName = path.basename(file.path);
   const filenameNoExt = path.parse(fileName).name;
+  const matchedCode = (
+    String(file?.code || filenameNoExt).match(/(?:RJ|VJ|BJ)\d{6,8}/i)?.[0] || ""
+  ).toUpperCase();
   const checkCancel = () => {
     if (uploadCancelled) throw new Error("CANCELLED");
   };
@@ -253,7 +257,7 @@ async function processSerialUpload(file, channelId, index, total, event) {
   while (retryCount < 3) {
     checkCancel();
     try {
-      await client.sendFile(channelId, {
+      const uploadedMessage = await client.sendFile(channelId, {
         file: file.path,
         forceDocument: true,
         commentTo: txtMsg.id,
@@ -268,7 +272,14 @@ async function processSerialUpload(file, channelId, index, total, event) {
           }
         },
       });
-      return true;
+      return {
+        code: matchedCode,
+        path: file.path,
+        name: fileName,
+        title: filenameNoExt,
+        titleMessageId: Number(txtMsg?.id || 0) || null,
+        fileMessageId: Number(uploadedMessage?.id || 0) || null,
+      };
     } catch (e) {
       if (e.message.includes("MSG_ID_INVALID")) {
         retryCount++;
@@ -388,6 +399,7 @@ export function setupTelegramIPC() {
     uploadCancelled = false;
     let successCount = 0;
     let failCount = 0;
+    const uploadedRecords = [];
 
     try {
       if (!client || !client.connected) {
@@ -414,7 +426,7 @@ export function setupTelegramIPC() {
       for (let i = 0; i < totalFiles; i++) {
         if (uploadCancelled) break;
         try {
-          await processSerialUpload(
+          const uploadRecord = await processSerialUpload(
             uploadFiles[i],
             peerId,
             i,
@@ -422,6 +434,9 @@ export function setupTelegramIPC() {
             event,
           );
           successCount++;
+          if (uploadRecord && typeof uploadRecord === "object") {
+            uploadedRecords.push(uploadRecord);
+          }
           event.sender.send("log-update", {
             type: "tg",
             msg: `✅ 已完成 [${i + 1}/${totalFiles}]`,
@@ -450,6 +465,24 @@ export function setupTelegramIPC() {
           : `🚨 严重异常: ${globalErr.message}`;
       event.sender.send("log-update", { type: "tg", msg });
     } finally {
+      if (uploadedRecords.length > 0) {
+        try {
+          const syncResult = await syncSearchHistoryFromUploadRecords({
+            channelId: String(channelId || ""),
+            uploadedFiles: uploadedRecords,
+          });
+          event.sender.send("log-update", {
+            type: "tg",
+            msg: `[search-cache] 已同步索引 ${syncResult.updatedCount || 0} 条`,
+          });
+        } catch (syncError) {
+          event.sender.send("log-update", {
+            type: "tg",
+            msg: `[search-cache] 同步失败: ${getErrorMessage(syncError)}`,
+          });
+        }
+      }
+
       event.sender.send("tg-upload-finished", {
         success: !uploadCancelled && failCount === 0,
         cancelled: uploadCancelled,

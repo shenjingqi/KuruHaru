@@ -42,12 +42,21 @@ const DEFAULT_CONFIG = {
     botHistoryPath: "",
     botAutoStartOnStartup: true,
     botAutoSyncOnStartup: true,
+    botSyncSearchCacheOnUpload: true,
     botWhitelistDebugLog: false,
     infoCachePath: "",
     infoRequestTimeoutMs: 20000,
     infoCacheMaxConcurrency: 5,
     infoCacheMaxFileSizeMB: 50,
     infoCachePersistOnFetch: true,
+    infoHotCacheEnabled: true,
+    infoHotCacheIntervalMs: 3600000,
+    infoHotCacheActiveIntervalMs: 1200000,
+    infoHotCacheCoolIntervalMs: 10800000,
+    infoHotCacheActiveWindowMs: 86400000,
+    infoHotCacheCoolAfterMs: 259200000,
+    infoHotCachePageSize: 100,
+    infoHotCacheStartupDelayMs: 1500,
     proxyUrl: "",
   },
   asmr: {
@@ -55,12 +64,19 @@ const DEFAULT_CONFIG = {
     password: "",
     token: "",
     playlistId: "",
+    translationQueuePlaylistId: "",
+    downloadRpcUrl: "http://localhost:6800/jsonrpc",
+    downloadRpcSecret: "",
+    downloadUseAria2: true,
+    downloadTestMode: false,
+    downloadMaxAutoTasksPerWork: 20,
     proxyUrl: "",
   },
   paths: {
     configDir: "",
     sourceDir: "",
     toolOutputDir: "",
+    asmrDownloadDir: "",
     whisperTargetPath: "",
     dataDir: path.join(app.getPath("userData"), "data"),
     logsDir: path.join(app.getPath("userData"), "logs"),
@@ -81,6 +97,9 @@ const DEFAULT_CONFIG = {
     exePath: "",
     targetPath: "",
     subFormats: ["lrc"],
+  },
+  workflow: {
+    comfyParityMode: true,
   },
   // 日志配置
   logging: {
@@ -106,6 +125,24 @@ const DEFAULT_CONFIG = {
 
 // 创建日志发送器
 const logger = createLogSender("config");
+const getDataDirLogKeys = new Set();
+
+function logGetDataDirOnce(level, key, message) {
+  if (getDataDirLogKeys.has(key)) {
+    return;
+  }
+
+  getDataDirLogKeys.add(key);
+  logger[level](message);
+}
+
+function toErrorMessage(error) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error ?? "未知错误");
+}
 
 /**
  * 读取配置（带缓存，5秒有效）
@@ -166,6 +203,7 @@ export function getConfig() {
           paths: { ...DEFAULT_CONFIG.paths, ...userConfig.paths },
           upload: { ...DEFAULT_CONFIG.upload, ...userConfig.upload },
           whisper: { ...DEFAULT_CONFIG.whisper, ...userConfig.whisper },
+          workflow: { ...DEFAULT_CONFIG.workflow, ...userConfig.workflow },
           logging: { ...DEFAULT_CONFIG.logging, ...userConfig.logging },
           system: { ...DEFAULT_CONFIG.system, ...userConfig.system },
         };
@@ -183,6 +221,7 @@ export function getConfig() {
         paths: { ...DEFAULT_CONFIG.paths, ...appDataConfig.paths },
         upload: { ...DEFAULT_CONFIG.upload, ...appDataConfig.upload },
         whisper: { ...DEFAULT_CONFIG.whisper, ...appDataConfig.whisper },
+        workflow: { ...DEFAULT_CONFIG.workflow, ...appDataConfig.workflow },
         logging: { ...DEFAULT_CONFIG.logging, ...appDataConfig.logging },
         system: { ...DEFAULT_CONFIG.system, ...appDataConfig.system },
       };
@@ -195,7 +234,7 @@ export function getConfig() {
     configCacheTime = now;
     return configCache;
   } catch (e) {
-    logger.error("Config read error:", e.message);
+    logger.error(`Config read error: ${toErrorMessage(e)}`);
     configCache = DEFAULT_CONFIG;
     configCacheTime = Date.now();
     return DEFAULT_CONFIG;
@@ -394,7 +433,7 @@ export async function saveConfig(newConfig) {
 
     return true;
   } catch (e) {
-    logger.error("保存配置失败:", e);
+    logger.error(`保存配置失败: ${toErrorMessage(e)}`);
     return false;
   } finally {
     // 释放锁
@@ -406,11 +445,16 @@ export async function saveConfig(newConfig) {
  * 获取数据目录路径
  */
 export function getDataDir() {
+  const defaultPath = path.join(app.getPath("userData"), "data");
+
   try {
     const config = getConfig();
     if (!config || !config.paths) {
-      const defaultPath = path.join(app.getPath("userData"), "data");
-      logger.info("[getDataDir] Config invalid, using default:", defaultPath);
+      logGetDataDirOnce(
+        "warn",
+        "invalid-config",
+        `[getDataDir] Config invalid, using default: ${defaultPath}`,
+      );
       return defaultPath;
     }
 
@@ -420,19 +464,18 @@ export function getDataDir() {
       return dataDir;
     }
 
-    const defaultPath = path.join(app.getPath("userData"), "data");
-    logger.info(
-      "[getDataDir] config.paths.dataDir is empty, using default:",
-      defaultPath,
+    logGetDataDirOnce(
+      "debug",
+      "empty-data-dir",
+      `[getDataDir] config.paths.dataDir is empty, using default: ${defaultPath}`,
     );
     return defaultPath;
   } catch (e) {
-    const defaultPath = path.join(app.getPath("userData"), "data");
-    logger.error(
-      "[getDataDir] Error:",
-      e.message,
-      "using default:",
-      defaultPath,
+    const errorMessage = toErrorMessage(e);
+    logGetDataDirOnce(
+      "error",
+      `error:${errorMessage}`,
+      `[getDataDir] Error: ${errorMessage}; using default: ${defaultPath}`,
     );
     return defaultPath;
   }

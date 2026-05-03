@@ -50,7 +50,7 @@
       <input
         v-model="searchText"
         class="input search-input"
-        placeholder="搜索标题或编号..."
+        placeholder="搜索标题、编号或标签内容..."
       />
 
       <div class="tag-mode-switch">
@@ -119,6 +119,13 @@
           </p>
         </div>
         <div class="list-meta">
+          <button
+            class="btn-secondary small"
+            :disabled="exportableRjCodes.length === 0"
+            @click="exportDisplayedRjCodes"
+          >
+            导出当前RJ.txt ({{ exportableRjCodes.length }})
+          </button>
           <span class="summary-chip"
             >{{ selectedCloudWorks.length }} 已选择</span
           >
@@ -141,12 +148,9 @@
           <span class="code">{{ item.source_id || item.id }}</span>
           <span class="name">{{ item.title }}</span>
           <div class="item-tags">
-            <span
-              v-for="tag in getTags(item).slice(0, 3)"
-              :key="tag"
-              class="mini-tag"
-              >{{ tag }}</span
-            >
+            <span v-for="tag in getTags(item)" :key="tag" class="mini-tag">{{
+              tag
+            }}</span>
           </div>
         </div>
       </div>
@@ -171,6 +175,8 @@ const {
   clearTagFilter,
   toggleTag,
   displayedWorks,
+  exportableRjCodes,
+  exportDisplayedRjCodes,
   getTags,
   toggleSelect,
   selectAllDisplayed,
@@ -182,13 +188,13 @@ const {
 
 <style scoped>
 .page-container {
-  height: 100%;
+  height: auto;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   gap: 18px;
   padding: 20px;
   box-sizing: border-box;
-  min-height: 0;
 }
 
 .cleaner-header {
@@ -233,6 +239,22 @@ const {
   flex-direction: column;
   gap: 14px;
   min-height: 0;
+  padding: 16px;
+}
+
+.page-header,
+.action-bar,
+.filter-section,
+.source-card,
+.file-list {
+  flex-shrink: 0;
+}
+
+.page-header-main,
+.page-header-meta,
+.action-group,
+.list-meta {
+  min-width: 0;
 }
 
 .source-list {
@@ -286,8 +308,14 @@ const {
 }
 
 .search-input {
+  display: block;
   width: 100%;
   max-width: 420px;
+  min-height: 42px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.4;
 }
 
 .tag-mode-switch {
@@ -327,6 +355,10 @@ const {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  max-height: clamp(160px, 28vh, 280px);
+  overflow-y: auto;
+  align-content: flex-start;
+  padding-right: 4px;
 }
 
 .tag-item {
@@ -400,9 +432,9 @@ const {
 }
 
 .file-list {
-  flex: 1;
+  flex: 0 0 auto;
   overflow: hidden;
-  padding: 16px;
+  min-height: 320px;
 }
 
 .list-head {
@@ -414,12 +446,19 @@ const {
   border-bottom: 1px solid var(--page-divider);
 }
 
+.list-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .file-rows {
-  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 8px;
   min-height: 0;
+  max-height: min(48vh, 36rem);
   overflow-y: auto;
 }
 

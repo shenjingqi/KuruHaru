@@ -1,18 +1,39 @@
 const WORK_CODE_REGEX = /(?:RJ|VJ|BJ)\d{6,8}/gi;
+const PREFIXED_WORK_CODE_REGEX = /^([RrVvBb][Jj])(\d{6,8})$/;
+
+function normalizePrefixedWorkCode(rawCode) {
+  const matched = String(rawCode || "")
+    .trim()
+    .match(PREFIXED_WORK_CODE_REGEX);
+  if (!matched) {
+    return null;
+  }
+
+  const prefix = matched[1].toUpperCase();
+  const rawNumber = matched[2];
+  const number = rawNumber.length === 7 ? `0${rawNumber}` : rawNumber;
+
+  return `${prefix}${number}`;
+}
 
 export function extractRJCode(rawText) {
   if (!rawText) return null;
 
-  const match = String(rawText)
-    .toUpperCase()
-    .match(/(?:RJ|VJ|BJ)\d{6,8}/i);
+  const matched = String(rawText).match(/(?:RJ|VJ|BJ)\d{6,8}/i);
+  if (!matched?.[0]) {
+    return null;
+  }
 
-  return match ? match[0].toUpperCase() : null;
+  return normalizePrefixedWorkCode(matched[0]);
 }
 
 export function extractRJCodes(rawText) {
   if (!rawText) return [];
 
   const matches = String(rawText).toUpperCase().match(WORK_CODE_REGEX) || [];
-  return [...new Set(matches.map((code) => code.toUpperCase()))];
+  const normalizedCodes = matches
+    .map((code) => normalizePrefixedWorkCode(code))
+    .filter(Boolean);
+
+  return [...new Set(normalizedCodes)];
 }

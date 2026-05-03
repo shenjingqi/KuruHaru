@@ -1,18 +1,185 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import * as workflowApi from "../api/workflowApi";
 
-const {
-  workflowCancel,
-  workflowDelete,
-  workflowGet,
-  workflowGetRun,
-  workflowList,
-  workflowListNodeDefinitions,
-  workflowListRuns,
-  workflowRun,
-  workflowSave,
-  workflowValidate,
-} = workflowApi;
+const resolveWorkflowMethod = (namespacedMethod, flatMethod) => {
+  if (typeof workflowApi?.[flatMethod] === "function") {
+    return workflowApi[flatMethod];
+  }
+  if (typeof window.api?.workflow?.[namespacedMethod] === "function") {
+    return window.api.workflow[namespacedMethod];
+  }
+  if (typeof window.api?.[flatMethod] === "function") {
+    return window.api[flatMethod];
+  }
+  return null;
+};
+
+const createWorkflowCaller = (namespacedMethod, flatMethod) => {
+  return async (...args) => {
+    const method = resolveWorkflowMethod(namespacedMethod, flatMethod);
+    if (!method) {
+      return {
+        success: false,
+        error: `${flatMethod} API unavailable`,
+      };
+    }
+
+    try {
+      return await method(...args);
+    } catch (error) {
+      return {
+        success: false,
+        error: error?.message || `${flatMethod} call failed`,
+      };
+    }
+  };
+};
+
+const workflowCancel = createWorkflowCaller("cancel", "workflowCancel");
+const workflowDelete = createWorkflowCaller("delete", "workflowDelete");
+const workflowGet = createWorkflowCaller("get", "workflowGet");
+const workflowGetObjectInfo = createWorkflowCaller(
+  "getObjectInfo",
+  "workflowGetObjectInfo",
+);
+const workflowGetRun = createWorkflowCaller("getRun", "workflowGetRun");
+const workflowList = createWorkflowCaller("list", "workflowList");
+const workflowListNodeDefinitions = createWorkflowCaller(
+  "listNodeDefinitions",
+  "workflowListNodeDefinitions",
+);
+const workflowListRuns = createWorkflowCaller("listRuns", "workflowListRuns");
+const workflowRun = createWorkflowCaller("run", "workflowRun");
+const workflowTemplateLoad = createWorkflowCaller(
+  "templateLoad",
+  "workflowTemplateLoad",
+);
+const workflowSave = createWorkflowCaller("save", "workflowSave");
+const workflowValidate = createWorkflowCaller("validate", "workflowValidate");
+
+const normalizeObjectInfoIoGroup = (value) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+
+      const key = String(item.key || "").trim();
+      const label = String(item.label || key || "").trim();
+      if (!key && !label) {
+        return null;
+      }
+
+      return {
+        ...item,
+        key: key || label,
+        label: label || key,
+        datatype: String(
+          item.datatype || item.dataType || item.valueType || "ANY",
+        )
+          .trim()
+          .toUpperCase(),
+      };
+    })
+    .filter(Boolean);
+};
+
+const objectInfoRecordToNodeDefinition = (rawRecord = {}, typeHint = "") => {
+  if (!rawRecord || typeof rawRecord !== "object") {
+    return null;
+  }
+
+  const type = String(rawRecord.type || typeHint || "").trim();
+  if (!type) {
+    return null;
+  }
+
+  const requiredInputs = normalizeObjectInfoIoGroup(rawRecord.inputs?.required);
+  const optionalInputs = normalizeObjectInfoIoGroup(
+    rawRecord.inputs?.optional,
+  ).map((entry) => ({
+    ...entry,
+    required: false,
+  }));
+  const outputs = normalizeObjectInfoIoGroup(rawRecord.outputs);
+
+  return {
+    type,
+    label:
+      String(rawRecord.displayName || rawRecord.label || type).trim() || type,
+    displayName:
+      String(rawRecord.displayName || rawRecord.label || type).trim() || type,
+    category: String(rawRecord.category || "other").trim() || "other",
+    description: String(rawRecord.description || "").trim(),
+    defaultConfig: cloneJsonValue(rawRecord.defaultConfig || {}, {}),
+    widgets: cloneJsonValue(rawRecord.widgets || [], []),
+    runtimeFlags: cloneJsonValue(rawRecord.runtimeFlags || {}, {}),
+    uiHints: cloneJsonValue(rawRecord.uiHints || {}, {}),
+    io: {
+      input: [...requiredInputs, ...optionalInputs],
+      output: outputs,
+    },
+  };
+};
+
+const objectInfoMapToNodeDefinitions = (objectInfoMap = {}) =>
+  Object.entries(objectInfoMap)
+    .map(([type, record]) => objectInfoRecordToNodeDefinition(record, type))
+    .filter(Boolean);
+
+const definitionsToObjectInfoMap = (definitions = []) => {
+  const entries = Array.isArray(definitions) ? definitions : [];
+  return Object.fromEntries(
+    entries
+      .map((definition) => {
+        if (!definition || typeof definition !== "object") {
+          return null;
+        }
+
+        const type = String(definition.type || "").trim();
+        if (!type) {
+          return null;
+        }
+
+        const inputs = Array.isArray(definition?.io?.input)
+          ? definition.io.input
+          : [];
+
+        return [
+          type,
+          {
+            type,
+            displayName:
+              String(
+                definition.displayName || definition.label || type,
+              ).trim() || type,
+            label:
+              String(
+                definition.displayName || definition.label || type,
+              ).trim() || type,
+            category: String(definition.category || "other").trim() || "other",
+            description: String(definition.description || "").trim(),
+            defaultConfig: cloneJsonValue(definition.defaultConfig || {}, {}),
+            inputs: {
+              required: inputs.filter((entry) => entry?.required !== false),
+              optional: inputs.filter((entry) => entry?.required === false),
+            },
+            outputs: Array.isArray(definition?.io?.output)
+              ? cloneJsonValue(definition.io.output, [])
+              : [],
+            widgets: cloneJsonValue(definition.widgets || [], []),
+            runtimeFlags: cloneJsonValue(definition.runtimeFlags || {}, {}),
+            uiHints: cloneJsonValue(definition.uiHints || {}, {}),
+          },
+        ];
+      })
+      .filter(Boolean),
+  );
+};
 
 const onWorkflowRunEvent =
   typeof workflowApi.onWorkflowRunEvent === "function"
@@ -71,6 +238,13 @@ const createEmptyWorkflow = () => ({
   graph: {
     nodes: [createInitialTranslateNode()],
     edges: [],
+    links: [],
+    groups: [],
+    reroutes: [],
+    floatingLinks: [],
+    state: {},
+    extra: {},
+    definitions: {},
   },
   runtime: {
     maxParallel: 1,
@@ -81,6 +255,47 @@ const createEmptyWorkflow = () => ({
     emitPerItem: false,
   },
 });
+
+const ensureGraphCompat = (workflowRecord) => {
+  if (!workflowRecord || typeof workflowRecord !== "object") {
+    return workflowRecord;
+  }
+
+  if (!workflowRecord.graph || typeof workflowRecord.graph !== "object") {
+    workflowRecord.graph = {};
+  }
+
+  const graph = workflowRecord.graph;
+  graph.nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+  graph.edges = Array.isArray(graph.edges) ? graph.edges : [];
+  graph.links = Array.isArray(graph.links)
+    ? graph.links
+    : graph.edges.map((edge) => ({ ...edge }));
+  graph.groups = Array.isArray(graph.groups) ? graph.groups : [];
+  graph.reroutes = Array.isArray(graph.reroutes) ? graph.reroutes : [];
+  graph.floatingLinks = Array.isArray(graph.floatingLinks)
+    ? graph.floatingLinks
+    : [];
+  graph.state =
+    graph.state && typeof graph.state === "object" ? graph.state : {};
+  graph.extra =
+    graph.extra && typeof graph.extra === "object" ? graph.extra : {};
+  graph.definitions =
+    graph.definitions && typeof graph.definitions === "object"
+      ? graph.definitions
+      : {};
+
+  return workflowRecord;
+};
+
+const syncGraphLinks = (workflowRecord) => {
+  if (!workflowRecord?.graph) {
+    return;
+  }
+  workflowRecord.graph.links = Array.isArray(workflowRecord.graph.edges)
+    ? workflowRecord.graph.edges.map((edge) => ({ ...edge }))
+    : [];
+};
 
 const parseJsonSafely = (rawText, fallbackValue = {}) => {
   try {
@@ -112,6 +327,30 @@ const createDefaultRunProgress = () => ({
   processedFiles: 0,
   totalFiles: 0,
 });
+
+const clampProgressPercent = (value) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(100, Math.round(parsed)));
+};
+
+const resolveProgressPercent = (progress = {}) => {
+  const totalWorks = Math.max(0, Number(progress?.totalWorks || 0));
+  const completedWorks = Math.max(0, Number(progress?.completedWorks || 0));
+  if (totalWorks > 0) {
+    return clampProgressPercent((completedWorks / totalWorks) * 100);
+  }
+
+  const totalFiles = Math.max(0, Number(progress?.totalFiles || 0));
+  const processedFiles = Math.max(0, Number(progress?.processedFiles || 0));
+  if (totalFiles > 0) {
+    return clampProgressPercent((processedFiles / totalFiles) * 100);
+  }
+
+  return 0;
+};
 
 const DEFAULT_NODE_WIDTH = 238;
 const DEFAULT_NODE_HEIGHT = 128;
@@ -182,10 +421,11 @@ const findRunBlockerMessage = (workflowPayload) => {
 };
 
 export const useWorkflowDesigner = ({ message } = {}) => {
-  const workflow = ref(createEmptyWorkflow());
+  const workflow = ref(ensureGraphCompat(createEmptyWorkflow()));
   const workflowSummaries = ref([]);
   const runHistory = ref([]);
   const nodeDefinitions = ref([]);
+  const nodeObjectInfoMap = ref({});
   const selectedNodeId = ref(workflow.value.graph.nodes[0]?.id || "");
   const selectedEdgeId = ref("");
   const sourceNodeId = ref("");
@@ -207,6 +447,7 @@ export const useWorkflowDesigner = ({ message } = {}) => {
   const pipelineLogs = ref([]);
   const nodeLogsByNodeId = ref({});
   const runNodeStates = ref({});
+  const lastRunEvent = ref(null);
   const dragState = reactive({
     nodeId: "",
     offsetX: 0,
@@ -227,6 +468,14 @@ export const useWorkflowDesigner = ({ message } = {}) => {
   const selectedNode = computed(() =>
     workflow.value.graph.nodes.find((node) => node.id === selectedNodeId.value),
   );
+
+  const selectedNodeObjectInfo = computed(() => {
+    const nodeType = String(selectedNode.value?.type || "").trim();
+    if (!nodeType) {
+      return null;
+    }
+    return nodeObjectInfoMap.value[nodeType] || null;
+  });
 
   const selectedNodeRunState = computed(() => {
     const nodeId = selectedNodeId.value;
@@ -253,6 +502,7 @@ export const useWorkflowDesigner = ({ message } = {}) => {
 
   const isRunInProgress = computed(
     () =>
+      activeRunStatus.value === "pending" ||
       activeRunStatus.value === "running" ||
       activeRunStatus.value === "cancelling",
   );
@@ -316,17 +566,73 @@ export const useWorkflowDesigner = ({ message } = {}) => {
   const nodePaletteGroups = computed(() => {
     const grouped = {};
     nodeDefinitions.value.forEach((item) => {
-      const category = item.category || "other";
+      const nodeType = String(item?.type || "").trim();
+      if (!nodeType) {
+        return;
+      }
+
+      const objectInfo = nodeObjectInfoMap.value?.[nodeType] || {};
+      const normalizedItem = objectInfoRecordToNodeDefinition(
+        objectInfo,
+        nodeType,
+      );
+      const category =
+        String(objectInfo.category || item.category || "other").trim() ||
+        "other";
       if (!grouped[category]) {
         grouped[category] = [];
       }
-      grouped[category].push(item);
+      grouped[category].push({
+        ...(normalizedItem || item),
+        ...item,
+        type: nodeType,
+        label:
+          String(
+            objectInfo.displayName ||
+              item.displayName ||
+              item.label ||
+              normalizedItem?.label ||
+              nodeType,
+          ).trim() || nodeType,
+        displayName:
+          String(
+            objectInfo.displayName ||
+              item.displayName ||
+              item.label ||
+              normalizedItem?.displayName ||
+              nodeType,
+          ).trim() || nodeType,
+        category,
+        description: String(
+          objectInfo.description ||
+            item.description ||
+            normalizedItem?.description ||
+            "",
+        ).trim(),
+        widgets: cloneJsonValue(
+          Array.isArray(objectInfo.widgets) && objectInfo.widgets.length
+            ? objectInfo.widgets
+            : item.widgets || normalizedItem?.widgets || [],
+          [],
+        ),
+        io: cloneJsonValue(
+          item.io || normalizedItem?.io || { input: [], output: [] },
+          { input: [], output: [] },
+        ),
+      });
     });
 
-    return Object.entries(grouped).map(([category, items]) => ({
-      category,
-      items,
-    }));
+    return Object.entries(grouped)
+      .sort(([left], [right]) => left.localeCompare(right, "zh-Hans-CN"))
+      .map(([category, items]) => ({
+        category,
+        items: items.sort((left, right) =>
+          String(left.label || left.type).localeCompare(
+            String(right.label || right.type),
+            "zh-Hans-CN",
+          ),
+        ),
+      }));
   });
 
   const edgeVisualList = computed(() => {
@@ -402,34 +708,236 @@ export const useWorkflowDesigner = ({ message } = {}) => {
     runProgress.value = next;
   };
 
+  const resolveWorkflowApiMethod = (
+    importedMethod,
+    namespacedMethod,
+    flatMethod,
+  ) => {
+    if (typeof importedMethod === "function") {
+      return importedMethod;
+    }
+    if (typeof workflowApi?.[flatMethod] === "function") {
+      return workflowApi[flatMethod];
+    }
+    if (typeof window.api?.workflow?.[namespacedMethod] === "function") {
+      return window.api.workflow[namespacedMethod];
+    }
+    if (typeof window.api?.[flatMethod] === "function") {
+      return window.api[flatMethod];
+    }
+    return null;
+  };
+
   const refreshWorkflowList = async () => {
-    const result = await workflowList();
+    const request = resolveWorkflowApiMethod(
+      workflowList,
+      "list",
+      "workflowList",
+    );
+    if (!request) {
+      workflowSummaries.value = [];
+      notify(
+        "error",
+        "Failed to load workflow list: workflowList API unavailable",
+      );
+      return;
+    }
+
+    let result;
+    try {
+      result = await request();
+    } catch (error) {
+      notify("error", error?.message || "Failed to load workflow list");
+      return;
+    }
+
     if (result?.success) {
       workflowSummaries.value = Array.isArray(result.data) ? result.data : [];
       return;
     }
 
-    notify("error", result?.error || "加载工作流列表失败");
+    notify("error", result?.error || "Failed to load workflow list");
   };
 
   const refreshNodeDefinitions = async () => {
-    const result = await workflowListNodeDefinitions();
-    if (result?.success) {
-      nodeDefinitions.value = Array.isArray(result.data) ? result.data : [];
+    let objectInfoResult;
+    try {
+      objectInfoResult = await workflowGetObjectInfo();
+    } catch (error) {
+      objectInfoResult = {
+        success: false,
+        error: error?.message || "Failed to load node object info",
+      };
+    }
+
+    if (objectInfoResult?.success && objectInfoResult.data) {
+      nodeObjectInfoMap.value = cloneJsonValue(objectInfoResult.data, {});
+      nodeDefinitions.value = objectInfoMapToNodeDefinitions(
+        nodeObjectInfoMap.value,
+      );
       return;
     }
 
-    notify("error", result?.error || "加载节点列表失败");
+    const request = resolveWorkflowApiMethod(
+      workflowListNodeDefinitions,
+      "listNodeDefinitions",
+      "workflowListNodeDefinitions",
+    );
+    if (!request) {
+      nodeObjectInfoMap.value = {};
+      nodeDefinitions.value = [];
+      notify(
+        "error",
+        objectInfoResult?.error ||
+          "Failed to load node definitions: workflow APIs unavailable",
+      );
+      return;
+    }
+
+    let result;
+    try {
+      result = await request();
+    } catch (error) {
+      notify("error", error?.message || "Failed to load node definitions");
+      return;
+    }
+
+    if (result?.success) {
+      nodeDefinitions.value = Array.isArray(result.data) ? result.data : [];
+      nodeObjectInfoMap.value = definitionsToObjectInfoMap(
+        nodeDefinitions.value,
+      );
+      return;
+    }
+
+    notify(
+      "error",
+      objectInfoResult?.error ||
+        result?.error ||
+        "Failed to load node definitions",
+    );
+  };
+
+  const inspectRunRecord = (record = {}) => {
+    if (!record || typeof record !== "object") {
+      return;
+    }
+
+    if (record.runId) {
+      activeRunId.value = String(record.runId);
+    }
+    activeRunStatus.value = String(
+      record.status || activeRunStatus.value || "idle",
+    );
+    syncRunRecordSnapshot(record);
+  };
+
+  const runWorkflowPayload = async (
+    workflowPayload,
+    { mode = "append" } = {},
+  ) => {
+    if (isRunInProgress.value) {
+      notify("warning", "A workflow run is already in progress");
+      return {
+        success: false,
+        error: "A workflow run is already in progress",
+      };
+    }
+
+    stopRunStatusPolling();
+    resetRunProgress();
+    resetRunArtifacts();
+
+    try {
+      const normalizedPayload = normalizeWorkflowPayload(workflowPayload);
+      const runBlocker = findRunBlockerMessage(normalizedPayload);
+      if (runBlocker) {
+        appendSystemLog(`Pre-run check failed ${runBlocker}`);
+        notify("warning", runBlocker);
+        return {
+          success: false,
+          error: runBlocker,
+        };
+      }
+
+      const result =
+        mode === "front"
+          ? await workflowApi.workflowQueueRunFront({
+              workflow: normalizedPayload,
+            })
+          : await workflowRun({ workflow: normalizedPayload });
+      if (!result?.success || !result.data?.runId) {
+        activeRunId.value = "";
+        activeRunStatus.value = "idle";
+        appendSystemLog(
+          `Failed to start ${result?.code ? `[${result.code}]` : ""} ${result?.error || ""}`.trim(),
+        );
+        notify("error", result?.error || "Failed to start workflow run");
+        if (result?.validation) {
+          validationState.value = {
+            ok: result.validation.ok === true,
+            errors: result.validation.errors || [],
+            warnings: result.validation.warnings || [],
+          };
+        }
+        return result;
+      }
+
+      activeRunId.value = result.data.runId;
+      const initialStatus = String(result?.data?.status || "pending");
+      activeRunStatus.value = initialStatus;
+      appendSystemLog(`runId=${activeRunId.value} accepted (${initialStatus})`);
+      startRunStatusPolling(activeRunId.value);
+      return result;
+    } catch (error) {
+      activeRunId.value = "";
+      activeRunStatus.value = "idle";
+      appendSystemLog(`Start exception ${error?.message || error}`);
+      notify("error", error?.message || "Failed to start workflow run");
+      return {
+        success: false,
+        error: error?.message || "Failed to start workflow run",
+      };
+    }
+  };
+
+  const rerunHistoryRun = (record = {}, options = {}) => {
+    const workflowSnapshot =
+      record?.workflowSnapshot && typeof record.workflowSnapshot === "object"
+        ? record.workflowSnapshot
+        : workflow.value;
+    return runWorkflowPayload(workflowSnapshot, options);
   };
 
   const refreshRunHistory = async () => {
-    const result = await workflowListRuns({ limit: 30 });
+    const request = resolveWorkflowApiMethod(
+      workflowListRuns,
+      "listRuns",
+      "workflowListRuns",
+    );
+    if (!request) {
+      runHistory.value = [];
+      notify(
+        "error",
+        "Failed to load run history: workflowListRuns API unavailable",
+      );
+      return;
+    }
+
+    let result;
+    try {
+      result = await request({ limit: 30 });
+    } catch (error) {
+      notify("error", error?.message || "Failed to load run history");
+      return;
+    }
+
     if (result?.success) {
       runHistory.value = Array.isArray(result.data) ? result.data : [];
       return;
     }
 
-    notify("error", result?.error || "加载运行历史失败");
+    notify("error", result?.error || "Failed to load run history");
   };
 
   const startRunStatusPolling = (runId) => {
@@ -460,7 +968,7 @@ export const useWorkflowDesigner = ({ message } = {}) => {
 
   const createNewWorkflow = () => {
     stopRunStatusPolling();
-    workflow.value = createEmptyWorkflow();
+    workflow.value = ensureGraphCompat(createEmptyWorkflow());
     selectedNodeId.value = workflow.value.graph.nodes[0]?.id || "";
     selectedEdgeId.value = "";
     sourceNodeId.value = "";
@@ -472,6 +980,68 @@ export const useWorkflowDesigner = ({ message } = {}) => {
     activeRunStatus.value = "idle";
     resetRunArtifacts();
     resetRunProgress();
+  };
+
+  const applyWorkflowRecord = (record, successMessage = "") => {
+    workflow.value = cloneJsonValue(record, createEmptyWorkflow());
+    ensureGraphCompat(workflow.value);
+    syncGraphLinks(workflow.value);
+    selectedNodeId.value = workflow.value.graph.nodes[0]?.id || "";
+    selectedEdgeId.value = "";
+    sourceNodeId.value = "";
+    targetNodeId.value = "";
+    selectedNodeConfigDraft.value = "{}";
+    selectedNodeConfigError.value = "";
+    validationState.value = { ok: true, errors: [], warnings: [] };
+    activeRunId.value = "";
+    activeRunStatus.value = "idle";
+    resetRunArtifacts();
+    stopRunStatusPolling();
+    resetRunProgress();
+    if (successMessage) {
+      notify("success", successMessage);
+    }
+  };
+
+  const consumePendingTemplateId = () => {
+    if (typeof sessionStorage === "undefined") {
+      return "";
+    }
+    const value = String(
+      sessionStorage.getItem("workflow.pendingTemplateId") || "",
+    ).trim();
+    sessionStorage.removeItem("workflow.pendingTemplateId");
+    return value;
+  };
+
+  const loadTemplateById = async (templateId, options = {}) => {
+    const normalizedTemplateId = String(templateId || "").trim();
+    if (!normalizedTemplateId) {
+      return false;
+    }
+
+    const result = await workflowTemplateLoad(normalizedTemplateId);
+    if (!result?.success || !result.data) {
+      notify("error", result?.error || "模板加载失败");
+      return false;
+    }
+
+    const successMessage =
+      typeof options.successMessage === "string" &&
+      options.successMessage.trim()
+        ? options.successMessage.trim()
+        : `已载入模板：${result.data.name || normalizedTemplateId}`;
+    applyWorkflowRecord(result.data, successMessage);
+    return true;
+  };
+
+  const hydratePendingTemplateDocument = () => {
+    const templateId = consumePendingTemplateId();
+    if (!templateId) {
+      return false;
+    }
+
+    return loadTemplateById(templateId);
   };
 
   const loadWorkflowById = async (workflowId) => {
@@ -488,6 +1058,8 @@ export const useWorkflowDesigner = ({ message } = {}) => {
       }
 
       workflow.value = cloneJsonValue(result.data, createEmptyWorkflow());
+      ensureGraphCompat(workflow.value);
+      syncGraphLinks(workflow.value);
       selectedNodeId.value = workflow.value.graph.nodes[0]?.id || "";
       selectedEdgeId.value = "";
       sourceNodeId.value = "";
@@ -524,6 +1096,8 @@ export const useWorkflowDesigner = ({ message } = {}) => {
       }
 
       workflow.value = cloneJsonValue(result.data, createEmptyWorkflow());
+      ensureGraphCompat(workflow.value);
+      syncGraphLinks(workflow.value);
       validationState.value = {
         ok: result?.validation?.ok !== false,
         errors: result?.validation?.errors || [],
@@ -582,14 +1156,29 @@ export const useWorkflowDesigner = ({ message } = {}) => {
   };
 
   const resolveNodeDefinition = (nodeType) =>
-    nodeDefinitions.value.find((item) => item.type === nodeType);
+    nodeDefinitions.value.find((item) => item.type === nodeType) ||
+    objectInfoRecordToNodeDefinition(
+      nodeObjectInfoMap.value?.[nodeType],
+      nodeType,
+    );
 
   const resolveNodeDefaultConfig = (nodeType) => {
+    const objectInfo = nodeObjectInfoMap.value?.[nodeType];
+    if (objectInfo && typeof objectInfo === "object") {
+      return cloneJsonValue(objectInfo.defaultConfig || {}, {});
+    }
     const nodeDef = resolveNodeDefinition(nodeType);
     return cloneJsonValue(nodeDef?.defaultConfig || {}, {});
   };
 
   const resolveNodeDefaultLabel = (nodeType) => {
+    const objectInfo = nodeObjectInfoMap.value?.[nodeType];
+    const objectInfoLabel = String(
+      objectInfo?.displayName || objectInfo?.label || "",
+    ).trim();
+    if (objectInfoLabel) {
+      return objectInfoLabel;
+    }
     const nodeDef = resolveNodeDefinition(nodeType);
     if (typeof nodeDef?.label === "string" && nodeDef.label.trim()) {
       return nodeDef.label.trim();
@@ -598,6 +1187,7 @@ export const useWorkflowDesigner = ({ message } = {}) => {
   };
 
   const addNodeByType = (nodeType, options = {}) => {
+    ensureGraphCompat(workflow.value);
     const index = workflow.value.graph.nodes.length;
     const fallbackPosition = {
       x: 52 + (index % 3) * 196,
@@ -639,12 +1229,19 @@ export const useWorkflowDesigner = ({ message } = {}) => {
   };
 
   const removeNode = (nodeId) => {
+    ensureGraphCompat(workflow.value);
     workflow.value.graph.nodes = workflow.value.graph.nodes.filter(
       (node) => node.id !== nodeId,
     );
     workflow.value.graph.edges = workflow.value.graph.edges.filter(
       (edge) => edge.source !== nodeId && edge.target !== nodeId,
     );
+    workflow.value.graph.reroutes = workflow.value.graph.reroutes.filter(
+      (reroute) =>
+        typeof reroute?.linkId !== "string" ||
+        workflow.value.graph.edges.some((edge) => edge.id === reroute.linkId),
+    );
+    syncGraphLinks(workflow.value);
     if (selectedNodeId.value === nodeId) {
       selectedNodeId.value = "";
     }
@@ -656,35 +1253,89 @@ export const useWorkflowDesigner = ({ message } = {}) => {
     }
   };
 
-  const addEdge = () => {
-    if (!sourceNodeId.value || !targetNodeId.value) {
-      notify("warning", "??? source ? target ??");
+  const addEdge = (payload = {}) => {
+    ensureGraphCompat(workflow.value);
+    const nextSourceNodeId =
+      typeof payload.source === "string" && payload.source.trim()
+        ? payload.source.trim()
+        : sourceNodeId.value;
+    const nextTargetNodeId =
+      typeof payload.target === "string" && payload.target.trim()
+        ? payload.target.trim()
+        : targetNodeId.value;
+    const nextSourcePort =
+      typeof payload.sourcePort === "string" && payload.sourcePort.trim()
+        ? payload.sourcePort.trim()
+        : "output";
+    const nextTargetPort =
+      typeof payload.targetPort === "string" && payload.targetPort.trim()
+        ? payload.targetPort.trim()
+        : "input";
+    const replaceTargetPort = payload.replaceTargetPort === true;
+
+    if (!nextSourceNodeId || !nextTargetNodeId) {
+      notify("warning", "请选择 source 和 target 节点");
       return "";
     }
 
-    if (sourceNodeId.value === targetNodeId.value) {
-      notify("warning", "source ? target ???????");
+    if (nextSourceNodeId === nextTargetNodeId) {
+      notify("warning", "source 和 target 不能相同");
       return "";
+    }
+
+    const existingTargetEdgeIds = workflow.value.graph.edges
+      .filter(
+        (edge) =>
+          edge.target === nextTargetNodeId &&
+          String(edge.targetPort || "input") === nextTargetPort,
+      )
+      .map((edge) => edge.id);
+
+    if (replaceTargetPort) {
+      workflow.value.graph.edges = workflow.value.graph.edges.filter(
+        (edge) =>
+          !(
+            edge.target === nextTargetNodeId &&
+            String(edge.targetPort || "input") === nextTargetPort
+          ),
+      );
+      workflow.value.graph.reroutes = workflow.value.graph.reroutes.filter(
+        (reroute) =>
+          typeof reroute?.linkId !== "string" ||
+          workflow.value.graph.edges.some((edge) => edge.id === reroute.linkId),
+      );
     }
 
     const duplicated = workflow.value.graph.edges.some(
       (edge) =>
-        edge.source === sourceNodeId.value &&
-        edge.target === targetNodeId.value,
+        edge.source === nextSourceNodeId &&
+        edge.target === nextTargetNodeId &&
+        String(edge.sourcePort || "output") === nextSourcePort &&
+        String(edge.targetPort || "input") === nextTargetPort,
     );
     if (duplicated) {
-      notify("warning", "?????");
+      notify("warning", "连线已存在");
       return "";
+    }
+
+    if (existingTargetEdgeIds.length) {
+      workflow.value.graph.edges = workflow.value.graph.edges.filter(
+        (edge) => !existingTargetEdgeIds.includes(edge.id),
+      );
+      workflow.value.graph.reroutes = workflow.value.graph.reroutes.filter(
+        (reroute) => !existingTargetEdgeIds.includes(reroute?.linkId),
+      );
     }
 
     const edge = {
       id: createEdgeId(),
-      source: sourceNodeId.value,
-      target: targetNodeId.value,
-      sourcePort: "output",
-      targetPort: "input",
+      source: nextSourceNodeId,
+      target: nextTargetNodeId,
+      sourcePort: nextSourcePort,
+      targetPort: nextTargetPort,
     };
     workflow.value.graph.edges.push(edge);
+    syncGraphLinks(workflow.value);
     selectedEdgeId.value = edge.id;
     return edge.id;
   };
@@ -693,9 +1344,14 @@ export const useWorkflowDesigner = ({ message } = {}) => {
     if (!selectedEdgeId.value) {
       return;
     }
+    ensureGraphCompat(workflow.value);
     workflow.value.graph.edges = workflow.value.graph.edges.filter(
       (edge) => edge.id !== selectedEdgeId.value,
     );
+    workflow.value.graph.reroutes = workflow.value.graph.reroutes.filter(
+      (reroute) => reroute?.linkId !== selectedEdgeId.value,
+    );
+    syncGraphLinks(workflow.value);
     selectedEdgeId.value = "";
   };
 
@@ -890,8 +1546,13 @@ export const useWorkflowDesigner = ({ message } = {}) => {
 
   const handleRunEvent = async (evt) => {
     if (!evt || typeof evt !== "object" || !evt.runId) {
+      if (evt && typeof evt === "object") {
+        lastRunEvent.value = cloneJsonValue(evt, null);
+      }
       return;
     }
+
+    lastRunEvent.value = cloneJsonValue(evt, null);
 
     if (!activeRunId.value) {
       activeRunId.value = evt.runId;
@@ -910,6 +1571,15 @@ export const useWorkflowDesigner = ({ message } = {}) => {
 
     if (progressPatch) {
       applyRunProgressPatch(progressPatch);
+      if (evt.nodeId) {
+        patchRunNodeState(evt.nodeId, {
+          progress: {
+            ...(runNodeStates.value[evt.nodeId]?.progress || {}),
+            ...progressPatch,
+          },
+          progressPercent: resolveProgressPercent(progressPatch),
+        });
+      }
     }
 
     if (eventType === "node.started" && evt.nodeId) {
@@ -933,6 +1603,8 @@ export const useWorkflowDesigner = ({ message } = {}) => {
           evt?.payload?.inputPreview ||
           runNodeStates.value[evt.nodeId]?.inputPreview ||
           null,
+        progress: runNodeStates.value[evt.nodeId]?.progress || null,
+        progressPercent: runNodeStates.value[evt.nodeId]?.progressPercent || 0,
       });
     } else if (eventType === "node.success" && evt.nodeId) {
       patchRunNodeState(evt.nodeId, {
@@ -942,6 +1614,7 @@ export const useWorkflowDesigner = ({ message } = {}) => {
           evt?.payload?.outputPreview ||
           runNodeStates.value[evt.nodeId]?.outputPreview ||
           null,
+        progressPercent: 100,
       });
     } else if (eventType === "node.failed" && evt.nodeId) {
       patchRunNodeState(evt.nodeId, {
@@ -951,6 +1624,7 @@ export const useWorkflowDesigner = ({ message } = {}) => {
           code: evt?.payload?.code || "WORKFLOW_EXECUTION_ERROR",
           message: evt?.payload?.message || "Node execution failed",
         },
+        progressPercent: runNodeStates.value[evt.nodeId]?.progressPercent || 0,
       });
     }
 
@@ -982,52 +1656,7 @@ export const useWorkflowDesigner = ({ message } = {}) => {
   };
 
   const startRun = async () => {
-    if (isRunInProgress.value) {
-      notify("warning", "A workflow run is already in progress");
-      return;
-    }
-
-    stopRunStatusPolling();
-    resetRunProgress();
-    resetRunArtifacts();
-
-    try {
-      const workflowPayload = normalizeWorkflowPayload(workflow.value);
-      const runBlocker = findRunBlockerMessage(workflowPayload);
-      if (runBlocker) {
-        appendSystemLog(`Pre-run check failed ${runBlocker}`);
-        notify("warning", runBlocker);
-        return;
-      }
-
-      const result = await workflowRun({ workflow: workflowPayload });
-      if (!result?.success || !result.data?.runId) {
-        activeRunId.value = "";
-        activeRunStatus.value = "idle";
-        appendSystemLog(
-          `Failed to start ${result?.code ? `[${result.code}]` : ""} ${result?.error || ""}`.trim(),
-        );
-        notify("error", result?.error || "Failed to start workflow run");
-        if (result?.validation) {
-          validationState.value = {
-            ok: result.validation.ok === true,
-            errors: result.validation.errors || [],
-            warnings: result.validation.warnings || [],
-          };
-        }
-        return;
-      }
-
-      activeRunId.value = result.data.runId;
-      activeRunStatus.value = "running";
-      appendSystemLog(`runId=${activeRunId.value} started`);
-      startRunStatusPolling(activeRunId.value);
-    } catch (error) {
-      activeRunId.value = "";
-      activeRunStatus.value = "idle";
-      appendSystemLog(`Start exception ${error?.message || error}`);
-      notify("error", error?.message || "Failed to start workflow run");
-    }
+    await runWorkflowPayload(workflow.value);
   };
 
   const cancelRun = async () => {
@@ -1097,17 +1726,30 @@ export const useWorkflowDesigner = ({ message } = {}) => {
   };
 
   onMounted(async () => {
-    await Promise.all([
+    if (typeof window !== "undefined") {
+      window.__workflowDesigner = {
+        loadTemplateById,
+      };
+    }
+
+    await Promise.allSettled([
       refreshWorkflowList(),
       refreshNodeDefinitions(),
       refreshRunHistory(),
     ]);
+    await hydratePendingTemplateDocument();
     disposeRunEvent = onWorkflowRunEvent((evt) => {
       handleRunEvent(evt);
     });
   });
 
   onUnmounted(() => {
+    if (
+      typeof window !== "undefined" &&
+      window.__workflowDesigner?.loadTemplateById === loadTemplateById
+    ) {
+      delete window.__workflowDesigner;
+    }
     if (typeof disposeRunEvent === "function") {
       disposeRunEvent();
     }
@@ -1118,6 +1760,7 @@ export const useWorkflowDesigner = ({ message } = {}) => {
     workflow,
     workflowSummaries,
     nodeDefinitions,
+    nodeObjectInfoMap,
     nodePaletteGroups,
     runHistory,
     activeRunId,
@@ -1127,6 +1770,7 @@ export const useWorkflowDesigner = ({ message } = {}) => {
     pipelineLogs,
     selectedNodeLogs,
     runNodeStates,
+    lastRunEvent,
     selectedNodeRunState,
     totalWorksDisplay,
     completedWorksDisplay,
@@ -1139,6 +1783,7 @@ export const useWorkflowDesigner = ({ message } = {}) => {
     selectedNodeId,
     selectedEdgeId,
     selectedNode,
+    selectedNodeObjectInfo,
     selectedEdge,
     selectedNodeConfigDraft,
     selectedNodeConfigError,
@@ -1149,6 +1794,7 @@ export const useWorkflowDesigner = ({ message } = {}) => {
     edgeVisualList,
     canvasRef,
     createNewWorkflow,
+    loadTemplateById,
     loadWorkflowById,
     saveCurrentWorkflow,
     validateCurrentWorkflow,
@@ -1160,6 +1806,9 @@ export const useWorkflowDesigner = ({ message } = {}) => {
     removeSelectedEdge,
     applyNodeConfigDraft,
     startRun,
+    runWorkflowPayload,
+    inspectRunRecord,
+    rerunHistoryRun,
     cancelRun,
     startNodeDrag,
     handleCanvasMouseMove,

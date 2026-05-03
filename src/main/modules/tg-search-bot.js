@@ -17,6 +17,7 @@ import path from "path";
 import { getConfig, getDataDir } from "./config";
 import { normalizeError } from "../utils/errorHandler";
 import { createLogSender } from "../utils/logger";
+import { getAsmrClient } from "./httpClient";
 import {
   normalizeIdList,
   normalizeChannelId,
@@ -26,7 +27,6 @@ import {
 } from "./tg-search-bot-core/normalizers";
 import { extractRJCode, extractRJCodes } from "./tg-search-bot-core/rj-parsers";
 import {
-  buildMessageLinksByChat,
   buildMessageLinksByEntity,
   isSameChannel,
 } from "./tg-search-bot-core/link-builders";
@@ -47,6 +47,10 @@ import {
 import { normalizePeerEntityInput } from "./tg-common-core/peer-entity";
 import { getTelegramMessageText } from "./tg-common-core/message-text";
 import { normalizeMessageIdFromPayload } from "./tg-common-core/id-normalizers";
+import {
+  extractWorksArrayBasic,
+  getAsmrSearchBrowserHeaders,
+} from "./asmr-core/search-utils";
 import {
   fetchWorkInfoByCode,
   formatWorkInfoMessage,
@@ -99,6 +103,39 @@ const PRESET_INDEX_CACHE_TTL_MS = 5000;
 const INFO_REPLY_DEDUPE_TTL_MS = 60 * 1000;
 const PLAIN_TEXT_MESSAGE_DEDUPE_TTL_MS = 15 * 1000;
 const NUMBER_ONLY_WORK_CODE_REGEX = /^\d{6,8}$/;
+const ONE_SEARCH_PAGE_SIZE = 10;
+const ONE_SEARCH_API_PREFIX = "https://api.asmr-200.com/api/search/";
+const ONE_QUEUE_ADD_WORKS_API =
+  "https://api.asmr-200.com/api/playlist/add-works-to-playlist";
+const QUEUE_CHECK_MAX_PAGES = 200;
+const SEARCH_COMMAND_TIMEOUT_MS = 45000;
+const SEARCH_PIPELINE_STAGE = {
+  history: "历史索引",
+  preset: "前置包",
+  channel: "频道",
+  one: "One",
+  queue: "入队",
+};
+const ONE_QUEUE_BLOCKED_TAGS = [
+  "BL/男同性恋",
+  "男性胸部",
+  "扶她",
+  "男子怀孕/出产",
+  "男無",
+  "人妖/双性人",
+  "GAY/男同",
+  "女性向",
+  "大男子主义",
+  "蕾丝/女同",
+  "性转换(TS)",
+  "男同性恋",
+  "百合",
+  "伪娘",
+  "同性爱者",
+];
+const ONE_QUEUE_BLOCKED_TAG_LOOKUP = new Set(
+  ONE_QUEUE_BLOCKED_TAGS.map((tag) => normalizeQueueBlockedTag(tag)),
+);
 
 let presetIndexCache = {
   initialized: false,
@@ -205,6 +242,10 @@ function getBotRuntimeConfig(config = getConfig()) {
     tgConfig.botSearchLimit ?? legacyBotConfig.searchLimit,
     3000,
   );
+  const syncSearchCacheOnUpload = toSafeBoolean(
+    tgConfig.botSyncSearchCacheOnUpload,
+    true,
+  );
   const whitelistDebugLog = toSafeBoolean(tgConfig.botWhitelistDebugLog, false);
   const configuredHistoryPath =
     tgConfig.botHistoryPath ||
@@ -222,9 +263,777 @@ function getBotRuntimeConfig(config = getConfig()) {
     webhookUrl,
     webhookPort: Number.isFinite(webhookPort) ? webhookPort : 8443,
     searchLimit,
+    syncSearchCacheOnUpload,
     whitelistDebugLog,
     historyFilePath: configuredHistoryPath,
   };
+}
+
+function getTranslationQueueRuntimeConfig(config = getConfig()) {
+  const asmrConfig = config?.asmr || {};
+
+  const token = String(asmrConfig.token || "").trim();
+  const configuredPlaylistId = String(
+    asmrConfig.translationQueuePlaylistId ||
+      asmrConfig.pendingTranslationQueuePlaylistId ||
+      asmrConfig.pendingTranslationPlaylistId ||
+      asmrConfig.playlistId ||
+      "",
+  ).trim();
+
+  return {
+    token,
+    playlistId: configuredPlaylistId,
+  };
+}
+
+function buildOneSearchUrl(workCode) {
+  return `${ONE_SEARCH_API_PREFIX}${encodeURIComponent(workCode)}?order=create_date&sort=desc&pageSize=${ONE_SEARCH_PAGE_SIZE}&page=1`;
+}
+
+function resolveOneSearchMatchedWork(rawPayload, workCode) {
+  const works = extractWorksArrayBasic(rawPayload).filter(
+    (item) => item && typeof item === "object",
+  );
+  if (!works.length) {
+    return null;
+  }
+
+  const normalizedCode = String(workCode || "")
+    .trim()
+    .toUpperCase();
+  const matchedBySourceId = works.find(
+    (item) =>
+      String(item?.source_id || "")
+        .trim()
+        .toUpperCase() === normalizedCode,
+  );
+  if (matchedBySourceId) {
+    return matchedBySourceId;
+  }
+
+  const targetNumeric = normalizedCode
+    .replace(/^[A-Z]{2}/, "")
+    .replace(/^0+/, "");
+  if (targetNumeric) {
+    const matchedByNumeric = works.find((item) => {
+      const sourceNumeric = String(item?.source_id || "")
+        .trim()
+        .toUpperCase()
+        .replace(/^[A-Z]{2}/, "")
+        .replace(/^0+/, "");
+      const idNumeric = String(item?.id || "").replace(/^0+/, "");
+      return sourceNumeric === targetNumeric || idNumeric === targetNumeric;
+    });
+
+    if (matchedByNumeric) {
+      return matchedByNumeric;
+    }
+  }
+
+  return works[0] || null;
+}
+
+function extractOneTagNames(work) {
+  const tags = Array.isArray(work?.tags) ? work.tags : [];
+  const tagNames = tags
+    .filter((tag) => tag && typeof tag === "object")
+    .filter(
+      (tag) => tag.voteStatus === undefined || Number(tag.voteStatus) === 1,
+    )
+    .map((tag) => {
+      const value =
+        tag?.name ||
+        tag?.i18n?.["zh-cn"]?.name ||
+        tag?.i18n?.["ja-jp"]?.name ||
+        tag?.i18n?.["en-us"]?.name ||
+        "";
+      return String(value).trim();
+    })
+    .filter(Boolean);
+
+  return [...new Set(tagNames)];
+}
+
+function normalizeQueueBlockedTag(tag) {
+  return String(tag || "")
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "");
+}
+
+function getBlockedQueueTags(tags) {
+  const tagList = Array.isArray(tags) ? tags : [];
+
+  return [...new Set(tagList)]
+    .map((tag) => String(tag || "").trim())
+    .filter(Boolean)
+    .filter((tag) =>
+      ONE_QUEUE_BLOCKED_TAG_LOOKUP.has(normalizeQueueBlockedTag(tag)),
+    );
+}
+
+function buildOneWorkUrl(work, fallbackCode = "") {
+  const sourceId = String(work?.source_id || fallbackCode || "")
+    .trim()
+    .toUpperCase();
+  if (!sourceId) {
+    return "";
+  }
+
+  return `https://www.asmr.one/work/${sourceId}`;
+}
+
+function hasOneSubtitleFlag(work) {
+  const value = work?.has_subtitle;
+
+  return (
+    value === true ||
+    value === 1 ||
+    value === "1" ||
+    String(value || "")
+      .trim()
+      .toLowerCase() === "true"
+  );
+}
+
+function buildOneEditionLookupCode(edition = {}) {
+  const sourceId = String(edition?.source_id || "")
+    .trim()
+    .toUpperCase();
+  if (sourceId) {
+    return sourceId;
+  }
+
+  const editionId = String(edition?.id || "").trim();
+  if (!editionId) {
+    return "";
+  }
+
+  return `RJ${editionId.padStart(8, "0")}`;
+}
+
+async function fetchOneMatchedWorkByCode(workCode) {
+  const asmrClient = getAsmrClient();
+  const searchUrl = buildOneSearchUrl(workCode);
+  const headers = getAsmrSearchBrowserHeaders({
+    includeCompression: true,
+  });
+
+  try {
+    const response = await asmrClient.get(searchUrl, {
+      timeout: 30000,
+      headers,
+    });
+
+    const matchedWork = resolveOneSearchMatchedWork(response?.data, workCode);
+    if (!matchedWork) {
+      return {
+        success: false,
+        error: `One站未找到 ${workCode}`,
+      };
+    }
+
+    return {
+      success: true,
+      work: matchedWork,
+      workUrl: buildOneWorkUrl(matchedWork, workCode),
+      tags: extractOneTagNames(matchedWork),
+    };
+  } catch (error) {
+    const normalizedError = normalizeError(error);
+    return {
+      success: false,
+      error:
+        normalizedError.error?.message ||
+        normalizedError.message ||
+        "One站检索失败",
+    };
+  }
+}
+
+async function searchWorkInOneByCode(workCode) {
+  return await fetchOneMatchedWorkByCode(workCode);
+}
+
+function normalizeOneEditionLanguage(rawValue) {
+  return String(rawValue || "").trim();
+}
+
+function isChineseOneEditionLanguage(rawValue) {
+  const normalized = normalizeOneEditionLanguage(rawValue).toLowerCase();
+
+  return (
+    normalized.includes("中文") ||
+    normalized.includes("汉化") ||
+    normalized.includes("漢化") ||
+    normalized.includes("chinese") ||
+    normalized === "zh" ||
+    normalized.startsWith("zh-")
+  );
+}
+
+function isJapaneseOneEditionLanguage(rawValue) {
+  const normalized = normalizeOneEditionLanguage(rawValue).toLowerCase();
+
+  return (
+    normalized.includes("日本語") ||
+    normalized.includes("日文") ||
+    normalized.includes("japanese") ||
+    normalized === "ja" ||
+    normalized.startsWith("ja-")
+  );
+}
+
+function pickPreferredOneSubtitleCandidate(candidates = []) {
+  if (!Array.isArray(candidates) || !candidates.length) {
+    return null;
+  }
+
+  const scoredCandidates = candidates.map((candidate, index) => {
+    const lang = normalizeOneEditionLanguage(candidate?.lang);
+    let score = 0;
+
+    if (isChineseOneEditionLanguage(lang)) {
+      score += 100;
+    } else if (lang && !isJapaneseOneEditionLanguage(lang)) {
+      score += 10;
+    } else if (!lang) {
+      score += 1;
+    }
+
+    return {
+      candidate,
+      score,
+      index,
+    };
+  });
+
+  scoredCandidates.sort(
+    (left, right) => right.score - left.score || left.index - right.index,
+  );
+
+  return scoredCandidates[0]?.candidate || null;
+}
+
+function buildOneSubtitleHitMessage(requestedCode, subtitleTarget) {
+  const targetCode = String(subtitleTarget?.sourceId || requestedCode || "")
+    .trim()
+    .toUpperCase();
+  const lang = normalizeOneEditionLanguage(subtitleTarget?.lang);
+
+  if (lang && targetCode) {
+    return `本地未找到 ${requestedCode}，但 One 站已存在 ${lang} 字幕版本 ${targetCode}`;
+  }
+
+  if (targetCode) {
+    return `本地未找到 ${requestedCode}，但 One 站已存在对应汉化版本 ${targetCode}`;
+  }
+
+  return `本地未找到 ${requestedCode}，但 One 站已存在对应汉化版本`;
+}
+
+async function resolveOneSubtitleTarget(work, workCode) {
+  if (!work || typeof work !== "object") {
+    return null;
+  }
+
+  const currentSourceId = String(work?.source_id || "")
+    .trim()
+    .toUpperCase();
+  const currentWorkUrl = buildOneWorkUrl(work, workCode);
+  const editionCodes = [
+    ...new Set(
+      (Array.isArray(work?.other_language_editions_in_db)
+        ? work.other_language_editions_in_db
+        : []
+      )
+        .map((edition) => buildOneEditionLookupCode(edition))
+        .filter(Boolean)
+        .filter((editionCode) => editionCode !== currentSourceId),
+    ),
+  ];
+
+  if (editionCodes.length) {
+    const editionEntries = (
+      Array.isArray(work?.other_language_editions_in_db)
+        ? work.other_language_editions_in_db
+        : []
+    ).filter((edition) => {
+      const editionCode = buildOneEditionLookupCode(edition);
+      return editionCode && editionCode !== currentSourceId;
+    });
+
+    const results = await Promise.allSettled(
+      editionEntries.map((edition) =>
+        fetchOneMatchedWorkByCode(buildOneEditionLookupCode(edition)),
+      ),
+    );
+
+    const subtitleCandidates = results
+      .map((result, index) => {
+        if (result.status !== "fulfilled" || !result.value?.success) {
+          return null;
+        }
+
+        if (!hasOneSubtitleFlag(result.value.work)) {
+          return null;
+        }
+
+        const edition = editionEntries[index] || {};
+        const sourceId = String(
+          result.value.work?.source_id || buildOneEditionLookupCode(edition),
+        )
+          .trim()
+          .toUpperCase();
+
+        return {
+          sourceId,
+          lang: normalizeOneEditionLanguage(edition?.lang),
+          workUrl:
+            result.value.workUrl ||
+            buildOneWorkUrl(result.value.work, sourceId),
+          work: result.value.work,
+        };
+      })
+      .filter(Boolean);
+
+    const preferredEdition =
+      pickPreferredOneSubtitleCandidate(subtitleCandidates);
+    if (preferredEdition) {
+      return preferredEdition;
+    }
+  }
+
+  if (hasOneSubtitleFlag(work)) {
+    return {
+      sourceId:
+        currentSourceId ||
+        String(workCode || "")
+          .trim()
+          .toUpperCase(),
+      lang: "",
+      workUrl: currentWorkUrl,
+      work,
+    };
+  }
+
+  return null;
+}
+
+function isAlreadyInTranslationQueueError(error) {
+  const normalizedError = normalizeError(error);
+  const message = String(
+    normalizedError.error?.message || normalizedError.message || "",
+  ).toLowerCase();
+
+  return (
+    message.includes("already") ||
+    message.includes("exists") ||
+    message.includes("已存在") ||
+    message.includes("重复")
+  );
+}
+
+function extractOneApiErrorMessage(rawData) {
+  if (!rawData) {
+    return "";
+  }
+
+  if (typeof rawData === "string") {
+    const text = rawData.trim();
+    if (!text) {
+      return "";
+    }
+
+    const lowered = text.toLowerCase();
+    if (lowered === "ok" || lowered === "success") {
+      return "";
+    }
+
+    return text;
+  }
+
+  if (typeof rawData !== "object") {
+    return "";
+  }
+
+  const candidates = [
+    rawData.message,
+    rawData.msg,
+    rawData.error,
+    rawData.errmsg,
+    rawData.detail,
+  ];
+  for (const candidate of candidates) {
+    const text = String(candidate || "").trim();
+    if (text) {
+      return text;
+    }
+  }
+
+  if (rawData.success === false) {
+    return "接口返回 success=false";
+  }
+
+  const numericCode = Number(rawData.code);
+  if (
+    Number.isFinite(numericCode) &&
+    numericCode !== 0 &&
+    numericCode !== 200
+  ) {
+    return `接口返回 code=${numericCode}`;
+  }
+
+  return "";
+}
+
+function normalizeWorkNumericPart(rawValue) {
+  return String(rawValue || "")
+    .trim()
+    .toUpperCase()
+    .replace(/^[A-Z]{2}/, "")
+    .replace(/^0+/, "");
+}
+
+function isSameOneWork(work, workCode, workId) {
+  if (!work || typeof work !== "object") {
+    return false;
+  }
+
+  const normalizedCode = String(workCode || "")
+    .trim()
+    .toUpperCase();
+  const expectedNumeric = normalizeWorkNumericPart(normalizedCode);
+  const expectedId = String(workId || "").trim();
+
+  const sourceId = String(work?.source_id || "")
+    .trim()
+    .toUpperCase();
+  const sourceNumeric = normalizeWorkNumericPart(sourceId);
+  const itemId = String(work?.id || "").trim();
+  const itemIdNumeric = String(itemId).replace(/^0+/, "");
+
+  if (normalizedCode && sourceId === normalizedCode) {
+    return true;
+  }
+
+  if (
+    expectedNumeric &&
+    (sourceNumeric === expectedNumeric || itemIdNumeric === expectedNumeric)
+  ) {
+    return true;
+  }
+
+  return Boolean(expectedId && itemId === expectedId);
+}
+
+async function isWorkInPlaylist(queueRuntimeConfig, workCode, workId) {
+  const playlistId = String(queueRuntimeConfig?.playlistId || "").trim();
+  if (!playlistId) {
+    return false;
+  }
+
+  const headers = {};
+  if (queueRuntimeConfig?.token) {
+    headers.Authorization = `Bearer ${queueRuntimeConfig.token}`;
+  }
+
+  const asmrClient = getAsmrClient();
+  const pageSize = 100;
+
+  for (let page = 1; page <= QUEUE_CHECK_MAX_PAGES; page += 1) {
+    const url =
+      "https://api.asmr.one/api/playlist/get-playlist-works" +
+      `?id=${encodeURIComponent(playlistId)}&page=${page}&pageSize=${pageSize}`;
+
+    try {
+      const response = await asmrClient.get(url, {
+        headers,
+        timeout: 30000,
+      });
+
+      const works = extractWorksArrayBasic(response?.data).filter(
+        (item) => item && typeof item === "object",
+      );
+      if (!works.length) {
+        return false;
+      }
+
+      if (works.some((work) => isSameOneWork(work, workCode, workId))) {
+        return true;
+      }
+
+      const totalCount = Number(response?.data?.pagination?.totalCount || 0);
+      if (works.length < pageSize) {
+        return false;
+      }
+
+      if (totalCount > 0 && page * pageSize >= totalCount) {
+        return false;
+      }
+    } catch (error) {
+      const normalizedError = normalizeError(error);
+      logger.warn(
+        `[tg-search-bot] 查询待翻译队列失败 playlist=${playlistId} page=${page}`,
+        normalizedError.message,
+      );
+      return false;
+    }
+  }
+
+  return false;
+}
+
+function buildQueuePlaylistUrl(queueRuntimeConfig) {
+  const playlistId = String(queueRuntimeConfig?.playlistId || "").trim();
+  if (!playlistId) {
+    return "";
+  }
+
+  return `https://asmr.one/playlist?id=${playlistId}`;
+}
+
+function buildMaskedQueueSuccessResult(queueRuntimeConfig) {
+  return {
+    success: true,
+    alreadyQueued: false,
+    playlistId: String(queueRuntimeConfig?.playlistId || "").trim(),
+    queueUrl: buildQueuePlaylistUrl(queueRuntimeConfig),
+    submittedIdentifier: "",
+    maskedByTag: true,
+  };
+}
+
+async function addWorkToTranslationQueue(
+  workCode,
+  queueRuntimeConfig,
+  matchedWork = null,
+) {
+  if (!queueRuntimeConfig?.token) {
+    return {
+      success: false,
+      error: "未配置 asmr.token，无法加入待翻译队列",
+    };
+  }
+
+  if (!queueRuntimeConfig?.playlistId) {
+    return {
+      success: false,
+      error: "未配置待翻译队列 playlistId",
+    };
+  }
+
+  const headers = {
+    Authorization: `Bearer ${queueRuntimeConfig.token}`,
+    "Content-Type": "application/json",
+  };
+  const asmrClient = getAsmrClient();
+  const matchedWorkId = String(matchedWork?.id || "").trim();
+  const candidateWorks = [
+    matchedWorkId,
+    String(matchedWork?.source_id || "")
+      .trim()
+      .toUpperCase(),
+    String(workCode || "")
+      .trim()
+      .toUpperCase(),
+  ].filter(Boolean);
+  const uniqueCandidates = [...new Set(candidateWorks)];
+
+  const attemptMessages = [];
+
+  for (const candidate of uniqueCandidates) {
+    try {
+      const response = await asmrClient.post(
+        ONE_QUEUE_ADD_WORKS_API,
+        {
+          id: queueRuntimeConfig.playlistId,
+          works: [candidate],
+        },
+        {
+          headers,
+          timeout: 30000,
+        },
+      );
+
+      if (!(response?.status >= 200 && response?.status < 300)) {
+        attemptMessages.push(
+          `${candidate}: HTTP ${response?.status || "unknown"}`,
+        );
+        continue;
+      }
+
+      const apiErrorMessage = extractOneApiErrorMessage(response?.data);
+      if (apiErrorMessage) {
+        if (isAlreadyInTranslationQueueError({ message: apiErrorMessage })) {
+          return {
+            success: true,
+            alreadyQueued: true,
+            playlistId: queueRuntimeConfig.playlistId,
+            queueUrl: buildQueuePlaylistUrl(queueRuntimeConfig),
+            submittedIdentifier: candidate,
+          };
+        }
+
+        attemptMessages.push(`${candidate}: ${apiErrorMessage}`);
+        continue;
+      }
+
+      confirmQueuedWorkInBackground(
+        queueRuntimeConfig,
+        workCode,
+        matchedWorkId || null,
+        candidate,
+      );
+
+      return {
+        success: true,
+        alreadyQueued: false,
+        playlistId: queueRuntimeConfig.playlistId,
+        queueUrl: buildQueuePlaylistUrl(queueRuntimeConfig),
+        submittedIdentifier: candidate,
+      };
+    } catch (error) {
+      if (isAlreadyInTranslationQueueError(error)) {
+        return {
+          success: true,
+          alreadyQueued: true,
+          playlistId: queueRuntimeConfig.playlistId,
+          queueUrl: buildQueuePlaylistUrl(queueRuntimeConfig),
+          submittedIdentifier: candidate,
+        };
+      }
+
+      const normalizedError = normalizeError(error);
+      attemptMessages.push(
+        `${candidate}: ${normalizedError.error?.message || normalizedError.message || "unknown error"}`,
+      );
+    }
+  }
+
+  return {
+    success: false,
+    error:
+      attemptMessages.length > 0
+        ? attemptMessages.join(" | ")
+        : "加入待翻译队列失败",
+  };
+}
+
+function confirmQueuedWorkInBackground(
+  queueRuntimeConfig,
+  workCode,
+  workId,
+  submittedIdentifier,
+) {
+  Promise.resolve()
+    .then(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      return await isWorkInPlaylist(queueRuntimeConfig, workCode, workId);
+    })
+    .then((confirmed) => {
+      if (confirmed) {
+        logger.info(
+          `[tg-search-bot] 待翻译队列后台确认成功 code=${workCode} submitted=${submittedIdentifier || "-"}`,
+        );
+        return;
+      }
+
+      logger.info(
+        `[tg-search-bot] 待翻译队列后台确认暂未命中 code=${workCode} submitted=${submittedIdentifier || "-"}`,
+      );
+    })
+    .catch((error) => {
+      const normalizedError = normalizeError(error);
+      logger.info(
+        `[tg-search-bot] 待翻译队列后台确认失败 code=${workCode} submitted=${submittedIdentifier || "-"}`,
+        normalizedError.message,
+      );
+    });
+}
+
+function buildQueueMessageSuffix(queueContext) {
+  if (!queueContext) {
+    return "";
+  }
+
+  const queueText = queueContext.alreadyQueued
+    ? "，已在待翻译队列"
+    : "，已加入待翻译队列";
+  const tags = Array.isArray(queueContext.tags) ? queueContext.tags : [];
+  const subtitleLabel = String(queueContext.subtitleLabel || "").trim();
+  const queueUrl = String(queueContext.queueUrl || "").trim();
+
+  const metaParts = [];
+  if (tags.length) {
+    const tagSnippet = tags.slice(0, 6).join("/");
+    const suffix = tags.length > 6 ? "..." : "";
+    metaParts.push(`Tag: ${tagSnippet}${suffix}`);
+  }
+
+  if (subtitleLabel) {
+    metaParts.push(subtitleLabel);
+  }
+
+  const metaText = metaParts.length ? `（${metaParts.join("；")}）` : "";
+
+  let queueLinkText = "";
+  if (queueUrl) {
+    queueLinkText = `，队列: ${queueUrl}`;
+  }
+
+  return `${queueText}${metaText}${queueLinkText}`;
+}
+
+function shouldAppendResultUrl(result) {
+  const url = String(result?.url || "").trim();
+  if (!url) {
+    return false;
+  }
+
+  const message = String(result?.message || "");
+  return !message.includes(url);
+}
+
+function logSearchPipelineStage(workCode, stage, status, detail = "") {
+  const suffix = String(detail || "").trim();
+  logger.info(
+    `[tg-search-bot] /search pipeline code=${workCode} stage=${stage} status=${status}${suffix ? ` ${suffix}` : ""}`,
+  );
+}
+
+function logSearchPipelineSkipStages(workCode, stages = [], reason = "") {
+  for (const stage of stages) {
+    logSearchPipelineStage(workCode, stage, "skip", reason);
+  }
+}
+
+function extractChannelUsernameFromTgLink(rawUrl) {
+  const normalizedUrl = String(rawUrl || "").trim();
+  const matched = normalizedUrl.match(
+    /^https?:\/\/t\.me\/([a-zA-Z][a-zA-Z0-9_]{4,})(?:\/\d+)?(?:[/?#].*)?$/i,
+  );
+  return matched ? matched[1] : "";
+}
+
+function getPreferredLinkChannelId(runtimeConfig = {}) {
+  const sourceChannelId = normalizeChannelId(runtimeConfig.sourceChannelId);
+  const sourceChannelUsername = sourceChannelId.replace(/^@/, "");
+
+  if (/^[a-zA-Z][a-zA-Z0-9_]{4,}$/.test(sourceChannelUsername)) {
+    return `@${sourceChannelUsername}`;
+  }
+
+  const fallbackUsername = extractChannelUsernameFromTgLink(
+    runtimeConfig.prePackageLink,
+  );
+  if (fallbackUsername) {
+    return `@${fallbackUsername}`;
+  }
+
+  return sourceChannelId;
 }
 
 async function ensureHistoryLoaded(runtimeConfig) {
@@ -280,11 +1089,202 @@ function upsertHistory(rjCode, payload) {
   };
 }
 
-function getHistoryHit(rjCode) {
+function collectWorkCodesFromUploadRecord(record) {
+  const codeSet = new Set();
+  const candidates = [
+    record?.code,
+    record?.rjCode,
+    record?.sourceId,
+    record?.source_id,
+    record?.title,
+    record?.name,
+    record?.fileName,
+    record?.path,
+  ];
+
+  for (const candidate of candidates) {
+    extractRJCodes(candidate).forEach((code) => codeSet.add(code));
+
+    const normalizedCode = normalizeWorkCodeInput(candidate);
+    if (normalizedCode) {
+      codeSet.add(normalizedCode);
+    }
+  }
+
+  return [...codeSet];
+}
+
+function extractUploadRecordMessageId(record) {
+  const candidates = [
+    record?.titleMessageId,
+    record?.messageId,
+    record?.msgId,
+    record?.fileMessageId,
+  ];
+
+  for (const candidate of candidates) {
+    const normalizedId = normalizeMessageIdFromPayload(candidate);
+    if (normalizedId !== null) {
+      return normalizedId;
+    }
+  }
+
+  return null;
+}
+
+function resolveUploadHistoryChannelId(runtimeConfig, rawChannelId) {
+  const uploadChannelId = normalizeChannelId(rawChannelId);
+  if (!uploadChannelId) {
+    return getPreferredLinkChannelId(runtimeConfig);
+  }
+
+  const sourceChannelId = normalizeChannelId(runtimeConfig?.sourceChannelId);
+  if (
+    sourceChannelId &&
+    isSameChannel({ id: uploadChannelId }, runtimeConfig.sourceChannelId)
+  ) {
+    return getPreferredLinkChannelId(runtimeConfig);
+  }
+
+  return uploadChannelId;
+}
+
+export async function syncSearchHistoryFromUploadRecords(payload = {}) {
+  const runtimeConfig = getBotRuntimeConfig(getConfig());
+  if (!runtimeConfig.syncSearchCacheOnUpload) {
+    return {
+      success: true,
+      skipped: true,
+      reason: "botSyncSearchCacheOnUpload=false",
+      scannedRecords: 0,
+      matchedCodes: 0,
+      updatedCount: 0,
+      skippedNoCode: 0,
+      skippedNoMessageId: 0,
+      skippedNoLink: 0,
+      historyFilePath: runtimeConfig.historyFilePath,
+    };
+  }
+
+  const records = Array.isArray(payload?.uploadedFiles)
+    ? payload.uploadedFiles
+    : Array.isArray(payload?.records)
+      ? payload.records
+      : [];
+
+  if (!records.length) {
+    return {
+      success: true,
+      scannedRecords: 0,
+      matchedCodes: 0,
+      updatedCount: 0,
+      skippedNoCode: 0,
+      skippedNoMessageId: 0,
+      skippedNoLink: 0,
+      historyFilePath: runtimeConfig.historyFilePath,
+    };
+  }
+
+  await ensureHistoryLoaded(runtimeConfig);
+  const linkChannelId = resolveUploadHistoryChannelId(
+    runtimeConfig,
+    payload?.channelId || payload?.chatId || "",
+  );
+
+  let scannedRecords = 0;
+  let matchedCodes = 0;
+  let updatedCount = 0;
+  let skippedNoCode = 0;
+  let skippedNoMessageId = 0;
+  let skippedNoLink = 0;
+
+  for (const record of records) {
+    scannedRecords += 1;
+    const messageId = extractUploadRecordMessageId(record);
+    if (messageId === null) {
+      skippedNoMessageId += 1;
+      continue;
+    }
+
+    const codes = collectWorkCodesFromUploadRecord(record);
+    if (!codes.length) {
+      skippedNoCode += 1;
+      continue;
+    }
+
+    const linkSet = buildMessageLinksByEntity(null, linkChannelId, messageId);
+    if (!linkSet.primaryUrl) {
+      skippedNoLink += 1;
+      continue;
+    }
+
+    for (const code of codes) {
+      upsertHistory(code, {
+        url: linkSet.primaryUrl,
+        alternateUrls: linkSet.alternateUrls,
+        source: "upload_event",
+        messageId,
+      });
+      matchedCodes += 1;
+      updatedCount += 1;
+    }
+  }
+
+  if (updatedCount > 0) {
+    await persistHistory();
+  }
+
+  logger.info(
+    `[tg-search-bot] 上传记录同步索引 scanned=${scannedRecords} matched=${matchedCodes} updated=${updatedCount} skippedNoCode=${skippedNoCode} skippedNoMessageId=${skippedNoMessageId} skippedNoLink=${skippedNoLink} channel=${linkChannelId || "-"}`,
+  );
+
+  return {
+    success: true,
+    scannedRecords,
+    matchedCodes,
+    updatedCount,
+    skippedNoCode,
+    skippedNoMessageId,
+    skippedNoLink,
+    channelId: linkChannelId,
+    historyFilePath: runtimeConfig.historyFilePath,
+  };
+}
+
+function dedupeUrls(urls) {
+  return [...new Set(urls.filter(Boolean))];
+}
+
+function getHistoryHit(rjCode, sourceChannelId = "") {
   const hit = historyCache.history?.[rjCode];
   if (!hit) return null;
 
   if (typeof hit === "string") {
+    const legacyMessageId = normalizeMessageIdFromPayload(
+      String(hit).match(/\/(\d+)(?:[/?#].*)?$/)?.[1],
+    );
+
+    if (legacyMessageId !== null) {
+      const rebuiltLinkSet = buildMessageLinksByEntity(
+        null,
+        sourceChannelId,
+        legacyMessageId,
+      );
+      if (rebuiltLinkSet.primaryUrl) {
+        const mergedUrls = dedupeUrls([
+          rebuiltLinkSet.primaryUrl,
+          ...rebuiltLinkSet.alternateUrls,
+          hit,
+        ]);
+        return {
+          url: mergedUrls[0] || null,
+          alternateUrls: mergedUrls.slice(1),
+          source: "history",
+          updatedAt: "",
+        };
+      }
+    }
+
     return {
       url: hit,
       alternateUrls: [],
@@ -293,9 +1293,36 @@ function getHistoryHit(rjCode) {
     };
   }
 
+  const messageId = normalizeMessageIdFromPayload(hit?.messageId);
+  const baseAlternateUrls = getHistoryEntryAlternateUrls(hit);
+
+  if (messageId !== null) {
+    const rebuiltLinkSet = buildMessageLinksByEntity(
+      null,
+      sourceChannelId,
+      messageId,
+    );
+
+    if (rebuiltLinkSet.primaryUrl) {
+      const mergedUrls = dedupeUrls([
+        rebuiltLinkSet.primaryUrl,
+        ...rebuiltLinkSet.alternateUrls,
+        hit.url,
+        ...baseAlternateUrls,
+      ]);
+
+      return {
+        url: mergedUrls[0] || null,
+        alternateUrls: mergedUrls.slice(1),
+        source: hit.source || "history",
+        updatedAt: hit.updatedAt || "",
+      };
+    }
+  }
+
   return {
     url: hit.url,
-    alternateUrls: getHistoryEntryAlternateUrls(hit),
+    alternateUrls: baseAlternateUrls,
     source: hit.source || "history",
     updatedAt: hit.updatedAt || "",
   };
@@ -373,6 +1400,7 @@ async function searchRJInTelegramChannel(rjCode, runtimeConfig) {
   try {
     const client = await getConnectedClient();
     const entity = await resolveEntity(client, runtimeConfig.sourceChannelId);
+    const preferredLinkChannelId = getPreferredLinkChannelId(runtimeConfig);
 
     // 优先使用 Telegram 服务端 search，避免在客户端全量遍历频道历史
     const searchLimit = Math.max(
@@ -397,7 +1425,7 @@ async function searchRJInTelegramChannel(rjCode, runtimeConfig) {
 
         const linkSet = buildMessageLinksByEntity(
           entity,
-          runtimeConfig.sourceChannelId,
+          preferredLinkChannelId,
           messageId,
         );
         if (!linkSet.primaryUrl) {
@@ -440,7 +1468,7 @@ async function searchRJInTelegramChannel(rjCode, runtimeConfig) {
 
       const linkSet = buildMessageLinksByEntity(
         entity,
-        runtimeConfig.sourceChannelId,
+        preferredLinkChannelId,
         messageId,
       );
       if (!linkSet.primaryUrl) {
@@ -642,6 +1670,7 @@ export async function syncChannelHistoryToIndex(options = {}) {
   try {
     const client = await getConnectedClient();
     const entity = await resolveEntity(client, runtimeConfig.sourceChannelId);
+    const preferredLinkChannelId = getPreferredLinkChannelId(runtimeConfig);
 
     const iterator = client.iterMessages(entity, {
       limit: scanLimit,
@@ -669,7 +1698,7 @@ export async function syncChannelHistoryToIndex(options = {}) {
 
       const linkSet = buildMessageLinksByEntity(
         entity,
-        runtimeConfig.sourceChannelId,
+        preferredLinkChannelId,
         messageId,
       );
       const url = linkSet.primaryUrl;
@@ -923,7 +1952,7 @@ function refreshChannelHitInBackground(rjCode, runtimeConfig) {
     });
 }
 
-export async function handleSearchRequest(rawInput) {
+export async function handleSearchRequest(rawInput, options = {}) {
   const rjCode = normalizeWorkCodeInput(rawInput);
   if (!rjCode) {
     return {
@@ -932,11 +1961,33 @@ export async function handleSearchRequest(rawInput) {
     };
   }
 
+  const enableOneQueue = options.enableOneQueue === true;
+  logSearchPipelineStage(rjCode, "总览", "start", `queue=${enableOneQueue}`);
+
   const runtimeConfig = getBotRuntimeConfig(getConfig());
   await ensureHistoryLoaded(runtimeConfig);
 
-  const historyHit = getHistoryHit(rjCode);
+  const preferredLinkChannelId = getPreferredLinkChannelId(runtimeConfig);
+  logSearchPipelineStage(rjCode, SEARCH_PIPELINE_STAGE.history, "start");
+  const historyHit = getHistoryHit(rjCode, preferredLinkChannelId);
   if (historyHit?.url) {
+    logSearchPipelineStage(
+      rjCode,
+      SEARCH_PIPELINE_STAGE.history,
+      "hit",
+      `source=${historyHit.source || "-"}`,
+    );
+    logSearchPipelineSkipStages(
+      rjCode,
+      [
+        SEARCH_PIPELINE_STAGE.preset,
+        SEARCH_PIPELINE_STAGE.channel,
+        SEARCH_PIPELINE_STAGE.one,
+        SEARCH_PIPELINE_STAGE.queue,
+      ],
+      "reason=历史索引命中",
+    );
+    logSearchPipelineStage(rjCode, "总览", "done", "source=history");
     return {
       success: true,
       url: historyHit.url,
@@ -945,10 +1996,29 @@ export async function handleSearchRequest(rawInput) {
       source: historyHit.source,
     };
   }
+  logSearchPipelineStage(rjCode, SEARCH_PIPELINE_STAGE.history, "miss");
 
+  logSearchPipelineStage(rjCode, SEARCH_PIPELINE_STAGE.preset, "start");
   const presetResult = await searchRJInPresetFile(rjCode, runtimeConfig);
   if (presetResult) {
+    logSearchPipelineStage(
+      rjCode,
+      SEARCH_PIPELINE_STAGE.preset,
+      "hit",
+      `source=${presetResult.source || "-"}`,
+    );
     refreshChannelHitInBackground(rjCode, runtimeConfig);
+
+    logSearchPipelineSkipStages(
+      rjCode,
+      [
+        SEARCH_PIPELINE_STAGE.channel,
+        SEARCH_PIPELINE_STAGE.one,
+        SEARCH_PIPELINE_STAGE.queue,
+      ],
+      "reason=前置包命中",
+    );
+    logSearchPipelineStage(rjCode, "总览", "done", "source=preset");
 
     return {
       success: true,
@@ -958,9 +2028,17 @@ export async function handleSearchRequest(rawInput) {
       source: presetResult.source,
     };
   }
+  logSearchPipelineStage(rjCode, SEARCH_PIPELINE_STAGE.preset, "miss");
 
+  logSearchPipelineStage(rjCode, SEARCH_PIPELINE_STAGE.channel, "start");
   const channelResult = await searchRJInTelegramChannel(rjCode, runtimeConfig);
   if (channelResult?.url) {
+    logSearchPipelineStage(
+      rjCode,
+      SEARCH_PIPELINE_STAGE.channel,
+      "hit",
+      `source=${channelResult.source || "-"} messageId=${channelResult.messageId || "-"}`,
+    );
     upsertHistory(rjCode, {
       url: channelResult.url,
       alternateUrls: channelResult.alternateUrls || [],
@@ -968,6 +2046,13 @@ export async function handleSearchRequest(rawInput) {
       messageId: channelResult.messageId,
     });
     await persistHistory();
+
+    logSearchPipelineSkipStages(
+      rjCode,
+      [SEARCH_PIPELINE_STAGE.one, SEARCH_PIPELINE_STAGE.queue],
+      "reason=频道命中",
+    );
+    logSearchPipelineStage(rjCode, "总览", "done", "source=channel");
 
     return {
       success: true,
@@ -977,6 +2062,194 @@ export async function handleSearchRequest(rawInput) {
       source: channelResult.source,
     };
   }
+  logSearchPipelineStage(rjCode, SEARCH_PIPELINE_STAGE.channel, "miss");
+
+  if (enableOneQueue) {
+    logSearchPipelineStage(rjCode, SEARCH_PIPELINE_STAGE.one, "start");
+    const oneSearchResult = await searchWorkInOneByCode(rjCode);
+    if (!oneSearchResult.success) {
+      logSearchPipelineStage(
+        rjCode,
+        SEARCH_PIPELINE_STAGE.one,
+        "miss",
+        `reason=${oneSearchResult.error || "not_found"}`,
+      );
+      logSearchPipelineStage(
+        rjCode,
+        SEARCH_PIPELINE_STAGE.queue,
+        "skip",
+        "reason=One未命中",
+      );
+      logSearchPipelineStage(rjCode, "总览", "done", "source=not_found");
+      return {
+        success: false,
+        message: oneSearchResult.error || `One站未找到 ${rjCode}`,
+      };
+    }
+
+    const subtitleTarget = await resolveOneSubtitleTarget(
+      oneSearchResult.work,
+      rjCode,
+    ).catch((error) => {
+      const normalizedError = normalizeError(error);
+      logger.warn(
+        `[tg-search-bot] 查询 One 站字幕版本失败 code=${rjCode}`,
+        normalizedError.message,
+      );
+      return null;
+    });
+
+    if (subtitleTarget?.workUrl) {
+      logSearchPipelineStage(
+        rjCode,
+        SEARCH_PIPELINE_STAGE.one,
+        "hit",
+        `subtitle=${subtitleTarget.sourceId || "-"} lang=${subtitleTarget.lang || "-"}`,
+      );
+      logSearchPipelineStage(
+        rjCode,
+        SEARCH_PIPELINE_STAGE.queue,
+        "skip",
+        "reason=One字幕版本命中",
+      );
+      const subtitleHitMessage = buildOneSubtitleHitMessage(
+        rjCode,
+        subtitleTarget,
+      );
+
+      logger.info(
+        `[tg-search-bot] 本地未命中，One站字幕版本命中 code=${rjCode} subtitle=${subtitleTarget.sourceId || "-"} lang=${
+          subtitleTarget.lang || "-"
+        }`,
+      );
+
+      logSearchPipelineStage(rjCode, "总览", "done", "source=one_subtitle");
+
+      return {
+        success: true,
+        url: subtitleTarget.workUrl,
+        alternateUrls:
+          oneSearchResult.workUrl &&
+          oneSearchResult.workUrl !== subtitleTarget.workUrl
+            ? [oneSearchResult.workUrl]
+            : [],
+        message: subtitleHitMessage,
+        source: "one_subtitle",
+      };
+    }
+
+    logSearchPipelineStage(
+      rjCode,
+      SEARCH_PIPELINE_STAGE.one,
+      "hit_no_subtitle",
+      `work=${oneSearchResult.work?.source_id || rjCode}`,
+    );
+
+    const queueRuntimeConfig = getTranslationQueueRuntimeConfig(getConfig());
+    const blockedQueueTags = getBlockedQueueTags(oneSearchResult.tags);
+
+    if (blockedQueueTags.length) {
+      const queueResult = buildMaskedQueueSuccessResult(queueRuntimeConfig);
+      const oneQueueContext = {
+        workUrl: oneSearchResult.workUrl || "",
+        tags: oneSearchResult.tags || [],
+        alreadyQueued: false,
+        queueUrl: queueResult.queueUrl || "",
+        playlistId: queueResult.playlistId || "",
+        submittedIdentifier: "",
+      };
+
+      logSearchPipelineStage(
+        rjCode,
+        SEARCH_PIPELINE_STAGE.queue,
+        "masked_success",
+        `blockedTags=${blockedQueueTags.join("/")}`,
+      );
+
+      logger.info(
+        `[tg-search-bot] 本地未命中，One站命中特殊Tag并跳过真实入队 code=${rjCode} blockedTags=${blockedQueueTags.join("|")} playlist=${oneQueueContext.playlistId || "-"}`,
+      );
+
+      logSearchPipelineStage(rjCode, "总览", "done", "source=one_queue_masked");
+
+      return {
+        success: true,
+        url: oneQueueContext.queueUrl || oneQueueContext.workUrl,
+        alternateUrls: oneQueueContext.workUrl ? [oneQueueContext.workUrl] : [],
+        message: `本地未找到 ${rjCode}，已转入待翻译队列${buildQueueMessageSuffix(oneQueueContext)}`,
+        source: "one_queue_masked",
+      };
+    }
+
+    logSearchPipelineStage(
+      rjCode,
+      SEARCH_PIPELINE_STAGE.queue,
+      "start",
+      `playlist=${queueRuntimeConfig.playlistId || "-"}`,
+    );
+    const queueResult = await addWorkToTranslationQueue(
+      rjCode,
+      queueRuntimeConfig,
+      oneSearchResult.work,
+    );
+    if (!queueResult.success) {
+      logSearchPipelineStage(
+        rjCode,
+        SEARCH_PIPELINE_STAGE.queue,
+        "fail",
+        `reason=${queueResult.error || "unknown"}`,
+      );
+      logSearchPipelineStage(rjCode, "总览", "done", "source=queue_error");
+      return {
+        success: false,
+        message: `${rjCode} 在 One 站已找到，但加入待翻译队列失败：${queueResult.error}`,
+      };
+    }
+
+    const oneQueueContext = {
+      workUrl: oneSearchResult.workUrl || "",
+      tags: oneSearchResult.tags || [],
+      alreadyQueued: queueResult.alreadyQueued === true,
+      queueUrl: queueResult.queueUrl || "",
+      playlistId: queueResult.playlistId || "",
+      submittedIdentifier: queueResult.submittedIdentifier || "",
+    };
+
+    logSearchPipelineStage(
+      rjCode,
+      SEARCH_PIPELINE_STAGE.queue,
+      queueResult.alreadyQueued === true ? "already_queued" : "queued",
+      `playlist=${oneQueueContext.playlistId || "-"} submitted=${oneQueueContext.submittedIdentifier || "-"}`,
+    );
+
+    logger.info(
+      `[tg-search-bot] 本地未命中，One站已处理待翻译队列 code=${rjCode} playlist=${oneQueueContext.playlistId || "-"} submitted=${oneQueueContext.submittedIdentifier || "-"} alreadyQueued=${oneQueueContext.alreadyQueued} tags=${oneQueueContext.tags.length}`,
+    );
+
+    logSearchPipelineStage(rjCode, "总览", "done", "source=one_queue");
+
+    return {
+      success: true,
+      url: oneQueueContext.queueUrl || oneQueueContext.workUrl,
+      alternateUrls: oneQueueContext.workUrl ? [oneQueueContext.workUrl] : [],
+      message: `本地未找到 ${rjCode}，已转入待翻译队列${buildQueueMessageSuffix(oneQueueContext)}`,
+      source: "one_queue",
+    };
+  }
+
+  logSearchPipelineStage(
+    rjCode,
+    SEARCH_PIPELINE_STAGE.one,
+    "skip",
+    "reason=未启用One补链",
+  );
+  logSearchPipelineStage(
+    rjCode,
+    SEARCH_PIPELINE_STAGE.queue,
+    "skip",
+    "reason=未启用One补链",
+  );
+  logSearchPipelineStage(rjCode, "总览", "done", "source=not_found");
 
   return {
     success: false,
@@ -1064,7 +2337,7 @@ async function handleHelpCommand(msg) {
       `/info <编号> - 查询作品信息（例如 /info VJ123456）\n` +
       `群聊也支持：/search@BotName RJ123456 或 @BotName /search RJ123456\n` +
       `/help - 查看帮助\n\n` +
-      `搜索优先级：历史索引 -> 前置包缓存 -> 频道补充\n` +
+      `搜索优先级：历史索引 -> 前置包缓存 -> 频道补充 -> One站字幕版直返 -> 无字幕时转待翻译队列\n` +
       `信息查询优先级：本地缓存 JSON -> 实时抓取并回填缓存`,
   );
 }
@@ -1136,6 +2409,35 @@ function getNormalizedErrorMessage(error, fallback = "unknown error") {
     error?.message ||
     fallback
   );
+}
+
+function withOperationTimeout(task, timeoutMs, label = "操作") {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return Promise.resolve(task);
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(`${label} 超时，请稍后重试`));
+    }, timeoutMs);
+
+    Promise.resolve(task)
+      .then((value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
 }
 
 async function sendInfoReplyMessage({
@@ -1232,7 +2534,8 @@ function normalizeWorkCodeInput(rawText) {
   }
 
   if (NUMBER_ONLY_WORK_CODE_REGEX.test(input)) {
-    return `RJ${input}`;
+    const normalizedNumber = input.length === 7 ? `0${input}` : input;
+    return `RJ${normalizedNumber}`;
   }
 
   return null;
@@ -1258,22 +2561,17 @@ function extractPlainTextWorkCodes(rawText, maxCount = 3) {
 }
 
 function isSingleWorkCodeText(text) {
-  return Boolean(normalizeWorkCodeInput(text));
+  const input = String(text || "").trim();
+  if (!input) {
+    return false;
+  }
+
+  return /^(?:[RrVvBb][Jj]\d{6,8}|\d{6,8})$/.test(input);
 }
 
 function extractCodesFromPlainTextContext(msg, maxCount = 3) {
   const text = String(msg?.text || msg?.caption || "").trim();
-  const fromCurrent = extractPlainTextWorkCodes(text, maxCount);
-  if (fromCurrent.length > 0) {
-    return fromCurrent;
-  }
-
-  const repliedText = getTelegramMessageText(msg?.reply_to_message);
-  if (!repliedText) {
-    return [];
-  }
-
-  return extractPlainTextWorkCodes(repliedText, maxCount);
+  return extractPlainTextWorkCodes(text, maxCount);
 }
 
 function resolveAutomaticForwardOrigin(msg) {
@@ -1491,9 +2789,15 @@ async function handlePlainTextInfoMessage(msg) {
   if (!text || isCommandLikeMessage(text)) {
     return;
   }
+  if (!isSingleWorkCodeText(text)) {
+    logger.debug(
+      `[tg-search-bot] 纯文本消息非单独编号，跳过自动回复 message=${msg.message_id}`,
+    );
+    return;
+  }
 
   const runtimeConfig = getBotRuntimeConfig(getConfig());
-  const codes = extractCodesFromPlainTextContext(msg, 3);
+  const codes = extractCodesFromPlainTextContext(msg, 1);
   if (!codes.length) {
     logger.debug(
       `[tg-search-bot] 纯文本消息未匹配到 RJ/VJ/BJ，message=${msg.message_id}`,
@@ -1637,10 +2941,16 @@ async function handleSearchCommand(msg, match) {
   }
 
   try {
-    const result = await handleSearchRequest(rjCode);
+    const result = await withOperationTimeout(
+      handleSearchRequest(rjCode, {
+        enableOneQueue: true,
+      }),
+      SEARCH_COMMAND_TIMEOUT_MS,
+      `搜索 ${rjCode}`,
+    );
 
     const responseText = result.success
-      ? `\u2705 ${result.message}${result.url ? `\n${result.url}` : ""}`
+      ? `\u2705 ${result.message}${shouldAppendResultUrl(result) ? `\n${result.url}` : ""}`
       : `\u274c ${result.message}`;
 
     await bot.editMessageText(responseText, {
@@ -1679,6 +2989,7 @@ async function handleChannelPost(msg) {
   if (msg.date < botStartTimestamp) return;
 
   const runtimeConfig = getBotRuntimeConfig(getConfig());
+  const preferredLinkChannelId = getPreferredLinkChannelId(runtimeConfig);
   const sourceChannelMatched = isSameChannel(
     msg.chat,
     runtimeConfig.sourceChannelId,
@@ -1696,7 +3007,11 @@ async function handleChannelPost(msg) {
   if (sourceChannelMatched && rjCodes.length) {
     await ensureHistoryLoaded(runtimeConfig);
 
-    const linkSet = buildMessageLinksByChat(msg.chat, messageId);
+    const linkSet = buildMessageLinksByEntity(
+      { id: msg.chat?.id, username: msg.chat?.username },
+      preferredLinkChannelId,
+      messageId,
+    );
     if (!linkSet.primaryUrl) {
       logger.warn("[tg-search-bot] channel_post 包含 RJ 号，但无法构建链接");
       return;
@@ -2086,7 +3401,11 @@ export function setupTgSearchBotIPC() {
 
   ipcMain.handle("tg-bot-search", async (_event, rjCode) => {
     logger.debug(`[tg-search-bot] IPC 搜索请求: ${rjCode}`);
-    return await handleSearchRequest(rjCode);
+    return await withOperationTimeout(
+      handleSearchRequest(rjCode),
+      SEARCH_COMMAND_TIMEOUT_MS,
+      `搜索 ${normalizeWorkCodeInput(rjCode) || rjCode || "请求"}`,
+    );
   });
 
   ipcMain.handle("tg-bot-info", async (_event, code) => {

@@ -106,6 +106,59 @@ function formatLogMessage(moduleName, level, message) {
   return `[${timestamp}] [${level.toUpperCase()}] [${moduleName}] ${message}`;
 }
 
+function isBrokenPipeError(error) {
+  const code = String(error?.code || error?.errno || "").toUpperCase();
+  if (code === "EPIPE") {
+    return true;
+  }
+  const message = String(error?.message || error || "");
+  return message.includes("EPIPE");
+}
+
+let stdioBroken = false;
+let stdioGuardReady = false;
+
+function markStdioState(error) {
+  if (isBrokenPipeError(error)) {
+    stdioBroken = true;
+    return true;
+  }
+  return false;
+}
+
+function ensureStdioGuard() {
+  if (stdioGuardReady) {
+    return;
+  }
+  stdioGuardReady = true;
+
+  const onStreamError = (error) => {
+    markStdioState(error);
+  };
+
+  try {
+    process.stdout?.on?.("error", onStreamError);
+    process.stderr?.on?.("error", onStreamError);
+  } catch {
+    // ignore stream guard setup errors
+  }
+}
+
+ensureStdioGuard();
+
+function safeConsoleWrite(method, ...args) {
+  if (stdioBroken) {
+    return;
+  }
+  try {
+    method(...args);
+  } catch (error) {
+    if (!markStdioState(error)) {
+      throw error;
+    }
+  }
+}
+
 /**
  * 写入文件日志 (异步)
  */
@@ -124,7 +177,11 @@ async function writeToFile(message, type) {
     // 使用异步写入，不阻塞主线程
     await fs.promises.appendFile(logFilePath, message + "\n", "utf-8");
   } catch (e) {
-    console.error(`[Logger] Failed to write to log file (${type}):`, e);
+    safeConsoleWrite(
+      console.error,
+      `[Logger] Failed to write to log file (${type}):`,
+      e,
+    );
   }
 }
 
@@ -145,16 +202,16 @@ export function createLogSender(type) {
 
     switch (normalizedLevel) {
       case LOG_LEVEL.ERROR:
-        console.error(formattedMessage);
+        safeConsoleWrite(console.error, formattedMessage);
         break;
       case LOG_LEVEL.WARN:
-        console.warn(formattedMessage);
+        safeConsoleWrite(console.warn, formattedMessage);
         break;
       case LOG_LEVEL.DEBUG:
-        console.debug(formattedMessage);
+        safeConsoleWrite(console.debug, formattedMessage);
         break;
       default:
-        console.log(formattedMessage);
+        safeConsoleWrite(console.log, formattedMessage);
     }
 
     await writeToFile(formattedMessage, type);

@@ -86,6 +86,22 @@ export const validateWorkflowGraph = ({ workflow, nodeRegistry }) => {
   const graph = workflow?.graph || {};
   const nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
   const edges = Array.isArray(graph.edges) ? graph.edges : [];
+  const groups = Array.isArray(graph.groups)
+    ? graph.groups
+    : Array.isArray(workflow?.groups)
+      ? workflow.groups
+      : [];
+  const reroutes = Array.isArray(graph.reroutes)
+    ? graph.reroutes
+    : Array.isArray(workflow?.reroutes)
+      ? workflow.reroutes
+      : [];
+  const definitions =
+    workflow?.definitions && typeof workflow.definitions === "object"
+      ? workflow.definitions
+      : graph?.definitions && typeof graph.definitions === "object"
+        ? graph.definitions
+        : {};
   const errors = [];
   const warnings = [];
 
@@ -132,6 +148,7 @@ export const validateWorkflowGraph = ({ workflow, nodeRegistry }) => {
   });
 
   const edgeIdSet = new Set();
+  const edgeKeySet = new Set();
   edges.forEach((edge) => {
     if (!edge?.source || !edge?.target) {
       errors.push(
@@ -152,10 +169,76 @@ export const validateWorkflowGraph = ({ workflow, nodeRegistry }) => {
     }
 
     const edgeKey = `${edge.source}:${edge.target}:${edge.sourcePort || ""}:${edge.targetPort || ""}`;
-    if (edgeIdSet.has(edgeKey)) {
+    if (edgeKeySet.has(edgeKey)) {
       warnings.push(`检测到重复边定义: ${edge.source} -> ${edge.target}`);
     }
-    edgeIdSet.add(edgeKey);
+
+    edgeKeySet.add(edgeKey);
+
+    const edgeId =
+      typeof edge.id === "string" && edge.id.trim() ? edge.id.trim() : "";
+    if (edgeId) {
+      if (edgeIdSet.has(edgeId)) {
+        warnings.push(`检测到重复边 ID: ${edgeId}`);
+      }
+      edgeIdSet.add(edgeId);
+    }
+  });
+
+  const groupIdSet = new Set();
+  groups.forEach((group, index) => {
+    const groupId =
+      typeof group?.id === "string" && group.id.trim()
+        ? group.id.trim()
+        : `group-${index + 1}`;
+
+    if (groupIdSet.has(groupId)) {
+      warnings.push(`检测到重复分组 ID: ${groupId}`);
+    }
+    groupIdSet.add(groupId);
+
+    const groupNodes = Array.isArray(group?.nodes)
+      ? group.nodes
+      : Array.isArray(group?.nodeIds)
+        ? group.nodeIds
+        : [];
+    groupNodes.forEach((nodeId) => {
+      if (typeof nodeId !== "string" || !nodeMap.has(nodeId)) {
+        errors.push(
+          `分组 ${groupId} 引用了不存在的节点: ${String(nodeId || "")}`,
+        );
+      }
+    });
+  });
+
+  reroutes.forEach((reroute, index) => {
+    const rerouteId =
+      typeof reroute?.id === "string" && reroute.id.trim()
+        ? reroute.id.trim()
+        : `reroute-${index + 1}`;
+    const linkId =
+      typeof reroute?.linkId === "string" && reroute.linkId.trim()
+        ? reroute.linkId.trim()
+        : "";
+
+    if (linkId && !edgeIdSet.has(linkId)) {
+      warnings.push(`Reroute ${rerouteId} 引用了不存在的连线: ${linkId}`);
+    }
+  });
+
+  nodes.forEach((node) => {
+    const nodeId = typeof node?.id === "string" ? node.id : "";
+    const subgraphId =
+      typeof node?.subgraphId === "string" && node.subgraphId.trim()
+        ? node.subgraphId.trim()
+        : typeof node?.config?.subgraphId === "string" &&
+            node.config.subgraphId.trim()
+          ? node.config.subgraphId.trim()
+          : "";
+
+    if (subgraphId && !definitions[subgraphId]) {
+      errors.push(`节点 ${nodeId} 引用了不存在的子图: ${subgraphId}`);
+    }
   });
 
   const filteredEdges = edges.filter(

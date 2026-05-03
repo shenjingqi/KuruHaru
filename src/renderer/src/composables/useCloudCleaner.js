@@ -6,7 +6,14 @@ import {
   onCloudWorksUpdated,
   removeCloudWorksUpdatedListeners,
 } from "../api/asmrApi";
+import { saveFile } from "../api/dialogApi";
+import { writeFile } from "../api/localApi";
 import { tgReadRecentActivity } from "../api/tgApi";
+import {
+  aggregateCloudTagCounts,
+  getCloudTagNames,
+  getCloudTagSearchTerms,
+} from "../utils/cloudTagUtils";
 
 export const useCloudCleaner = () => {
   const cloudWorks = ref([]);
@@ -79,42 +86,31 @@ export const useCloudCleaner = () => {
     }
   };
 
+  const getTags = (item) => getCloudTagNames(item?.tags);
+
+  const getTagSearchTerms = (item) => getCloudTagSearchTerms(item?.tags);
+
+  const matchesSelectedTags = (item) => {
+    const tagList = getTags(item);
+    if (selectedTags.value.length === 0) {
+      return true;
+    }
+
+    if (tagMode.value === "OR") {
+      return selectedTags.value.some((tag) => tagList.includes(tag));
+    }
+
+    return selectedTags.value.every((tag) => tagList.includes(tag));
+  };
+
   const allTags = computed(() => {
-    const tags = new Set();
-    cloudWorks.value.forEach((work) => {
-      let tagList = work.tags;
-      if (typeof tagList === "string") {
-        try {
-          tagList = JSON.parse(tagList);
-        } catch {
-          tagList = [];
-        }
-      }
-      if (Array.isArray(tagList)) {
-        tagList.forEach((tag) => {
-          // 标签是对象，提取 name
-          const name = typeof tag === "string" ? tag : tag.name || "";
-          if (name) tags.add(name);
-        });
-      }
-    });
-    return Array.from(tags).slice(0, 20);
+    return allTagsWithCount.value.map((tag) => tag.name);
   });
 
   // 带数量的标签列表
-  const allTagsWithCount = computed(() => {
-    const tagCount = {};
-    cloudWorks.value.forEach((work) => {
-      const tags = getTags(work);
-      tags.forEach((tag) => {
-        tagCount[tag] = (tagCount[tag] || 0) + 1;
-      });
-    });
-    return Object.entries(tagCount)
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 20);
-  });
+  const allTagsWithCount = computed(() =>
+    aggregateCloudTagCounts(cloudWorks.value),
+  );
 
   // 清除标签筛选
   const clearTagFilter = () => {
@@ -141,13 +137,7 @@ export const useCloudCleaner = () => {
     }
 
     const idsToSelect = cloudWorks.value
-      .filter((w) => {
-        const tags = getTags(w);
-        if (tagMode.value === "OR") {
-          return selectedTags.value.some((t) => tags.includes(t));
-        }
-        return selectedTags.value.every((t) => tags.includes(t));
-      })
+      .filter(matchesSelectedTags)
       .map((w) => w.id);
 
     selectedCloudWorks.value = idsToSelect;
@@ -157,48 +147,69 @@ export const useCloudCleaner = () => {
     let result = cloudWorks.value;
 
     if (searchText.value) {
-      const key = searchText.value.toLowerCase();
+      const key = searchText.value.toLowerCase().trim();
       result = result.filter((w) => {
-        // 只匹配标题和编号
+        const tagTerms = getTagSearchTerms(w);
         const matchTitle = w.title?.toLowerCase().includes(key);
         const matchId = w.source_id?.toLowerCase().includes(key);
-        return matchTitle || matchId;
+        const matchTags = tagTerms.some((term) =>
+          String(term).toLowerCase().includes(key),
+        );
+        return matchTitle || matchId || matchTags;
       });
     }
 
     if (selectedTags.value.length > 0) {
-      result = result.filter((w) => {
-        const tagList = getTags(w);
-        // OR模式：满足任一标签
-        if (tagMode.value === "OR") {
-          return selectedTags.value.some((tag) => tagList.includes(tag));
-        }
-        // AND模式：满足全部标签
-        return selectedTags.value.every((tag) => tagList.includes(tag));
-      });
+      result = result.filter(matchesSelectedTags);
     }
 
     return result;
   });
 
-  const getTags = (item) => {
-    let tagList = item.tags;
-    if (typeof tagList === "string") {
-      try {
-        tagList = JSON.parse(tagList);
-      } catch {
-        tagList = [];
-      }
-    }
-    if (!Array.isArray(tagList)) return [];
+  const exportableRjCodes = computed(() => {
+    const seen = new Set();
 
-    // 标签是对象，提取 name 字段
-    return tagList
-      .map((tag) => {
-        if (typeof tag === "string") return tag;
-        return tag.name || "";
-      })
-      .filter(Boolean);
+    return displayedWorks.value
+      .map((work) => String(work?.source_id || "").trim())
+      .filter((code) => {
+        if (!code || seen.has(code)) {
+          return false;
+        }
+
+        seen.add(code);
+        return true;
+      });
+  });
+
+  const exportDisplayedRjCodes = async () => {
+    if (!exportableRjCodes.value.length) {
+      alert("当前列表暂无可导出的RJ号");
+      return;
+    }
+
+    try {
+      const result = await saveFile({
+        defaultPath: `cloud_works_rj_${new Date().toISOString().slice(0, 10)}.txt`,
+        filters: [{ name: "Text Files", extensions: ["txt"] }],
+      });
+
+      if (!result?.filePath) {
+        return;
+      }
+
+      const writeResult = await writeFile({
+        path: result.filePath,
+        content: exportableRjCodes.value.join("\n"),
+      });
+
+      if (!writeResult?.success) {
+        throw new Error(writeResult?.error || "写入失败");
+      }
+
+      alert(`已导出 ${exportableRjCodes.value.length} 个RJ号`);
+    } catch (error) {
+      alert(`导出失败: ${error.message}`);
+    }
   };
 
   const toggleSelect = (id) => {
@@ -264,6 +275,8 @@ export const useCloudCleaner = () => {
     clearTagFilter,
     toggleTag,
     displayedWorks,
+    exportableRjCodes,
+    exportDisplayedRjCodes,
     getTags,
     toggleSelect,
     selectAllDisplayed,

@@ -42,10 +42,11 @@ Renderer (Vue 3 + Pinia + Naive UI)
 
 ## 3. 主进程模块现状（代码实况）
 
-### 3.1 `src/main/modules/`（11 个文件）
+### 3.1 `src/main/modules/`（12 个文件）
 
 | 文件                      | 作用                                           |
 | ------------------------- | ---------------------------------------------- |
+| `asmr-audio-downloader.js` | ASMR 音声下载任务、过滤去重与 Aria2 推送       |
 | `asmr-localization.js`    | ASMR 数据抓取、云端/本地清理、中文列表相关 IPC |
 | `asmr-login.js`           | ASMR 登录相关 IPC                              |
 | `asmr.js`                 | ASMR 功能旧实现/兼容实现                       |

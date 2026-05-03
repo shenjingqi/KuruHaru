@@ -1,9 +1,10 @@
-import { ref, onMounted } from "vue";
+import { ref, onBeforeUnmount, onMounted } from "vue";
 import { tgInfoCacheBuild, tgInfoCacheStatus } from "../api/tgApi";
 import { openFile } from "../api/dialogApi";
 
 const RECENT_TXT_PATHS_KEY = "tg-info-cache-recent-txt-v1";
 const RECENT_TXT_PATHS_LIMIT = 6;
+const STATUS_AUTO_REFRESH_INTERVAL_MS = 60 * 1000;
 
 function loadRecentTxtPaths() {
   try {
@@ -38,6 +39,7 @@ export const useTgInfoCacheWorkflow = ({ message }) => {
   const statusResult = ref(null);
   const buildResult = ref(null);
   const recentTxtPaths = ref([]);
+  let statusRefreshTimer = null;
 
   const pushRecentTxtPath = (pathValue) => {
     const normalizedPath = String(pathValue || "").trim();
@@ -54,12 +56,17 @@ export const useTgInfoCacheWorkflow = ({ message }) => {
     saveRecentTxtPaths(deduped);
   };
 
-  const refreshStatus = async () => {
+  const refreshStatus = async (options = {}) => {
     isRefreshing.value = true;
     try {
-      statusResult.value = await tgInfoCacheStatus();
+      const outputFilePath = String(options.outputFilePath || "").trim();
+      statusResult.value = outputFilePath
+        ? await tgInfoCacheStatus({ outputFilePath })
+        : await tgInfoCacheStatus();
     } catch (error) {
-      message.error(`读取缓存状态失败: ${error.message}`);
+      if (options.silent !== true) {
+        message.error(`读取缓存状态失败: ${error.message}`);
+      }
     } finally {
       isRefreshing.value = false;
     }
@@ -107,7 +114,33 @@ export const useTgInfoCacheWorkflow = ({ message }) => {
         message.success(result.message || "作品信息缓存构建成功");
         pushRecentTxtPath(normalizedPath);
         inputFilePath.value = "";
-        await refreshStatus();
+        const outputFilePath = String(result.outputFilePath || "").trim();
+        const buildStats = result.stats || {};
+
+        // 构建接口已返回总记录数与文件大小，先乐观回填，再做一次磁盘状态刷新。
+        statusResult.value = {
+          ...(statusResult.value || {}),
+          success: true,
+          exists: true,
+          cacheFilePath:
+            outputFilePath ||
+            String(statusResult.value?.cacheFilePath || "").trim() ||
+            "",
+          records: Number.isFinite(Number(buildStats.total))
+            ? Number(buildStats.total)
+            : Number(statusResult.value?.records || 0),
+          fileSize: Number.isFinite(Number(buildStats.fileSize))
+            ? Number(buildStats.fileSize)
+            : Number(statusResult.value?.fileSize || 0),
+          maxFileSizeBytes: Number.isFinite(Number(buildStats.maxFileSizeBytes))
+            ? Number(buildStats.maxFileSizeBytes)
+            : Number(statusResult.value?.maxFileSizeBytes || 0),
+          maxFileSizeMB: Number.isFinite(Number(buildStats.maxFileSizeMB))
+            ? Number(buildStats.maxFileSizeMB)
+            : Number(statusResult.value?.maxFileSizeMB || 0),
+        };
+
+        await refreshStatus({ outputFilePath });
       } else {
         message.error(result?.error || result?.message || "构建失败");
       }
@@ -135,6 +168,17 @@ export const useTgInfoCacheWorkflow = ({ message }) => {
   onMounted(() => {
     recentTxtPaths.value = loadRecentTxtPaths();
     refreshStatus();
+
+    statusRefreshTimer = window.setInterval(() => {
+      refreshStatus({ silent: true });
+    }, STATUS_AUTO_REFRESH_INTERVAL_MS);
+  });
+
+  onBeforeUnmount(() => {
+    if (statusRefreshTimer) {
+      window.clearInterval(statusRefreshTimer);
+      statusRefreshTimer = null;
+    }
   });
 
   return {

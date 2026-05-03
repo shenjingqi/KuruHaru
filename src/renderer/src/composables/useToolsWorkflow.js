@@ -4,6 +4,7 @@ import { openDirectory, openFile } from "../api/dialogApi";
 import {
   extractFileNames as runExtractFileNames,
   cleanData as runCleanData,
+  cleanRecentUploadedSubtitles as runCleanRecentUploadedSubtitles,
   zipSubtitles,
 } from "../api/toolsApi";
 
@@ -23,6 +24,14 @@ export const useToolsWorkflow = () => {
   const deletedCodes = ref([]);
   const shouldDeleteFiles = ref(false); // 是否实际删除文件
 
+  // 最近上传本地清理
+  const recentUploadArchiveDir = ref("");
+  const recentUploadSubtitleDir = ref("");
+  const shouldDeleteRecentUploadedFiles = ref(false);
+  const isCleaningRecentUploaded = ref(false);
+  const recentUploadCleanupResult = ref("");
+  const recentUploadCleanupDetails = ref("");
+
   // 打包字幕功能
   const zipMediaPath = ref("");
   const zipOutputPath = ref("");
@@ -35,9 +44,11 @@ export const useToolsWorkflow = () => {
     if (cfg?.paths?.toolOutputDir) {
       outputPath.value = cfg.paths.toolOutputDir;
       zipOutputPath.value = cfg.paths.toolOutputDir;
+      recentUploadArchiveDir.value = cfg.paths.toolOutputDir;
     }
     if (cfg?.whisper?.targetPath) {
       zipMediaPath.value = cfg.whisper.targetPath;
+      recentUploadSubtitleDir.value = cfg.whisper.targetPath;
     }
   });
 
@@ -171,28 +182,111 @@ export const useToolsWorkflow = () => {
         outputDir: zipOutputPath.value || zipMediaPath.value,
       });
 
-      if (res.success) {
-        // 🟢 显示打包摘要和详细信息
-        let summary = `✅ ${res.msg}\n\n`;
-        if (res.results && res.results.length > 0) {
-          summary += "详细结果:\n";
-          res.results.forEach((r, i) => {
-            summary += `${i + 1}. ${r}\n`;
+      const buildZipDetails = (result, prefix) => {
+        let summary = `${prefix} ${result.msg || "未知结果"}`;
+        if (result.results && result.results.length > 0) {
+          summary += "\n\n详细结果:\n";
+          result.results.forEach((item, index) => {
+            summary += `${index + 1}. ${item}\n`;
           });
         }
-        zipResult.value = summary;
+        return summary;
+      };
+
+      if (res.success) {
+        zipResult.value = buildZipDetails(res, "✅");
         // 保存路径到配置
         await saveCustomPaths({
           whisperTargetPath: zipMediaPath.value,
           toolOutputDir: zipOutputPath.value || zipMediaPath.value,
         });
       } else {
-        zipResult.value = `❌ 失败: ${res.msg || "未知错误"}`;
+        zipResult.value = buildZipDetails(res, "❌");
       }
     } catch (e) {
       zipResult.value = `❌ 错误: ${e.message}`;
     } finally {
       isZipping.value = false;
+    }
+  };
+
+  const selectRecentUploadArchiveDir = async () => {
+    const res = await openDirectory();
+    if (res && res.filePath) {
+      recentUploadArchiveDir.value = res.filePath;
+    }
+  };
+
+  const selectRecentUploadSubtitleDir = async () => {
+    const res = await openDirectory();
+    if (res && res.filePath) {
+      recentUploadSubtitleDir.value = res.filePath;
+    }
+  };
+
+  const cleanRecentUploadedSubtitles = async () => {
+    if (!recentUploadArchiveDir.value || !recentUploadSubtitleDir.value) return;
+
+    isCleaningRecentUploaded.value = true;
+    recentUploadCleanupResult.value = "";
+    recentUploadCleanupDetails.value = "";
+
+    try {
+      const res = await runCleanRecentUploadedSubtitles({
+        archiveDir: recentUploadArchiveDir.value,
+        subtitleDir: recentUploadSubtitleDir.value,
+        deleteFiles: shouldDeleteRecentUploadedFiles.value === true,
+      });
+
+      if (res.success) {
+        const actionText = res.actuallyDeleted ? "已删除" : "预览";
+        recentUploadCleanupResult.value =
+          `✅ ${actionText}完成！最近上传 ${res.recentFileCount} 条，` +
+          `匹配压缩包 ${res.matchedArchiveCount} 个，匹配文件夹 ${res.matchedFolderCount} 个`;
+
+        const details = [];
+        details.push(`扫描压缩包目录文件数: ${res.scannedArchiveCount}`);
+        details.push(`扫描字幕根目录文件夹数: ${res.scannedFolderCount}`);
+        if (res.actuallyDeleted) {
+          details.push(`已删除压缩包: ${res.deletedArchiveCount}`);
+          details.push(`已删除文件夹: ${res.deletedFolderCount}`);
+        }
+        details.push("");
+        details.push("匹配到的压缩包:");
+        if (res.archiveMatches?.length > 0) {
+          res.archiveMatches.forEach((item) => details.push(`- ${item.path}`));
+        } else {
+          details.push("- (无)");
+        }
+        details.push("");
+        details.push("匹配到的文件夹:");
+        if (res.folderMatches?.length > 0) {
+          res.folderMatches.forEach((item) => details.push(`- ${item.path}`));
+        } else {
+          details.push("- (无)");
+        }
+
+        if (res.failedEntries?.length > 0) {
+          details.push("");
+          details.push("删除失败:");
+          res.failedEntries.forEach((item) =>
+            details.push(`- [${item.type}] ${item.path} :: ${item.error}`),
+          );
+        }
+
+        recentUploadCleanupDetails.value = details.join("\n");
+
+        await saveCustomPaths({
+          toolOutputDir: recentUploadArchiveDir.value,
+          whisperTargetPath: recentUploadSubtitleDir.value,
+        });
+      } else {
+        recentUploadCleanupResult.value = `❌ 失败: ${res.msg || "未知错误"}`;
+      }
+    } catch (e) {
+      recentUploadCleanupResult.value = `❌ 错误: ${e.message}`;
+    } finally {
+      isCleaningRecentUploaded.value = false;
     }
   };
 
@@ -208,6 +302,12 @@ export const useToolsWorkflow = () => {
     cleanResult,
     deletedCodes,
     shouldDeleteFiles,
+    recentUploadArchiveDir,
+    recentUploadSubtitleDir,
+    shouldDeleteRecentUploadedFiles,
+    isCleaningRecentUploaded,
+    recentUploadCleanupResult,
+    recentUploadCleanupDetails,
     zipMediaPath,
     zipOutputPath,
     isZipping,
@@ -218,6 +318,9 @@ export const useToolsWorkflow = () => {
     selectMainFile,
     selectCompareDir,
     cleanData,
+    selectRecentUploadArchiveDir,
+    selectRecentUploadSubtitleDir,
+    cleanRecentUploadedSubtitles,
     selectZipMediaPath,
     selectZipOutputPath,
     startZipSubtitles,

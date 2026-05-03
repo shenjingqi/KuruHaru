@@ -1128,21 +1128,23 @@ const handleFilterRjFromUrl = async (
       }
     }
 
-    // TXT比对筛选
-    let existingRjs = new Set();
+    // TXT比对筛选（支持 RJ / VJ / BJ）
+    let existingWorkCodes = new Set();
     if (compareFilePath && fs.existsSync(compareFilePath)) {
       const content = fs.readFileSync(compareFilePath, "utf-8");
       const lines = content.split("\n").filter((l) => l.trim());
-      existingRjs = collectRjNumbersFromLines(lines);
-      logger.info(`已读取TXT文件，包含 ${existingRjs.size} 个RJ号`);
+      existingWorkCodes = collectRjNumbersFromLines(lines);
+      logger.info(
+        `已读取TXT文件，包含 ${existingWorkCodes.size} 个可比对作品号`,
+      );
     }
 
-    // 筛选出不存在的RJ号（以 source_id 为主）
+    // 筛选出不存在于 TXT 的作品号
     const filteredWorks = works.filter(
-      (work) => !existingRjs.has(getWorkComparableRjNumber(work)),
+      (work) => !existingWorkCodes.has(getWorkComparableRjNumber(work)),
     );
 
-    logger.info(`TXT比对后剩余 ${filteredWorks.length} 个RJ号`);
+    logger.info(`TXT比对后剩余 ${filteredWorks.length} 个作品号`);
 
     return {
       success: true,
@@ -1266,36 +1268,110 @@ async function fetchSearchFromPage(_client, url, beforeDate) {
       return allItems.map(formatAsmrWorkData);
     }
 
-    // 带重试的获取单页函数
-    const fetchPageWithRetry = async (pageNum, maxRetries = 3) => {
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const pageRequestHeaders = getAsmrSearchBrowserHeaders({
+      includeCompression: false,
+    });
+    const pageCache = new Map([[1, Promise.resolve([...allItems])]]);
+    const SEARCH_PAGE_BATCH_DELAY_MS = 500;
+    const SEARCH_PAGE_RECOVERY_DELAY_MS = 1200;
+
+    // 带重试和缓存的获取单页函数
+    const fetchPageWithRetry = async (pageNum, options = {}) => {
+      const {
+        maxRetries = 3,
+        baseDelayMs = 2000,
+        useCache = true,
+      } = options;
+
+      if (useCache && pageCache.has(pageNum)) {
+        return pageCache.get(pageNum);
+      }
+
       const pageUrl = buildAsmrSearchPageUrl(baseUrl, pageNum);
+      const requestPromise = (async () => {
+        let lastError = null;
 
-      for (let retry = 0; retry < maxRetries; retry++) {
-        try {
-          const res = await asmrHttpClient.get(pageUrl, {
-            timeout: 30000,
-            headers: getAsmrSearchBrowserHeaders({
-              includeCompression: false,
-            }),
-          });
+        for (let retry = 0; retry < maxRetries; retry++) {
+          try {
+            const res = await asmrHttpClient.get(pageUrl, {
+              timeout: 30000,
+              headers: pageRequestHeaders,
+            });
 
-          const items = extractWorksArrayExtended(res.data);
-
-          logger.info(`第 ${pageNum}/${totalPages} 页: ${items.length} 个作品`);
-          return items;
-        } catch (e) {
-          if (retry < maxRetries - 1) {
-            const waitTime = (retry + 1) * 2000; // 重试间隔2秒起
-            logger.warn(
-              `第 ${pageNum} 页第 ${retry + 1} 次重试，等待 ${waitTime}ms...`,
-            );
-            await new Promise((resolve) => setTimeout(resolve, waitTime));
-          } else {
-            logger.warn(`第 ${pageNum} 页最终失败: ${e.message}`);
-            return [];
+            const items = extractWorksArrayExtended(res.data);
+            logger.info(`第 ${pageNum}/${totalPages} 页: ${items.length} 个作品`);
+            return items;
+          } catch (e) {
+            lastError = e;
+            if (retry < maxRetries - 1) {
+              const waitTime =
+                (retry + 1) * baseDelayMs + Math.floor(Math.random() * 400);
+              logger.warn(
+                `第 ${pageNum} 页第 ${retry + 1} 次重试，等待 ${waitTime}ms...`,
+              );
+              await sleep(waitTime);
+            }
           }
         }
+
+        throw new Error(
+          `服务器错误，请稍后重试 (${pageNum} 页: ${lastError?.message || "未知错误"})`,
+        );
+      })();
+
+      if (useCache) {
+        pageCache.set(pageNum, requestPromise);
+        requestPromise.catch(() => {
+          pageCache.delete(pageNum);
+        });
       }
+
+      return requestPromise;
+    };
+
+    const fetchPagesInBatches = async (pageNumbers, options = {}) => {
+      const {
+        batchSize = 4,
+        batchDelayMs = SEARCH_PAGE_BATCH_DELAY_MS,
+        maxRetries = 3,
+        baseDelayMs = 2000,
+        useCache = true,
+      } = options;
+
+      const results = new Map();
+      const failedPages = [];
+
+      for (let i = 0; i < pageNumbers.length; i += batchSize) {
+        const batchPages = pageNumbers.slice(i, i + batchSize);
+        const settledResults = await Promise.allSettled(
+          batchPages.map((pageNum) =>
+            fetchPageWithRetry(pageNum, {
+              maxRetries,
+              baseDelayMs,
+              useCache,
+            }),
+          ),
+        );
+
+        settledResults.forEach((result, index) => {
+          const pageNum = batchPages[index];
+          if (result.status === "fulfilled") {
+            results.set(pageNum, result.value);
+            return;
+          }
+          failedPages.push({
+            pageNum,
+            error: result.reason,
+          });
+        });
+
+        if (i + batchSize < pageNumbers.length && batchDelayMs > 0) {
+          await sleep(batchDelayMs);
+        }
+      }
+
+      return { results, failedPages };
     };
 
     // ========== 并行二分查找优化 ==========
@@ -1308,13 +1384,18 @@ async function fetchSearchFromPage(_client, url, beforeDate) {
       );
 
       const getOldestDateInPage = async (pageNum) => {
-        const items = await fetchPageWithRetry(pageNum);
-        if (!items || items.length === 0) return null;
-        const lastItem = items[items.length - 1];
-        const dateStr =
-          lastItem.date || lastItem.release_date || lastItem.release;
-        if (!dateStr) return null;
-        return new Date(dateStr);
+        try {
+          const items = await fetchPageWithRetry(pageNum);
+          if (!items || items.length === 0) return null;
+          const lastItem = items[items.length - 1];
+          const dateStr =
+            lastItem.date || lastItem.release_date || lastItem.release;
+          if (!dateStr) return null;
+          return new Date(dateStr);
+        } catch (pageError) {
+          logger.warn(`第 ${pageNum} 页日期探测失败: ${pageError.message}`);
+          return null;
+        }
       };
 
       logger.info(
@@ -1381,23 +1462,65 @@ async function fetchSearchFromPage(_client, url, beforeDate) {
     }
     // ========== 二分查找结束 ==========
 
-    // 并发获取其余页面（带重试和限流）
-    const pagePromises = [];
-
     logger.info(
       `将获取第 2-${maxPageToFetch} 页 (跳过 ${maxPageToFetch + 1}-${totalPages} 页)`,
     );
 
-    for (let page = 2; page <= maxPageToFetch; page++) {
-      pagePromises.push(fetchPageWithRetry(page));
+    if (maxPageToFetch >= 2) {
+      const pagesToFetch = [];
+      for (let page = 2; page <= maxPageToFetch; page++) {
+        pagesToFetch.push(page);
+      }
+
+      const batchSize = maxPageToFetch > 120 ? 4 : 6;
+      logger.info(
+        `分页抓取限流已启用: 每批 ${batchSize} 页，批间隔 ${SEARCH_PAGE_BATCH_DELAY_MS}ms`,
+      );
+
+      const { results: pageResults, failedPages } = await fetchPagesInBatches(
+        pagesToFetch,
+        { batchSize },
+      );
+
+      if (failedPages.length > 0) {
+        const failedPageNumbers = failedPages
+          .map(({ pageNum }) => pageNum)
+          .sort((a, b) => a - b);
+
+        logger.warn(
+          `批量抓取后仍有 ${failedPageNumbers.length} 页失败，降级为串行补抓: ${failedPageNumbers.join(", ")}`,
+        );
+
+        const recoveryFailures = [];
+        for (const pageNum of failedPageNumbers) {
+          try {
+            const items = await fetchPageWithRetry(pageNum, {
+              maxRetries: 5,
+              baseDelayMs: 4000,
+              useCache: false,
+            });
+            pageResults.set(pageNum, items);
+            await sleep(SEARCH_PAGE_RECOVERY_DELAY_MS);
+          } catch (recoveryError) {
+            recoveryFailures.push(
+              `${pageNum}(${recoveryError?.message || "未知错误"})`,
+            );
+          }
+        }
+
+        if (recoveryFailures.length > 0) {
+          throw new Error(
+            `搜索结果抓取不完整，以下页面仍失败: ${recoveryFailures.join(", ")}`,
+          );
+        }
+      }
+
+      for (let page = 2; page <= maxPageToFetch; page++) {
+        allItems.push(...(pageResults.get(page) || []));
+      }
+    } else {
+      logger.info(`无需额外获取分页数据`);
     }
-
-    const results = await Promise.all(pagePromises);
-
-    // 合并所有结果
-    results.forEach((items) => {
-      allItems.push(...items);
-    });
 
     logger.info(`总共获取 ${allItems.length} 个作品`);
 

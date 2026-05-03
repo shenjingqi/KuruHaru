@@ -2,6 +2,7 @@
   <div class="rj-filter rj-filter-theme">
     <div class="filter-header">
       <h2>🔢 RJ号筛选工具</h2>
+      <p class="filter-subtitle">TXT 比对支持 RJ / VJ / BJ，RJ 仍兼容纯数字行。</p>
     </div>
 
     <div class="filter-content">
@@ -49,7 +50,7 @@
             <input
               v-model="compareFilePath"
               type="text"
-              placeholder="输入TXT文件路径，包含已有RJ号（一行一个）"
+              placeholder="输入TXT文件路径，包含已有作品号（RJ/VJ/BJ，一行一个）"
               class="file-input"
             />
             <button class="browse-btn" @click="browseFile">浏览</button>
@@ -59,7 +60,7 @@
         <div class="compare-options">
           <label class="checkbox-option">
             <input v-model="excludeExisting" type="checkbox" />
-            <span>筛选出**不存在**于该TXT文件的RJ号</span>
+            <span>筛选出不存在于该TXT文件的作品号（RJ/VJ/BJ）</span>
           </label>
         </div>
       </div>
@@ -110,7 +111,7 @@
       <div v-if="resultList.length > 0" class="result-section">
         <div class="result-header">
           <h3>筛选结果</h3>
-          <span class="result-count">共 {{ resultList.length }} 个RJ号</span>
+          <span class="result-count">共 {{ resultList.length }} 个作品号</span>
         </div>
         <div class="result-list">
           <div
@@ -184,6 +185,12 @@ const {
   margin: 0;
   font-size: 24px;
   color: #333;
+}
+
+.filter-subtitle {
+  margin: 8px 0 0;
+  color: #666;
+  font-size: 13px;
 }
 
 .filter-content {

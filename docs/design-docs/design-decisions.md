@@ -62,8 +62,8 @@ Types → Config → Repo → DataAccess → Service → Runtime → UI
 
 **影响**
 
-- 测试基线固定为 20 tests（`errorHandler` 14 + `retry` 6）。
-- 错误处理从“分散处理”转为“标准化输出”。
+- 当时测试基线固定为 20 tests（`errorHandler` 14 + `retry` 6），当前已扩展为 42 tests。
+- 错误处理从“分散处理”转为“标准化输出”，当前 `normalizeError()` 兼容重复标准化与 TLS 握手失败等网络异常。
 
 ---
 

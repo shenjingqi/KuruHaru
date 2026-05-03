@@ -20,12 +20,28 @@
             }}
             MB）
           </div>
+          <div class="meta-item">
+            热缓存：{{ hotCacheEnabledText }}，模式：{{ hotCacheModeText }}
+          </div>
+          <div class="meta-item">
+            上次缓存检查：{{ hotCacheLastCheckedLabel }}
+          </div>
+          <div class="meta-item">
+            One 最近检测到更新：{{ hotCacheLastChangedLabel }}
+          </div>
+          <div class="meta-item">
+            One 持续未更新：{{ hotCacheStaleDurationLabel }}
+          </div>
+          <div class="meta-item">
+            最近同步结果：{{ hotCacheLastResultText }}
+          </div>
         </div>
 
         <div class="control-buttons">
           <n-button
             type="default"
             :loading="isRefreshing"
+            :disabled="isBuilding"
             @click="refreshStatus"
           >
             <template #icon>
@@ -114,6 +130,12 @@
                   {{ buildResult.stats.total }}
                 </div>
                 <div v-if="buildResult.stats" class="result-message">
+                  新增 {{ buildResult.stats.added || 0 }}，更新
+                  {{ buildResult.stats.updated || 0 }}，命中
+                  {{ buildResult.stats.skippedExisting || 0 }}，淘汰
+                  {{ buildResult.stats.evicted || 0 }}
+                </div>
+                <div v-if="buildResult.stats" class="result-message">
                   并发：{{ buildResult.stats.maxConcurrency || "-" }}
                 </div>
               </div>
@@ -149,6 +171,7 @@
 </template>
 
 <script setup>
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import {
   NButton,
   NCard,
@@ -168,6 +191,10 @@ import { useTgInfoCacheWorkflow } from "../composables/useTgInfoCacheWorkflow";
 
 const message = useMessage();
 const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"];
+const RELATIVE_TIME_REFRESH_MS = 60 * 1000;
+
+const nowTick = ref(Date.now());
+let relativeTimeTimer = null;
 
 const formatBytes = (rawValue) => {
   const bytes = Number(rawValue);
@@ -187,6 +214,85 @@ const formatBytes = (rawValue) => {
   return `${value.toFixed(fractionDigits)} ${BYTE_UNITS[unitIndex]}`;
 };
 
+const formatAbsoluteTime = (rawValue) => {
+  const timestamp = Number(rawValue);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+    return "暂无";
+  }
+
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(new Date(timestamp));
+};
+
+const formatRelativeDuration = (rawValue, options = {}) => {
+  const timestamp = Number(rawValue);
+  const fallbackText = options.fallbackText || "暂无";
+  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+    return fallbackText;
+  }
+
+  const diffMs = Math.max(0, nowTick.value - timestamp);
+  const diffMinutes = Math.floor(diffMs / (60 * 1000));
+  if (diffMinutes <= 0) {
+    return options.withSuffix === false ? "不到 1 分钟" : "刚刚";
+  }
+
+  if (diffMinutes < 60) {
+    return options.withSuffix === false
+      ? `${diffMinutes} 分钟`
+      : `${diffMinutes} 分钟前`;
+  }
+
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) {
+    return options.withSuffix === false
+      ? `${diffHours} 小时`
+      : `${diffHours} 小时前`;
+  }
+
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 30) {
+    return options.withSuffix === false ? `${diffDays} 天` : `${diffDays} 天前`;
+  }
+
+  const diffMonths = Math.floor(diffDays / 30);
+  return options.withSuffix === false
+    ? `${diffMonths} 个月`
+    : `${diffMonths} 个月前`;
+};
+
+const formatTimeWithRelative = (rawValue, options = {}) => {
+  const timestamp = Number(rawValue);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+    return options.fallbackText || "暂无";
+  }
+
+  return `${formatAbsoluteTime(timestamp)}（${formatRelativeDuration(timestamp)}）`;
+};
+
+const HOT_CACHE_MODE_MAP = {
+  active: "高频",
+  normal: "常规",
+  cool: "降频",
+};
+
+const HOT_CACHE_RESULT_MAP = {
+  idle: "等待首次同步",
+  disabled: "已关闭",
+  failed: "同步失败",
+  not_modified: "页面未变化（304）",
+  updated: "检测到页面更新并已写入缓存",
+  changed_skipped: "检测到页面更新，但因已有记录而跳过写入",
+  unchanged_payload: "接口返回成功，但页面内容未变",
+};
+
 const {
   isBuilding,
   isRefreshing,
@@ -200,6 +306,57 @@ const {
   buildCacheFromTxt,
   useRecentPath,
 } = useTgInfoCacheWorkflow({ message });
+
+const hotCacheEnabledText = computed(() =>
+  statusResult.value?.hotCache?.enabled === false ? "关闭" : "开启",
+);
+
+const hotCacheModeText = computed(() => {
+  const mode = String(statusResult.value?.hotCache?.mode || "").trim();
+  return HOT_CACHE_MODE_MAP[mode] || "未开始";
+});
+
+const hotCacheLastCheckedLabel = computed(() =>
+  formatTimeWithRelative(statusResult.value?.hotCache?.lastCheckedAt, {
+    fallbackText: "暂无检查记录",
+  }),
+);
+
+const hotCacheLastChangedLabel = computed(() =>
+  formatTimeWithRelative(statusResult.value?.hotCache?.lastChangedAt, {
+    fallbackText: "暂无更新记录",
+  }),
+);
+
+const hotCacheStaleDurationLabel = computed(() =>
+  formatRelativeDuration(statusResult.value?.hotCache?.lastChangedAt, {
+    fallbackText: "暂无更新记录",
+    withSuffix: false,
+  }),
+);
+
+const hotCacheLastResultText = computed(() => {
+  const hotCache = statusResult.value?.hotCache || {};
+  const resultText =
+    HOT_CACHE_RESULT_MAP[String(hotCache.lastResult || "").trim()] ||
+    hotCache.lastResult ||
+    "暂无";
+  const summaryText = String(hotCache.lastSyncSummary || "").trim();
+  return summaryText ? `${resultText}；${summaryText}` : resultText;
+});
+
+onMounted(() => {
+  relativeTimeTimer = window.setInterval(() => {
+    nowTick.value = Date.now();
+  }, RELATIVE_TIME_REFRESH_MS);
+});
+
+onBeforeUnmount(() => {
+  if (relativeTimeTimer) {
+    window.clearInterval(relativeTimeTimer);
+    relativeTimeTimer = null;
+  }
+});
 </script>
 
 <style scoped>

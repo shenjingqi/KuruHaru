@@ -12,6 +12,19 @@
     "session": "",
     "discussion": "",
     "channel": "",
+    "infoCachePath": "",
+    "infoRequestTimeoutMs": 20000,
+    "infoCacheMaxConcurrency": 5,
+    "infoCacheMaxFileSizeMB": 50,
+    "infoCachePersistOnFetch": true,
+    "infoHotCacheEnabled": true,
+    "infoHotCacheIntervalMs": 3600000,
+    "infoHotCacheActiveIntervalMs": 1200000,
+    "infoHotCacheCoolIntervalMs": 10800000,
+    "infoHotCacheActiveWindowMs": 86400000,
+    "infoHotCacheCoolAfterMs": 259200000,
+    "infoHotCachePageSize": 100,
+    "infoHotCacheStartupDelayMs": 1500,
     "proxyUrl": ""
   },
   "asmr": {
@@ -19,6 +32,7 @@
     "password": "",
     "token": "",
     "playlistId": "",
+    "translationQueuePlaylistId": "",
     "rememberMe": false,
     "proxyUrl": ""
   },

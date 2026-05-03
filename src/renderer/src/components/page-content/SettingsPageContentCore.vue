@@ -425,6 +425,18 @@
                 placeholder="a7868acf-..."
               />
             </div>
+            <div class="form-row">
+              <label class="form-label">待翻译队列 ID</label>
+              <input
+                v-model="config.asmr.translationQueuePlaylistId"
+                class="input"
+                placeholder="ea05fd39-..."
+              />
+              <span class="form-hint"
+                >`/search` 入待翻译队列优先使用此 ID；留空时回退到上方播放列表
+                ID</span
+              >
+            </div>
           </div>
           <div class="action-row">
             <button

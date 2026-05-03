@@ -1,7 +1,7 @@
 # Telegram Search Bot（Bot API 主线实现留存）
 
 > 状态: ✅ 已实现  
-> 最后更新: 2026-03-05
+> 最后更新: 2026-04-19
 
 本文档沉淀 Bot API 迁移完成后的稳定设计，用于替代仅存在于执行计划中的实现细节。
 
@@ -38,8 +38,8 @@ Webhook 模式要求配置 `tg.botWebhookUrl`。
 
 - `/start`
 - `/help`
-- `/search <编号>`（支持 `RJ/VJ/BJ`）
-- `/info <编号>`（支持 `RJ/VJ/BJ`，返回作品详情）
+- `/search <编号>`（支持 `RJ/VJ/BJ`；纯数字支持 6-8 位，7 位自动补 0）
+- `/info <编号>`（支持 `RJ/VJ/BJ`；纯数字支持 6-8 位，7 位自动补 0；返回作品详情）
 
 权限控制：`tg.botAllowedUsers` / `tg.botAllowedChats`。
 
@@ -55,9 +55,22 @@ Webhook 模式要求配置 `tg.botWebhookUrl`。
 2. **前置包内存索引命中**（`buildPresetIndexEntries`）
    - 命中后异步触发频道补充：`refreshChannelHitInBackground`
 3. **频道检索**（`searchRJInTelegramChannel`，需 User API 凭据）
-4. **未命中兜底提示**
+4. **本地未命中时检查 One 站字幕版本**（仅 Bot `/search` 命令）
+   - 调用 `https://api.asmr-200.com/api/search/{RJ}` 校验作品存在
+   - 存在时并行补充查询 `other_language_editions_in_db`
+   - 若当前作品或其多语言版本存在字幕，则优先返回对应字幕版 / 汉化 RJ 的作品页地址，不加入待翻译队列
+5. **确认无字幕版本时转 One 站待翻译队列**
+   - 调用 `https://api.asmr-200.com/api/playlist/add-works-to-playlist` 入队
+   - 入队成功后立即返回 tag 摘要与队列链接；playlist 是否可见改为后台补验，不再同步扫描完整队列阻塞 `/search`
+   - `/search` 命令增加超时兜底，避免消息长期停留在 `Searching ...`
+   - 若正文已包含同一队列链接，Bot 不再重复追加相同 URL
+   - 入队前会先检查 One 站 tag；若命中以下黑名单 tag，则对外仍返回“已转入待翻译队列”的成功提示，但不会实际调用入队 API：`BL/男同性恋`、`男性胸部`、`扶她`、`男子怀孕/出产`、`男無`、`人妖/双性人`、`GAY/男同`、`女性向`、`大男子主义`、`蕾丝/女同`、`性转换(TS)`、`男同性恋`、`百合`、`伪娘`、`同性爱者`
+6. **One 站也未命中时报错**
 
 > 对应消息：`暂未找到 RJxxxxxx，请在 one 站查看是否拥有，或在频道提出。`
+
+- `/search` 现在统一输出五段流水日志：`历史索引 / 前置包 / 频道 / One / 入队`。
+- 每段都会记录 `start / hit / miss / skip / fail` 等状态，方便直接从日志判断卡在哪一段。
 
 ## 3.1 作品详情链路（新增）
 
@@ -67,8 +80,28 @@ Webhook 模式要求配置 `tg.botWebhookUrl`。
 
 1. **作品缓存 JSON 命中**（`tg.infoCachePath`）
 2. **实时抓取**（DLSite Ajax 基础信息）
-3. **补充策略链**：DLSite 页面 -> DLWatcher -> ASMR.ONE
+3. **补充策略链**：DLSite 页面 / DLSite 预告页（announce） -> DLWatcher -> ASMR.ONE
 4. **抓取命中后自动回填缓存 JSON**（可由 `tg.infoCachePersistOnFetch` 关闭）
+
+- 当作品为 `announce` / 预告状态、Ajax 仅返回占位封面或字段不足时，会额外尝试抓取 DLSite 预告页 HTML。
+- 预告页补充字段包括：真实封面、作者、剧情、插画、声优、音乐、作品形式、文件形式、分类等。
+- TG Bot 详情消息会优先展示这些补充字段，减少预告作品只显示基础信息或 `No image` 的情况。
+- 当仅有 `announce` 预告页可用时，详情消息里的 `View on DLSite` 按钮会直接指向预告页，而不是正式 `work` 页面。
+- `/info` 的 `年龄指定` 会统一归一化为 `全年龄 / R15 / R18` 三档；旧缓存里的 `adult`、`general`、`R-15` 等历史值也会在读取与渲染时自动纠正。
+
+## 3.2 纯文本触发规则
+
+- 纯文本自动识别仅在消息内容是“单独一个编号”时触发（如 `RJ123456`、`1234567`）。
+- 不再从 `reply_to_message` 内容回溯提取编号，避免普通回复误触发信息回帖。
+- 文本里“包含编号但还有其它文字”不会触发自动回复。
+
+## 3.3 上传事件增量同步
+
+- 当字幕上传链路成功发送标题消息后，会提取 RJ/VJ/BJ 编号并增量写入 `/search` 历史索引。
+- 同步来源包含：
+  - 上传工具（`tg-upload-files`）
+  - 工作流节点（`tg.uploadSubtitles`）
+- 该同步是增量写入，不替代手动“频道历史全量同步”。
 
 ---
 
@@ -112,6 +145,21 @@ Webhook 模式要求配置 `tg.botWebhookUrl`。
 - 仅 `tg-info-cache.json`（纯文本/详情链路）启用文件大小上限控制。
 - 当写入后超出 `tg.infoCacheMaxFileSizeMB` 时，按记录更新时间从旧到新淘汰，直到不超限。
 - `/search` 使用的 `tg-bot-history.json` 不参与该淘汰逻辑，保持原行为不变。
+
+## 4.6 `asmr.one/works` 首页热缓存（新增）
+
+- 主进程启动后会异步拉取 `https://api.asmr.one/api/works?order=create_date&sort=desc&page=1&pageSize=100`。
+- 拉取结果直接增量写入 `tg-info-cache.json`，用于优先缓存封面图、标题、社团、价格、销量、评分、发售日、ASMR.ONE 在线听链接等字段。
+- 热缓存只向 `tg-info-cache.json` 新增缺失记录，不回写更新已有条目，也不替代既有的 DLSite / DLWatcher / ASMR.ONE 详情抓取链。
+- 热缓存写入时会同步归一化 `年龄指定`，避免 `adult` 等英文原始值直接出现在 TG `/info` 响应里。
+- 使用 `ETag / If-None-Match` 进行条件请求；未变化时走 `304`，避免反复下载整页数据。
+- 调度策略：
+  - 常态：每 1 小时检查一次
+  - 检测到页面变化后：24 小时内每 20 分钟检查一次
+  - 连续 72 小时无变化后：降频到每 3 小时检查一次
+- 自愈策略：
+  - 若实际检查时间超过当前理论间隔，主进程 watchdog 会自动补刷一次
+  - 电脑从休眠恢复后，主进程会立即补刷一次
 
 ---
 
@@ -177,11 +225,26 @@ Webhook 模式要求配置 `tg.botWebhookUrl`。
 - `botHistoryPath`
 - `botAutoStartOnStartup`
 - `botAutoSyncOnStartup`
+- `botSyncSearchCacheOnUpload`（默认 `true`，控制字幕上传后是否自动增量同步 `/search` 索引）
 - `infoCachePath`
 - `infoRequestTimeoutMs`
 - `infoCacheMaxConcurrency`
 - `infoCacheMaxFileSizeMB`
 - `infoCachePersistOnFetch`
+- `infoHotCacheEnabled`
+- `infoHotCacheIntervalMs`
+- `infoHotCacheActiveIntervalMs`
+- `infoHotCacheCoolIntervalMs`
+- `infoHotCacheActiveWindowMs`
+- `infoHotCacheCoolAfterMs`
+- `infoHotCachePageSize`
+- `infoHotCacheStartupDelayMs`
+
+`/search` 入待翻译队列依赖（`asmr`）：
+
+- `token`（Bearer Token）
+- `translationQueuePlaylistId`（优先使用；设置页可独立配置）
+- `playlistId`（兼容回退；当未配置 `translationQueuePlaylistId` 时自动使用）
 
 兼容保留旧字段（用于 User API 检索与历史行为兼容）：
 

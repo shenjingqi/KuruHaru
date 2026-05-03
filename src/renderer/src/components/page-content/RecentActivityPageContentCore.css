@@ -6,6 +6,16 @@
   gap: 18px;
   box-sizing: border-box;
   overflow: hidden;
+  --text-strong: var(--comp-text, var(--page-text-strong, #26251f));
+  --text-muted: var(--comp-muted, var(--page-text-muted, #86806f));
+  --surface-elevated: var(--comp-surface-1, var(--page-panel-bg, #fff));
+  --control-bg: var(--comp-control-bg, var(--page-control-bg, #fff));
+  --control-border: var(
+    --comp-control-border,
+    var(--page-control-border, #d5d8e0)
+  );
+  --accent-contrast: #fffdf4;
+  color: var(--text-strong);
 }
 
 .activity-header {
@@ -59,9 +69,9 @@
 .browse-btn,
 .page-btn,
 .cancel-btn {
-  border: 1px solid var(--page-control-border, #d5d8e0);
-  background: var(--page-control-bg, #fff);
-  color: var(--page-text-strong, #4e4d3e);
+  border: 1px solid var(--control-border);
+  background: var(--control-bg);
+  color: var(--text-strong);
 }
 
 .btn-secondary:hover:not(:disabled),
@@ -77,7 +87,7 @@
 .btn-primary {
   border: 1px solid transparent;
   background: var(--accent, #adb571);
-  color: #fff;
+  color: var(--accent-contrast);
 }
 
 .btn-primary:hover:not(:disabled) {
@@ -113,7 +123,7 @@
   margin-bottom: 8px;
   font-size: 14px;
   font-weight: 600;
-  color: var(--page-text-strong, #4e4d3e);
+  color: var(--text-strong);
 }
 
 .file-input-row {
@@ -191,13 +201,13 @@
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--page-text-muted, #9d9884);
+  color: var(--text-muted);
 }
 
 .stat-value {
   font-size: 24px;
   font-weight: 700;
-  color: var(--page-text-strong, #26251f);
+  color: var(--text-strong);
   line-height: 1;
 }
 
@@ -252,7 +262,7 @@
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: var(--page-text-strong, #2d2c22);
+  color: var(--text-strong);
 }
 
 .scanning-overlay {
@@ -291,7 +301,7 @@
   justify-content: center;
   gap: 10px;
   height: 300px;
-  color: var(--page-text-muted, #94a3b8);
+  color: var(--text-muted);
 }
 
 .empty-icon {
@@ -396,7 +406,8 @@
 
 .file-name {
   min-width: 0;
-  color: var(--page-text-strong, #26251f);
+  color: var(--text-strong);
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -404,7 +415,7 @@
 
 .file-date,
 .file-size {
-  color: var(--page-text-muted, #9d9884);
+  color: var(--text-muted);
   font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
@@ -453,7 +464,7 @@
 .page-info {
   font-size: 13px;
   font-weight: 700;
-  color: var(--page-text-muted, #9d9884);
+  color: var(--text-muted);
 }
 
 .concurrent-setting {
@@ -463,7 +474,7 @@
   margin-left: 16px;
   font-size: 12px;
   font-weight: 700;
-  color: var(--page-text-muted, #9d9884);
+  color: var(--text-muted);
 }
 
 .concurrent-input {
@@ -525,7 +536,7 @@
   justify-content: space-between;
   gap: 12px;
   font-size: 13px;
-  color: var(--page-text-muted, #9d9884);
+  color: var(--text-muted);
   margin-bottom: 10px;
 }
 

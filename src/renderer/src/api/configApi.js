@@ -1,13 +1,24 @@
-const configBridge = window.api.config || {};
+import { callBridge } from './bridge';
 
-const callConfig = (method, fallback, ...args) =>
-  typeof configBridge[method] === "function"
-    ? configBridge[method](...args)
-    : window.api[fallback](...args);
+export const loadConfig = () =>
+  callBridge({
+    namespace: 'config',
+    method: 'load',
+    fallbacks: ['loadConfig'],
+  });
 
-export const loadConfig = () => callConfig("load", "loadConfig");
-
-export const saveConfig = (config) => callConfig("save", "saveConfig", config);
+export const saveConfig = (config) =>
+  callBridge({
+    namespace: 'config',
+    method: 'save',
+    fallbacks: ['saveConfig'],
+    args: [config],
+  });
 
 export const saveCustomPaths = (paths) =>
-  callConfig("saveCustomPaths", "saveCustomPaths", paths);
+  callBridge({
+    namespace: 'config',
+    method: 'saveCustomPaths',
+    fallbacks: ['saveCustomPaths'],
+    args: [paths],
+  });

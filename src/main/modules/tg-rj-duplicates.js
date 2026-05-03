@@ -42,6 +42,8 @@ const DLSITE_INFO_BOT = {
   userId: "5870228865", // 可通过配置 tg.dlsiteInfoBotUserId 覆盖
 };
 
+const DELETE_BATCH_SIZE = 100;
+
 // ==========================================
 // 核心工具函数
 // ==========================================
@@ -926,6 +928,18 @@ async function deleteDuplicateMessages(messageIds) {
     const deletedMessageIds = [];
     const errors = [];
     const entityCache = new Map();
+    const messageStates = normalizedMessageIds.map((messageId) => {
+      const meta = lastScanMessageMeta.get(messageId) || null;
+
+      return {
+        messageId,
+        meta,
+        mirrorTarget: getMirrorDeleteTarget(meta, messageId, configuredChatId),
+        primaryAttempt: null,
+        mirrorFailure: null,
+        fallbackAttempt: null,
+      };
+    });
 
     const getEntityByChatId = async (chatId) => {
       if (!chatId) {
@@ -940,94 +954,297 @@ async function deleteDuplicateMessages(messageIds) {
       return cached;
     };
 
+    const createSuccessAttempt = (targetLabel, deleteId) => ({
+      success: true,
+      targetLabel,
+      deleteId,
+    });
+
+    const createFailureAttempt = (targetLabel, deleteId, errorOrDetail) => {
+      const detail =
+        errorOrDetail && typeof errorOrDetail.summary === "string"
+          ? errorOrDetail
+          : formatDeleteError(errorOrDetail);
+
+      return {
+        success: false,
+        targetLabel,
+        deleteId,
+        detail,
+      };
+    };
+
+    const createFailedAttemptLog = (attempt, fallbackDeleteId) => ({
+      target: attempt.targetLabel,
+      deleteId: attempt.deleteId ?? fallbackDeleteId,
+      code: attempt.detail?.code ?? null,
+      error: attempt.detail?.message || "Unknown",
+    });
+
+    const chunkDeleteIds = (deleteIds) => {
+      const chunks = [];
+
+      for (
+        let index = 0;
+        index < deleteIds.length;
+        index += DELETE_BATCH_SIZE
+      ) {
+        chunks.push(deleteIds.slice(index, index + DELETE_BATCH_SIZE));
+      }
+
+      return chunks;
+    };
+
+    const groupStatesByChatId = (states, getChatId) => {
+      const grouped = new Map();
+
+      for (const state of states) {
+        const chatId = getChatId(state);
+        if (!chatId) {
+          continue;
+        }
+
+        let bucket = grouped.get(chatId);
+        if (!bucket) {
+          bucket = [];
+          grouped.set(chatId, bucket);
+        }
+        bucket.push(state);
+      }
+
+      return grouped;
+    };
+
+    const tryDeleteBatch = async (targetEntity, targetLabel, deleteIds) => {
+      try {
+        await telegramClient.deleteMessages(targetEntity, deleteIds, {
+          revoke: true,
+        });
+        return {
+          success: true,
+          targetLabel,
+          deleteIds: [...deleteIds],
+        };
+      } catch (error) {
+        return createFailureAttempt(targetLabel, deleteIds[0] ?? null, error);
+      }
+    };
+
     const tryDeleteOnce = async (targetEntity, targetLabel, messageId) => {
       try {
         await telegramClient.deleteMessages(targetEntity, [messageId], {
           revoke: true,
         });
-        return { success: true, targetLabel, deleteId: messageId };
+        return createSuccessAttempt(targetLabel, messageId);
       } catch (error) {
-        return {
-          success: false,
-          targetLabel,
-          deleteId: messageId,
-          detail: formatDeleteError(error),
-        };
+        return createFailureAttempt(targetLabel, messageId, error);
       }
     };
 
-    for (const messageId of normalizedMessageIds) {
-      const meta = lastScanMessageMeta.get(messageId) || null;
-      const mirrorTarget = getMirrorDeleteTarget(
-        meta,
-        messageId,
-        configuredChatId,
-      );
-      const primaryAttempt = await tryDeleteOnce(
-        entity,
-        "configured-entity",
-        messageId,
-      );
+    const deleteStatesByTarget = async ({
+      states,
+      targetEntity,
+      targetLabel,
+      operationLabel,
+      getDeleteId,
+      onSuccess,
+      onFailure,
+    }) => {
+      const statesByDeleteId = new Map();
 
-      if (primaryAttempt.success) {
-        let mirrorFailure = null;
+      for (const state of states) {
+        const deleteId = normalizePositiveMessageId(getDeleteId(state));
+        if (deleteId === null) {
+          onFailure(
+            state,
+            createFailureAttempt(
+              targetLabel,
+              null,
+              new Error("无效的删除消息 ID"),
+            ),
+          );
+          continue;
+        }
 
-        if (mirrorTarget) {
-          try {
-            const mirrorEntity = await getEntityByChatId(mirrorTarget.chatId);
-            const mirrorAttempt = await tryDeleteOnce(
-              mirrorEntity,
-              `mirror-channel:${mirrorTarget.chatId}`,
-              mirrorTarget.messageId,
-            );
+        let bucket = statesByDeleteId.get(deleteId);
+        if (!bucket) {
+          bucket = [];
+          statesByDeleteId.set(deleteId, bucket);
+        }
+        bucket.push(state);
+      }
 
-            if (mirrorAttempt.success) {
-              logger.info(
-                `[接口日志] 消息 ID ${messageId} 已同步删除频道消息 chatId=${mirrorTarget.chatId}, messageId=${mirrorTarget.messageId}, reason=${mirrorTarget.reason}`,
-              );
-            } else {
-              mirrorFailure = {
-                detail: mirrorAttempt.detail,
-                attempts: [
-                  {
-                    target: primaryAttempt.targetLabel,
-                    deleteId: primaryAttempt.deleteId ?? messageId,
-                    code: null,
-                    error: "configured-entity deleted",
-                  },
-                  {
-                    target: mirrorAttempt.targetLabel,
-                    deleteId: mirrorAttempt.deleteId ?? mirrorTarget.messageId,
-                    code: mirrorAttempt.detail?.code ?? null,
-                    error: mirrorAttempt.detail?.message || "Unknown",
-                  },
-                ],
-                note: `配置实体删除成功，但频道镜像删除失败(chatId=${mirrorTarget.chatId}, messageId=${mirrorTarget.messageId}, reason=${mirrorTarget.reason})`,
-              };
+      for (const deleteIdChunk of chunkDeleteIds([
+        ...statesByDeleteId.keys(),
+      ])) {
+        const batchAttempt = await tryDeleteBatch(
+          targetEntity,
+          targetLabel,
+          deleteIdChunk,
+        );
+
+        if (batchAttempt.success) {
+          for (const deleteId of deleteIdChunk) {
+            for (const state of statesByDeleteId.get(deleteId) || []) {
+              onSuccess(state, deleteId);
             }
-          } catch (error) {
-            const detail = formatDeleteError(error);
-            mirrorFailure = {
-              detail,
+          }
+          continue;
+        }
+
+        logger.warn(
+          `[接口日志] ${operationLabel} 批量删除失败，降级为单条重试; target=${targetLabel}, size=${deleteIdChunk.length}, detail=${batchAttempt.detail.summary}`,
+        );
+
+        for (const deleteId of deleteIdChunk) {
+          const singleAttempt = await tryDeleteOnce(
+            targetEntity,
+            targetLabel,
+            deleteId,
+          );
+
+          for (const state of statesByDeleteId.get(deleteId) || []) {
+            if (singleAttempt.success) {
+              onSuccess(state, deleteId);
+            } else {
+              onFailure(state, singleAttempt);
+            }
+          }
+        }
+      }
+    };
+
+    await deleteStatesByTarget({
+      states: messageStates,
+      targetEntity: entity,
+      targetLabel: "configured-entity",
+      operationLabel: "配置实体",
+      getDeleteId: (state) => state.messageId,
+      onSuccess: (state, deleteId) => {
+        state.primaryAttempt = createSuccessAttempt(
+          "configured-entity",
+          deleteId,
+        );
+      },
+      onFailure: (state, attempt) => {
+        state.primaryAttempt = attempt;
+      },
+    });
+
+    const mirrorStateGroups = groupStatesByChatId(
+      messageStates.filter(
+        (state) => state.primaryAttempt?.success && state.mirrorTarget,
+      ),
+      (state) => state.mirrorTarget?.chatId,
+    );
+
+    for (const [chatId, states] of mirrorStateGroups.entries()) {
+      const targetLabel = `mirror-channel:${chatId}`;
+
+      try {
+        const mirrorEntity = await getEntityByChatId(chatId);
+
+        await deleteStatesByTarget({
+          states,
+          targetEntity: mirrorEntity,
+          targetLabel,
+          operationLabel: `频道镜像 chatId=${chatId}`,
+          getDeleteId: (state) => state.mirrorTarget?.messageId,
+          onSuccess: (state, deleteId) => {
+            logger.info(
+              `[接口日志] 消息 ID ${state.messageId} 已同步删除频道消息 chatId=${chatId}, messageId=${deleteId}, reason=${state.mirrorTarget.reason}`,
+            );
+          },
+          onFailure: (state, attempt) => {
+            state.mirrorFailure = {
+              detail: attempt.detail,
               attempts: [
                 {
-                  target: primaryAttempt.targetLabel,
-                  deleteId: primaryAttempt.deleteId ?? messageId,
+                  target: state.primaryAttempt.targetLabel,
+                  deleteId: state.primaryAttempt.deleteId ?? state.messageId,
                   code: null,
                   error: "configured-entity deleted",
                 },
-                {
-                  target: `mirror-channel:${mirrorTarget.chatId}`,
-                  deleteId: mirrorTarget.messageId,
-                  code: detail.code,
-                  error: detail.message,
-                },
+                createFailedAttemptLog(
+                  attempt,
+                  state.mirrorTarget?.messageId ?? state.messageId,
+                ),
               ],
-              note: `配置实体删除成功，但频道实体解析失败(chatId=${mirrorTarget.chatId})`,
+              note: `配置实体删除成功，但频道镜像删除失败(chatId=${chatId}, messageId=${state.mirrorTarget.messageId}, reason=${state.mirrorTarget.reason})`,
             };
-          }
-        }
+          },
+        });
+      } catch (error) {
+        const detail = formatDeleteError(error);
 
+        for (const state of states) {
+          state.mirrorFailure = {
+            detail,
+            attempts: [
+              {
+                target: state.primaryAttempt.targetLabel,
+                deleteId: state.primaryAttempt.deleteId ?? state.messageId,
+                code: null,
+                error: "configured-entity deleted",
+              },
+              {
+                target: targetLabel,
+                deleteId: state.mirrorTarget.messageId,
+                code: detail.code,
+                error: detail.message,
+              },
+            ],
+            note: `配置实体删除成功，但频道实体解析失败(chatId=${chatId})`,
+          };
+        }
+      }
+    }
+
+    const fallbackStateGroups = groupStatesByChatId(
+      messageStates.filter(
+        (state) => !state.primaryAttempt?.success && state.mirrorTarget,
+      ),
+      (state) => state.mirrorTarget?.chatId,
+    );
+
+    for (const [chatId, states] of fallbackStateGroups.entries()) {
+      const targetLabel = `sender-channel:${chatId}`;
+
+      try {
+        const fallbackEntity = await getEntityByChatId(chatId);
+
+        await deleteStatesByTarget({
+          states,
+          targetEntity: fallbackEntity,
+          targetLabel,
+          operationLabel: `频道回退 chatId=${chatId}`,
+          getDeleteId: (state) => state.mirrorTarget?.messageId,
+          onSuccess: (state, deleteId) => {
+            state.fallbackAttempt = createSuccessAttempt(targetLabel, deleteId);
+            logger.info(
+              `[接口日志] 消息 ID ${state.messageId} 在配置实体删除失败后，已通过频道回退删除成功(chatId=${chatId}, messageId=${deleteId}, reason=${state.mirrorTarget.reason})`,
+            );
+          },
+          onFailure: (state, attempt) => {
+            state.fallbackAttempt = attempt;
+          },
+        });
+      } catch (error) {
+        for (const state of states) {
+          state.fallbackAttempt = createFailureAttempt(
+            targetLabel,
+            state.mirrorTarget?.messageId ?? null,
+            error,
+          );
+        }
+      }
+    }
+
+    for (const state of messageStates) {
+      const { messageId, meta, mirrorTarget, primaryAttempt, mirrorFailure } =
+        state;
+
+      if (primaryAttempt?.success) {
         if (mirrorFailure) {
           logger.error(
             `[接口日志] 删除消息 ID ${messageId} 失败: ${mirrorFailure.detail.summary}; ${mirrorFailure.note}`,
@@ -1046,54 +1263,32 @@ async function deleteDuplicateMessages(messageIds) {
         deletedCount++;
         deletedMessageIds.push(messageId);
         logger.info(`成功删除消息 ID: ${messageId}`);
-
         continue;
       }
 
-      let fallbackAttempt = null;
+      if (state.fallbackAttempt?.success) {
+        deletedCount++;
+        deletedMessageIds.push(messageId);
+        continue;
+      }
 
-      if (mirrorTarget) {
-        try {
-          const fallbackEntity = await getEntityByChatId(mirrorTarget.chatId);
-
-          fallbackAttempt = await tryDeleteOnce(
-            fallbackEntity,
-            `sender-channel:${mirrorTarget.chatId}`,
-            mirrorTarget.messageId,
-          );
-
-          if (fallbackAttempt.success) {
-            deletedCount++;
-            deletedMessageIds.push(messageId);
-            logger.info(
-              `[接口日志] 消息 ID ${messageId} 在配置实体删除失败后，已通过频道回退删除成功(chatId=${mirrorTarget.chatId}, messageId=${mirrorTarget.messageId}, reason=${mirrorTarget.reason})`,
-            );
-            continue;
-          }
-        } catch (error) {
-          fallbackAttempt = {
-            success: false,
-            targetLabel: `sender-channel:${mirrorTarget.chatId}`,
-            deleteId: mirrorTarget.messageId,
-            detail: formatDeleteError(error),
-          };
-        }
-      } else if (meta?.senderType === "channel") {
+      if (!mirrorTarget && meta?.senderType === "channel") {
         logger.warn(
           `[接口日志] 消息 ID ${messageId} 删除失败且无频道映射，无法执行频道回退删除; senderId=${meta.senderId || "unknown"}, sourceChatId=${meta.sourceChatId || "unknown"}`,
         );
       }
 
-      const failedAttempts = [primaryAttempt, fallbackAttempt]
+      const failedAttempts = [primaryAttempt, state.fallbackAttempt]
         .filter(Boolean)
-        .map((attempt) => ({
-          target: attempt.targetLabel,
-          deleteId: attempt.deleteId ?? messageId,
-          code: attempt.detail?.code ?? null,
-          error: attempt.detail?.message || "Unknown",
-        }));
+        .map((attempt) =>
+          createFailedAttemptLog(attempt, mirrorTarget?.messageId ?? messageId),
+        );
 
-      const bestDetail = fallbackAttempt?.detail || primaryAttempt.detail;
+      const bestDetail =
+        state.fallbackAttempt?.detail ||
+        primaryAttempt?.detail ||
+        formatDeleteError(new Error("Unknown"));
+
       logger.error(
         `[接口日志] 删除消息 ID ${messageId} 失败: ${bestDetail.summary}${
           meta

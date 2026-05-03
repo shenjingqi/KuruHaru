@@ -121,6 +121,32 @@ describe("errorHandler.js", () => {
       expect(result.error.retryable).toBe(false);
     });
 
+    it("应该兼容已标准化错误对象", () => {
+      const normalized = normalizeError({
+        code: "ECONNREFUSED",
+        message: "Connection refused",
+      });
+      const result = normalizeError(normalized);
+
+      expect(result.success).toBe(false);
+      expect(result.error.type).toBe(ERROR_TYPE.NETWORK);
+      expect(result.message).toBe(result.error.message);
+      expect(result.code).toBe(result.error.code);
+    });
+
+    it("应该将 TLS 握手断开识别为网络错误", () => {
+      const error = {
+        message:
+          "Client network socket disconnected before secure TLS connection was established",
+      };
+      const result = normalizeError(error);
+
+      expect(result.success).toBe(false);
+      expect(result.error.type).toBe(ERROR_TYPE.NETWORK);
+      expect(result.error.code).toBe("NETWORK_ERROR");
+      expect(result.error.retryable).toBe(true);
+    });
+
     it("应该处理默认未知错误", () => {
       const error = {
         message: "Some unknown error",

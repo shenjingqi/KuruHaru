@@ -1,7 +1,7 @@
 ﻿import fs from "fs";
 import fsp from "fs/promises";
 import path from "path";
-import { ipcMain } from "electron";
+import { ipcMain, powerMonitor } from "electron";
 import { getConfig, getDataDir } from "./config";
 import { getHttpClient } from "./httpClient";
 import { normalizeError } from "../utils/errorHandler";
@@ -22,6 +22,17 @@ const DEFAULT_MAX_FILE_SIZE_MB = 50;
 const MAX_FETCH_RETRIES = 3;
 const CACHE_STATE_TTL_MS = 5000;
 const CACHE_ENTRY_TS_FIELD = "__khCacheUpdatedAt";
+const HOT_CACHE_PAGE_SIZE = 100;
+const HOT_CACHE_PAGE_NUMBER = 1;
+const HOT_CACHE_DEFAULT_INTERVAL_MS = 60 * 60 * 1000;
+const HOT_CACHE_DEFAULT_ACTIVE_INTERVAL_MS = 20 * 60 * 1000;
+const HOT_CACHE_DEFAULT_COOL_INTERVAL_MS = 3 * 60 * 60 * 1000;
+const HOT_CACHE_DEFAULT_ACTIVE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const HOT_CACHE_DEFAULT_COOL_AFTER_MS = 72 * 60 * 60 * 1000;
+const HOT_CACHE_DEFAULT_STARTUP_DELAY_MS = 1500;
+const HOT_CACHE_STALE_GUARD_INTERVAL_MS = 60 * 1000;
+const ASMR_ONE_WORKS_API_URL = "https://api.asmr.one/api/works";
+const ASMR_ONE_WORK_PAGE_URL_PREFIX = "https://www.asmr.one/work/";
 
 const REQUEST_HEADERS = {
   "User-Agent":
@@ -29,6 +40,13 @@ const REQUEST_HEADERS = {
   Referer: "https://www.dlsite.com/",
   "Accept-Language": "zh-CN,zh;q=0.9",
   Cookie: "adult_checked=1; locale=zh_CN",
+};
+
+const ASMR_ONE_REQUEST_HEADERS = {
+  "User-Agent": REQUEST_HEADERS["User-Agent"],
+  Accept: "application/json, text/plain, */*",
+  Referer: "https://asmr.one/works",
+  "Accept-Language": REQUEST_HEADERS["Accept-Language"],
 };
 
 let cacheState = {
@@ -41,6 +59,22 @@ let cacheState = {
 
 let sharedClient = null;
 let sharedClientKey = "";
+let hotCacheTimer = null;
+let hotCacheWatchdogTimer = null;
+let hotCacheSyncTask = null;
+let hotCacheSchedulerStarted = false;
+let hotCacheStartupTask = null;
+let hotCacheResumeListenerRegistered = false;
+let hotCacheState = {
+  etag: "",
+  fingerprint: "",
+  lastCheckedAt: 0,
+  lastChangedAt: 0,
+  lastResult: "idle",
+  lastSyncSummary: "",
+  mode: "normal",
+  recentWorks: [],
+};
 
 function parsePositiveInt(
   rawValue,
@@ -109,6 +143,63 @@ export function getInfoCacheRuntimeConfig(config = getConfig()) {
     maxFileSizeBytes: maxFileSizeMB * 1024 * 1024,
     proxyUrl: pickProxyUrl(config),
     persistOnFetch: toSafeBoolean(tgConfig.infoCachePersistOnFetch, true),
+    hotCacheEnabled: toSafeBoolean(tgConfig.infoHotCacheEnabled, true),
+    hotCacheIntervalMs: parsePositiveInt(
+      tgConfig.infoHotCacheIntervalMs,
+      HOT_CACHE_DEFAULT_INTERVAL_MS,
+      {
+        min: 5 * 60 * 1000,
+        max: 24 * 60 * 60 * 1000,
+      },
+    ),
+    hotCacheActiveIntervalMs: parsePositiveInt(
+      tgConfig.infoHotCacheActiveIntervalMs,
+      HOT_CACHE_DEFAULT_ACTIVE_INTERVAL_MS,
+      {
+        min: 5 * 60 * 1000,
+        max: 12 * 60 * 60 * 1000,
+      },
+    ),
+    hotCacheCoolIntervalMs: parsePositiveInt(
+      tgConfig.infoHotCacheCoolIntervalMs,
+      HOT_CACHE_DEFAULT_COOL_INTERVAL_MS,
+      {
+        min: 30 * 60 * 1000,
+        max: 48 * 60 * 60 * 1000,
+      },
+    ),
+    hotCacheActiveWindowMs: parsePositiveInt(
+      tgConfig.infoHotCacheActiveWindowMs,
+      HOT_CACHE_DEFAULT_ACTIVE_WINDOW_MS,
+      {
+        min: 60 * 60 * 1000,
+        max: 7 * 24 * 60 * 60 * 1000,
+      },
+    ),
+    hotCacheCoolAfterMs: parsePositiveInt(
+      tgConfig.infoHotCacheCoolAfterMs,
+      HOT_CACHE_DEFAULT_COOL_AFTER_MS,
+      {
+        min: 6 * 60 * 60 * 1000,
+        max: 30 * 24 * 60 * 60 * 1000,
+      },
+    ),
+    hotCachePageSize: parsePositiveInt(
+      tgConfig.infoHotCachePageSize,
+      HOT_CACHE_PAGE_SIZE,
+      {
+        min: 1,
+        max: 100,
+      },
+    ),
+    hotCacheStartupDelayMs: parsePositiveInt(
+      tgConfig.infoHotCacheStartupDelayMs,
+      HOT_CACHE_DEFAULT_STARTUP_DELAY_MS,
+      {
+        min: 0,
+        max: 10 * 60 * 1000,
+      },
+    ),
   };
 }
 
@@ -137,6 +228,665 @@ function getSharedInfoHttpClient(runtimeConfig) {
   }
 
   return sharedClient;
+}
+
+function createAsmrOneHotCacheClient(runtimeConfig) {
+  const client = getHttpClient({
+    timeout: runtimeConfig.requestTimeoutMs,
+    proxyUrl: runtimeConfig.proxyUrl || null,
+  });
+
+  client.defaults.maxRedirects = 5;
+  client.defaults.validateStatus = () => true;
+  client.defaults.headers = {
+    ...(client.defaults.headers || {}),
+    ...ASMR_ONE_REQUEST_HEADERS,
+  };
+
+  return client;
+}
+
+function buildAsmrOneHotCacheUrl(runtimeConfig) {
+  const pageSize = Number(
+    runtimeConfig?.hotCachePageSize || HOT_CACHE_PAGE_SIZE,
+  );
+  return (
+    `${ASMR_ONE_WORKS_API_URL}?order=create_date&sort=desc` +
+    `&page=${HOT_CACHE_PAGE_NUMBER}&pageSize=${pageSize}`
+  );
+}
+
+function toComparableTimestamp(rawValue) {
+  const value = String(rawValue || "").trim();
+  if (!value) {
+    return 0;
+  }
+
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function buildAsmrOneWorkFingerprint(work = {}) {
+  return [
+    normalizeWorkCode(work?.source_id || "") ||
+      String(work?.source_id || "").trim(),
+    String(work?.create_date || "").trim(),
+    String(work?.release || "").trim(),
+    normalizeCoverUrl(
+      work?.mainCoverUrl || work?.samCoverUrl || work?.thumbnailCoverUrl,
+    ),
+  ].join("|");
+}
+
+function sortAsmrOneHotWorks(works = []) {
+  return [...works].sort((left, right) => {
+    const createDiff =
+      toComparableTimestamp(right?.create_date) -
+      toComparableTimestamp(left?.create_date);
+    if (createDiff !== 0) {
+      return createDiff;
+    }
+
+    const releaseDiff =
+      toComparableTimestamp(right?.release) -
+      toComparableTimestamp(left?.release);
+    if (releaseDiff !== 0) {
+      return releaseDiff;
+    }
+
+    return String(right?.source_id || "").localeCompare(
+      String(left?.source_id || ""),
+    );
+  });
+}
+
+function extractAsmrOneHotWorks(rawPayload) {
+  const works = Array.isArray(rawPayload?.works) ? rawPayload.works : [];
+  return sortAsmrOneHotWorks(
+    works.filter((item) => item && typeof item === "object"),
+  );
+}
+
+function normalizeAsmrOneVas(rawValue) {
+  const list = Array.isArray(rawValue) ? rawValue : [];
+  return [
+    ...new Set(
+      list.map((item) => String(item?.name || "").trim()).filter(Boolean),
+    ),
+  ];
+}
+
+function normalizeAsmrOneTags(rawValue) {
+  const list = Array.isArray(rawValue) ? rawValue : [];
+  return [
+    ...new Set(
+      list
+        .filter(
+          (item) =>
+            item?.voteStatus === undefined || Number(item.voteStatus) === 1,
+        )
+        .map((item) => String(item?.name || "").trim())
+        .filter(Boolean),
+    ),
+  ];
+}
+
+function buildAsmrOneListenOnlineUrl(workCode) {
+  const normalizedCode = normalizeWorkCode(workCode);
+  return normalizedCode
+    ? `${ASMR_ONE_WORK_PAGE_URL_PREFIX}${normalizedCode}`
+    : "";
+}
+
+function normalizeAgeCategoryLabel(rawAgeValue, rawAgeCategory = null) {
+  const ageMap = {
+    1: "全年龄",
+    2: "R15",
+    3: "R18",
+  };
+
+  const numericAge = Number(
+    rawAgeCategory ??
+      (typeof rawAgeValue === "number" || /^\d+$/.test(String(rawAgeValue || "").trim())
+        ? rawAgeValue
+        : NaN),
+  );
+  if (Number.isFinite(numericAge) && ageMap[numericAge]) {
+    return ageMap[numericAge];
+  }
+
+  const normalizedValue = String(rawAgeValue || "").trim();
+  if (!normalizedValue) {
+    return "";
+  }
+
+  const compactValue = normalizedValue.toLowerCase().replace(/[\s_-]+/g, "");
+  const aliasMap = {
+    allages: "全年龄",
+    general: "全年龄",
+    everyone: "全年龄",
+    safe: "全年龄",
+    r15: "R15",
+    adultonly15: "R15",
+    r18: "R18",
+    adult: "R18",
+    mature: "R18",
+    adultonly: "R18",
+  };
+
+  return aliasMap[compactValue] || normalizedValue;
+}
+
+function buildAsmrOneHotCacheEntry(work = {}) {
+  const workCode = normalizeWorkCode(work?.source_id || "");
+  if (!workCode) {
+    return null;
+  }
+
+  const entry = {
+    RJ: workCode,
+    标题: String(work?.title || "").trim(),
+    社团: String(work?.name || work?.circle?.name || "").trim(),
+    封面图: normalizeCoverUrl(
+      work?.mainCoverUrl || work?.samCoverUrl || work?.thumbnailCoverUrl,
+    ),
+    年龄指定: normalizeAgeCategoryLabel(
+      work?.age_category_string || work?.age_category,
+      work?.age_category,
+    ),
+    价格: work?.price,
+    销量: work?.dl_count,
+    评分: work?.rate_average_2dp,
+    发售日: String(work?.release || "").trim() || null,
+    声优: normalizeAsmrOneVas(work?.vas),
+    分类: normalizeAsmrOneTags(work?.tags),
+    在线试听: buildAsmrOneListenOnlineUrl(workCode),
+    DLSite链接: normalizeOptionalHttpUrl(work?.source_url),
+    来源: "ASMR.ONE/WorksHotCache",
+    收录日期: String(work?.create_date || "").trim() || null,
+    是否有字幕: work?.has_subtitle === true || work?.has_subtitle === 1,
+  };
+
+  if (entry.是否有字幕) {
+    entry.其他 = "ASMR.ONE 有字幕";
+  }
+
+  return withCacheTimestamp(entry);
+}
+
+function buildAsmrOneHotCacheWorkSummary(work = {}) {
+  const workCode = normalizeWorkCode(work?.source_id || "");
+  if (!workCode) {
+    return null;
+  }
+
+  return {
+    id: workCode,
+    title: String(work?.title || "").trim(),
+    circle: String(work?.name || work?.circle?.name || "").trim(),
+    createDate: String(work?.create_date || "").trim() || "",
+    releaseDate: String(work?.release || "").trim() || "",
+    coverUrl: normalizeCoverUrl(
+      work?.mainCoverUrl || work?.samCoverUrl || work?.thumbnailCoverUrl,
+    ),
+    hasSubtitle: work?.has_subtitle === true || work?.has_subtitle === 1,
+  };
+}
+
+function buildAsmrOneHotCacheFingerprint(works = []) {
+  return works.map((item) => buildAsmrOneWorkFingerprint(item)).join("\n");
+}
+
+function resolveHotCacheMode(runtimeConfig, now = Date.now()) {
+  if (
+    hotCacheState.lastChangedAt > 0 &&
+    now - hotCacheState.lastChangedAt < runtimeConfig.hotCacheActiveWindowMs
+  ) {
+    return "active";
+  }
+
+  if (
+    hotCacheState.lastChangedAt > 0 &&
+    now - hotCacheState.lastChangedAt >= runtimeConfig.hotCacheCoolAfterMs
+  ) {
+    return "cool";
+  }
+
+  return "normal";
+}
+
+function resolveHotCacheNextDelay(runtimeConfig, now = Date.now()) {
+  const mode = resolveHotCacheMode(runtimeConfig, now);
+  hotCacheState.mode = mode;
+
+  if (mode === "active") {
+    return runtimeConfig.hotCacheActiveIntervalMs;
+  }
+
+  if (mode === "cool") {
+    return runtimeConfig.hotCacheCoolIntervalMs;
+  }
+
+  return runtimeConfig.hotCacheIntervalMs;
+}
+
+function getHotCacheExpectedIntervalMs(runtimeConfig, now = Date.now()) {
+  const mode = resolveHotCacheMode(runtimeConfig, now);
+  hotCacheState.mode = mode;
+
+  if (mode === "active") {
+    return runtimeConfig.hotCacheActiveIntervalMs;
+  }
+
+  if (mode === "cool") {
+    return runtimeConfig.hotCacheCoolIntervalMs;
+  }
+
+  return runtimeConfig.hotCacheIntervalMs;
+}
+
+function isHotCacheStale(runtimeConfig, now = Date.now()) {
+  if (!runtimeConfig?.hotCacheEnabled) {
+    return false;
+  }
+
+  const expectedIntervalMs = getHotCacheExpectedIntervalMs(runtimeConfig, now);
+  const lastCheckedAt = Number(hotCacheState.lastCheckedAt || 0);
+
+  if (lastCheckedAt <= 0) {
+    return true;
+  }
+
+  return now - lastCheckedAt > expectedIntervalMs;
+}
+
+function clearHotCacheTimer() {
+  if (!hotCacheTimer) {
+    return;
+  }
+
+  clearTimeout(hotCacheTimer);
+  hotCacheTimer = null;
+}
+
+function clearHotCacheWatchdogTimer() {
+  if (!hotCacheWatchdogTimer) {
+    return;
+  }
+
+  clearInterval(hotCacheWatchdogTimer);
+  hotCacheWatchdogTimer = null;
+}
+
+function scheduleNextHotCacheSync(runtimeConfig) {
+  clearHotCacheTimer();
+
+  if (!runtimeConfig.hotCacheEnabled) {
+    logger.info("[tg-info-cache] 热缓存定时器已关闭");
+    return;
+  }
+
+  const delayMs = resolveHotCacheNextDelay(runtimeConfig);
+  hotCacheTimer = setTimeout(() => {
+    syncAsmrOneHotCachePage({ reason: "timer" })
+      .catch((error) => {
+        const normalizedError = normalizeError(error);
+        logger.warn(
+          "[tg-info-cache] 热缓存定时同步异常",
+          normalizedError.error?.message || normalizedError.message,
+        );
+      })
+      .finally(() => {
+        scheduleNextHotCacheSync(getInfoCacheRuntimeConfig(getConfig()));
+      });
+  }, delayMs);
+
+  if (typeof hotCacheTimer?.unref === "function") {
+    hotCacheTimer.unref();
+  }
+
+  logger.info(
+    `[tg-info-cache] 热缓存下次同步已计划 mode=${hotCacheState.mode} delayMs=${delayMs}`,
+  );
+}
+
+function scheduleHotCacheStaleGuard(runtimeConfig) {
+  clearHotCacheWatchdogTimer();
+
+  if (!runtimeConfig.hotCacheEnabled) {
+    return;
+  }
+
+  hotCacheWatchdogTimer = setInterval(() => {
+    const nextRuntimeConfig = getInfoCacheRuntimeConfig(getConfig());
+    if (!isHotCacheStale(nextRuntimeConfig)) {
+      return;
+    }
+
+    logger.warn("[tg-info-cache] 热缓存超过理论间隔，触发自动补刷");
+    triggerHotCacheSelfHealRefresh({ reason: "stale_guard" }).catch((error) => {
+      const normalizedError = normalizeError(error);
+      logger.warn(
+        "[tg-info-cache] 热缓存超时补刷失败",
+        normalizedError.error?.message || normalizedError.message,
+      );
+    });
+  }, HOT_CACHE_STALE_GUARD_INTERVAL_MS);
+
+  if (typeof hotCacheWatchdogTimer?.unref === "function") {
+    hotCacheWatchdogTimer.unref();
+  }
+}
+
+function registerHotCacheResumeRefresh() {
+  if (hotCacheResumeListenerRegistered) {
+    return;
+  }
+
+  if (!powerMonitor || typeof powerMonitor.on !== "function") {
+    return;
+  }
+
+  powerMonitor.on("resume", () => {
+    logger.info("[tg-info-cache] 检测到系统从休眠恢复，触发热缓存补刷");
+    triggerHotCacheSelfHealRefresh({ reason: "resume", force: true }).catch(
+      (error) => {
+        const normalizedError = normalizeError(error);
+        logger.warn(
+          "[tg-info-cache] 休眠恢复补刷失败",
+          normalizedError.error?.message || normalizedError.message,
+        );
+      },
+    );
+  });
+
+  hotCacheResumeListenerRegistered = true;
+}
+
+export function triggerHotCacheSelfHealRefresh(options = {}) {
+  const runtimeConfig = getInfoCacheRuntimeConfig(getConfig());
+  if (!runtimeConfig.hotCacheEnabled) {
+    return Promise.resolve({
+      success: true,
+      skipped: true,
+      reason: "hot_cache_disabled",
+    });
+  }
+
+  const forceRefresh = options.force === true;
+  const now = Date.now();
+  if (!forceRefresh && !isHotCacheStale(runtimeConfig, now)) {
+    return Promise.resolve({
+      success: true,
+      skipped: true,
+      reason: "hot_cache_not_stale",
+    });
+  }
+
+  clearHotCacheTimer();
+
+  return syncAsmrOneHotCachePage({
+    reason: options.reason || (forceRefresh ? "forced" : "stale_guard"),
+  }).finally(() => {
+    scheduleNextHotCacheSync(getInfoCacheRuntimeConfig(getConfig()));
+  });
+}
+
+async function fetchAsmrOneHotWorks(runtimeConfig) {
+  const client = createAsmrOneHotCacheClient(runtimeConfig);
+  const url = buildAsmrOneHotCacheUrl(runtimeConfig);
+  const requestHeaders = { ...ASMR_ONE_REQUEST_HEADERS };
+
+  if (hotCacheState.etag) {
+    requestHeaders["If-None-Match"] = hotCacheState.etag;
+  }
+
+  return await withRetry(
+    async () => {
+      const response = await client.get(url, {
+        headers: requestHeaders,
+        responseType: "json",
+      });
+
+      if (response.status === 304) {
+        return {
+          success: true,
+          notModified: true,
+          etag: hotCacheState.etag,
+          works: [],
+          response,
+        };
+      }
+
+      if (response.status >= 200 && response.status < 300) {
+        return {
+          success: true,
+          notModified: false,
+          etag: String(response.headers?.etag || "").trim(),
+          works: extractAsmrOneHotWorks(response.data),
+          response,
+        };
+      }
+
+      if (response.status >= 400 && response.status < 500) {
+        return {
+          success: false,
+          error: `HTTP ${response.status}`,
+          works: [],
+        };
+      }
+
+      const error = new Error(`HTTP ${response.status}`);
+      error.response = response;
+      throw error;
+    },
+    {
+      maxRetries: MAX_FETCH_RETRIES,
+      backoff: 600,
+      onRetry: (attempt, error) => {
+        logger.warn(
+          `[tg-info-cache] 热缓存请求重试(${attempt}/${MAX_FETCH_RETRIES}) ${url} ${error?.message || error}`,
+        );
+      },
+    },
+  );
+}
+
+export function syncAsmrOneHotCachePage(options = {}) {
+  if (hotCacheSyncTask) {
+    return hotCacheSyncTask;
+  }
+
+  hotCacheSyncTask = (async () => {
+    const runtimeConfig = {
+      ...getInfoCacheRuntimeConfig(getConfig()),
+    };
+
+    if (!runtimeConfig.hotCacheEnabled) {
+      hotCacheState.lastResult = "disabled";
+      return {
+        success: true,
+        skipped: true,
+        reason: "hot_cache_disabled",
+        outputFilePath: runtimeConfig.cacheFilePath,
+      };
+    }
+
+    const now = Date.now();
+    const fetchResult = await fetchAsmrOneHotWorks(runtimeConfig);
+    hotCacheState.lastCheckedAt = now;
+
+    if (!fetchResult.success) {
+      hotCacheState.lastResult = "failed";
+      hotCacheState.mode = resolveHotCacheMode(runtimeConfig, now);
+      return {
+        success: false,
+        error: fetchResult.error || "ASMR.ONE 热缓存同步失败",
+        outputFilePath: runtimeConfig.cacheFilePath,
+      };
+    }
+
+    if (fetchResult.notModified) {
+      hotCacheState.lastResult = "not_modified";
+      hotCacheState.mode = resolveHotCacheMode(runtimeConfig, now);
+      hotCacheState.lastSyncSummary = `304 Not Modified (${options.reason || "unknown"})`;
+      return {
+        success: true,
+        notModified: true,
+        pageSize: runtimeConfig.hotCachePageSize,
+        outputFilePath: runtimeConfig.cacheFilePath,
+      };
+    }
+
+    const works = fetchResult.works.slice(0, runtimeConfig.hotCachePageSize);
+    hotCacheState.recentWorks = works
+      .map((work) => buildAsmrOneHotCacheWorkSummary(work))
+      .filter(Boolean);
+
+    const nextFingerprint = buildAsmrOneHotCacheFingerprint(works);
+    const hadPreviousFingerprint = Boolean(hotCacheState.fingerprint);
+    const changed = nextFingerprint !== hotCacheState.fingerprint;
+
+    const outputEntries = await loadCacheEntries(runtimeConfig);
+
+    let added = 0;
+    let skippedExisting = 0;
+    let touched = 0;
+
+    works.forEach((work) => {
+      const hotEntry = buildAsmrOneHotCacheEntry(work);
+      if (!hotEntry) {
+        return;
+      }
+
+      touched += 1;
+      const existingEntry = outputEntries[hotEntry.RJ];
+      if (!existingEntry) {
+        outputEntries[hotEntry.RJ] = hotEntry;
+        added += 1;
+        return;
+      }
+
+      skippedExisting += 1;
+    });
+
+    let persistResult = {
+      evictedCodes: [],
+      fileSize: 0,
+      total: Object.keys(outputEntries).length,
+    };
+
+    if (added > 0) {
+      persistResult = await persistCacheEntries(runtimeConfig, outputEntries);
+    } else {
+      try {
+        const fileStats = await fsp.stat(runtimeConfig.cacheFilePath);
+        persistResult.fileSize = fileStats.size;
+      } catch {
+        persistResult.fileSize = 0;
+      }
+    }
+
+    hotCacheState.etag = fetchResult.etag || hotCacheState.etag;
+    hotCacheState.fingerprint = nextFingerprint;
+    if (changed && hadPreviousFingerprint) {
+      hotCacheState.lastChangedAt = now;
+      hotCacheState.mode = "active";
+    } else {
+      if (!hotCacheState.lastChangedAt) {
+        hotCacheState.lastChangedAt = now;
+        hotCacheState.mode = "normal";
+      } else {
+        hotCacheState.mode = resolveHotCacheMode(runtimeConfig, now);
+      }
+    }
+
+    hotCacheState.lastResult = changed
+      ? added > 0
+        ? "updated"
+        : "changed_skipped"
+      : "unchanged_payload";
+    hotCacheState.lastSyncSummary = `touched=${touched} added=${added} skippedExisting=${skippedExisting} total=${persistResult.total}`;
+
+    logger.info(
+      `[tg-info-cache] 热缓存同步完成 touched=${touched} added=${added} skippedExisting=${skippedExisting} changed=${changed} total=${persistResult.total}`,
+    );
+
+    return {
+      success: true,
+      changed,
+      touched,
+      added,
+      skippedExisting,
+      total: persistResult.total,
+      fileSize: persistResult.fileSize,
+      outputFilePath: runtimeConfig.cacheFilePath,
+      pageSize: runtimeConfig.hotCachePageSize,
+    };
+  })().finally(() => {
+    hotCacheSyncTask = null;
+  });
+
+  return hotCacheSyncTask;
+}
+
+export function startInfoCacheHotScheduler(options = {}) {
+  if (hotCacheSchedulerStarted) {
+    return (
+      hotCacheStartupTask ||
+      Promise.resolve({ success: true, alreadyStarted: true })
+    );
+  }
+
+  hotCacheSchedulerStarted = true;
+  hotCacheStartupTask = (async () => {
+    const runtimeConfig = getInfoCacheRuntimeConfig(getConfig());
+    if (!runtimeConfig.hotCacheEnabled) {
+      hotCacheState.lastResult = "disabled";
+      logger.info("[tg-info-cache] 热缓存启动已关闭，跳过执行");
+      return {
+        success: true,
+        skipped: true,
+        reason: "hot_cache_disabled",
+      };
+    }
+
+    const startupDelayMs =
+      typeof options.startupDelayMs === "number"
+        ? options.startupDelayMs
+        : runtimeConfig.hotCacheStartupDelayMs;
+
+    if (startupDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, startupDelayMs));
+    }
+
+    registerHotCacheResumeRefresh();
+    scheduleHotCacheStaleGuard(runtimeConfig);
+
+    const initialResult = await syncAsmrOneHotCachePage({ reason: "startup" });
+    scheduleNextHotCacheSync(getInfoCacheRuntimeConfig(getConfig()));
+    return initialResult;
+  })()
+    .catch((error) => {
+      const normalizedError = normalizeError(error);
+      hotCacheState.lastResult = "failed";
+      logger.error(
+        "[tg-info-cache] 热缓存启动异常",
+        normalizedError.error?.message || normalizedError.message,
+      );
+      registerHotCacheResumeRefresh();
+      scheduleHotCacheStaleGuard(getInfoCacheRuntimeConfig(getConfig()));
+      scheduleNextHotCacheSync(getInfoCacheRuntimeConfig(getConfig()));
+      return {
+        success: false,
+        error: normalizedError.error?.message || normalizedError.message,
+      };
+    })
+    .finally(() => {
+      hotCacheStartupTask = null;
+    });
+
+  return hotCacheStartupTask;
 }
 
 function toCacheTimestamp(rawValue, fallbackValue = Date.now()) {
@@ -244,10 +994,96 @@ function extractAnchorTexts(rawHtml) {
   return [...new Set(results)];
 }
 
+function extractMetaContent(rawHtml, attrName, attrValue) {
+  if (!rawHtml || !attrName || !attrValue) {
+    return "";
+  }
+
+  const escapedValue = String(attrValue).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(
+    `<meta[^>]*${attrName}=["']${escapedValue}["'][^>]*content=["']([^"']+)["'][^>]*>`,
+    "i",
+  );
+  const reversedPattern = new RegExp(
+    `<meta[^>]*content=["']([^"']+)["'][^>]*${attrName}=["']${escapedValue}["'][^>]*>`,
+    "i",
+  );
+
+  return (
+    rawHtml.match(pattern)?.[1] || rawHtml.match(reversedPattern)?.[1] || ""
+  );
+}
+
+function parseListOrTextValue(rawHtml, preferList = true) {
+  const anchorTexts = extractAnchorTexts(rawHtml);
+  if (preferList && anchorTexts.length) {
+    return anchorTexts;
+  }
+
+  const text = stripHtml(rawHtml);
+  if (!text) {
+    return preferList ? [] : "";
+  }
+
+  return preferList ? [text] : text;
+}
+
+function normalizeOutlineFieldKey(headerText) {
+  const key = String(headerText || "").trim();
+
+  switch (key) {
+    case "系列名":
+      return "系列";
+    case "作者":
+      return "作者";
+    case "剧情":
+    case "脚本":
+      return "剧情";
+    case "插画":
+      return "插画";
+    case "声优":
+      return "声优";
+    case "音乐":
+      return "音乐";
+    case "分类":
+      return "分类";
+    case "年龄指定":
+      return "年龄指定";
+    case "作品形式":
+      return "作品形式";
+    case "文件形式":
+      return "文件形式";
+    case "其他":
+      return "其他";
+    case "预告开始日期":
+      return "预告开始日期";
+    default:
+      return "";
+  }
+}
+
+function isOutlineListField(fieldKey) {
+  return ["作者", "剧情", "插画", "声优", "音乐", "分类"].includes(fieldKey);
+}
+
 function parseDlsiteHtml(rawHtml) {
   try {
     const content = String(rawHtml || "");
     const result = {};
+
+    const titleMatch = content.match(
+      /<h1[^>]*id=["']work_name["'][^>]*>([\s\S]*?)<\/h1>/i,
+    );
+    if (titleMatch?.[1]) {
+      result["标题"] = stripHtml(titleMatch[1]);
+    }
+
+    const coverUrl =
+      extractMetaContent(content, "property", "og:image") ||
+      extractMetaContent(content, "name", "twitter:image:src");
+    if (coverUrl) {
+      result["封面图"] = normalizeCoverUrl(coverUrl);
+    }
 
     const makerMatch = content.match(
       /<span[^>]*class=["'][^"']*maker_name[^"']*["'][^>]*>[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i,
@@ -255,6 +1091,13 @@ function parseDlsiteHtml(rawHtml) {
 
     if (makerMatch?.[1]) {
       result["社团"] = stripHtml(makerMatch[1]);
+    } else {
+      const makerTemplateMatch = content.match(
+        /data-maker-name=["']([^"']+)["']/i,
+      );
+      if (makerTemplateMatch?.[1]) {
+        result["社团"] = decodeHtmlEntities(makerTemplateMatch[1]).trim();
+      }
     }
 
     const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
@@ -271,12 +1114,12 @@ function parseDlsiteHtml(rawHtml) {
       }
 
       const headerText = stripHtml(headerMatch[1]);
-      if (headerText === "插画") {
-        result["插画"] = extractAnchorTexts(dataMatch[1]);
-      } else if (headerText === "声优") {
-        result["声优"] = extractAnchorTexts(dataMatch[1]);
-      } else if (headerText === "分类") {
-        result["分类"] = extractAnchorTexts(dataMatch[1]);
+      const normalizedKey = normalizeOutlineFieldKey(headerText);
+      if (normalizedKey) {
+        result[normalizedKey] = parseListOrTextValue(
+          dataMatch[1],
+          isOutlineListField(normalizedKey),
+        );
       }
 
       rowMatch = rowRegex.exec(content);
@@ -292,6 +1135,87 @@ function parseDlsiteHtml(rawHtml) {
     return Object.keys(normalized).length ? normalized : null;
   } catch {
     return null;
+  }
+}
+
+function isPlaceholderCoverUrl(rawUrl) {
+  const normalizedUrl = normalizeCoverUrl(rawUrl);
+  if (!normalizedUrl) {
+    return true;
+  }
+
+  return /\/no_img(?:_main)?\.gif(?:$|\?)/i.test(normalizedUrl);
+}
+
+function isEmptyInfoValue(value) {
+  if (Array.isArray(value)) {
+    return value.length === 0;
+  }
+
+  return value === null || value === undefined || String(value).trim() === "";
+}
+
+function mergeInfoValue(currentValue, nextValue) {
+  if (Array.isArray(nextValue) || Array.isArray(currentValue)) {
+    const merged = [
+      ...(Array.isArray(currentValue) ? currentValue : []),
+      ...(Array.isArray(nextValue) ? nextValue : [nextValue]),
+    ]
+      .map((item) => String(item || "").trim())
+      .filter(Boolean);
+
+    return [...new Set(merged)];
+  }
+
+  return nextValue;
+}
+
+function mergeSupplementalInfo(targetInfo, supplementalInfo) {
+  if (!targetInfo || typeof targetInfo !== "object" || !supplementalInfo) {
+    return;
+  }
+
+  Object.entries(supplementalInfo).forEach(([key, value]) => {
+    if (isEmptyInfoValue(value)) {
+      return;
+    }
+
+    if (key === "封面图") {
+      if (isPlaceholderCoverUrl(targetInfo[key])) {
+        targetInfo[key] = normalizeCoverUrl(value);
+      }
+      return;
+    }
+
+    if (isEmptyInfoValue(targetInfo[key])) {
+      targetInfo[key] = mergeInfoValue(targetInfo[key], value);
+      return;
+    }
+
+    if (Array.isArray(targetInfo[key]) || Array.isArray(value)) {
+      targetInfo[key] = mergeInfoValue(targetInfo[key], value);
+    }
+  });
+}
+
+function appendSourceTag(info, sourceTag) {
+  const normalizedTag = String(sourceTag || "").trim();
+  if (!normalizedTag) {
+    return;
+  }
+
+  const currentSource = String(info["来源"] || "").trim();
+  if (!currentSource) {
+    info["来源"] = normalizedTag;
+    return;
+  }
+
+  const parts = currentSource
+    .split("/")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (!parts.includes(normalizedTag)) {
+    info["来源"] = `${currentSource}/${normalizedTag}`;
   }
 }
 
@@ -363,15 +1287,9 @@ function normalizeCoverUrl(rawUrl) {
 }
 
 function mapAgeCategory(baseData) {
-  const ageMap = {
-    1: "全年龄",
-    2: "R-15",
-    3: "R-18",
-  };
-
-  const rawAge = baseData?.age_category;
-  return (
-    ageMap[rawAge] || baseData?.age_category_string || String(rawAge || "")
+  return normalizeAgeCategoryLabel(
+    baseData?.age_category_string || baseData?.age_category,
+    baseData?.age_category,
   );
 }
 
@@ -441,6 +1359,7 @@ async function fetchWorkInfoFromRemote(client, workCode) {
   }
 
   const rawDate = baseData?.regist_date || "";
+  const workUrl = `https://www.dlsite.com/maniax/work/=/product_id/${code}`;
 
   const info = {
     RJ: code,
@@ -462,6 +1381,7 @@ async function fetchWorkInfoFromRemote(client, workCode) {
   );
 
   let extraData = null;
+  let hasWorkDetailPage = false;
   let asmrSearchData = null;
 
   if (isSale) {
@@ -472,6 +1392,39 @@ async function fetchWorkInfoFromRemote(client, workCode) {
 
     if (htmlContent) {
       extraData = parseDlsiteHtml(htmlContent);
+      if (extraData) {
+        hasWorkDetailPage = true;
+        info["DLSite链接"] = workUrl;
+        info["DLSite页面类型"] = "work";
+      }
+    }
+  }
+
+  const shouldTryAnnouncePage =
+    !isSale ||
+    isPlaceholderCoverUrl(info["封面图"]) ||
+    !extraData?.["分类"] ||
+    !extraData?.["声优"] ||
+    !extraData?.["插画"];
+
+  if (shouldTryAnnouncePage) {
+    const announceUrl = `https://www.dlsite.com/maniax/announce/=/product_id/${code}.html/?locale=zh_CN`;
+    const announceHtml = await fetchDataWithRetry(client, announceUrl, {
+      responseType: "text",
+    });
+
+    if (announceHtml) {
+      const announceData = parseDlsiteHtml(announceHtml);
+      if (announceData) {
+        extraData = extraData || {};
+        mergeSupplementalInfo(extraData, announceData);
+        appendSourceTag(info, "Announce");
+        if (!hasWorkDetailPage) {
+          info["DLSite链接"] =
+            `https://www.dlsite.com/maniax/announce/=/product_id/${code}`;
+          info["DLSite页面类型"] = "announce";
+        }
+      }
     }
   }
 
@@ -523,15 +1476,7 @@ async function fetchWorkInfoFromRemote(client, workCode) {
   }
 
   if (extraData) {
-    Object.entries(extraData).forEach(([key, value]) => {
-      if (Array.isArray(value) && value.length === 0) {
-        return;
-      }
-
-      if (value !== null && value !== undefined && value !== "") {
-        info[key] = value;
-      }
-    });
+    mergeSupplementalInfo(info, extraData);
   }
 
   return withCacheTimestamp(info);
@@ -602,6 +1547,10 @@ async function loadCacheEntries(runtimeConfig, options = {}) {
         {
           ...item,
           RJ: normalizedCode,
+          年龄指定: normalizeAgeCategoryLabel(
+            item["年龄指定"] || item.age_category_string || item.age_category,
+            item.age_category,
+          ),
         },
         fileStats?.mtimeMs || now,
       );
@@ -963,6 +1912,39 @@ function resolveListenOnlineUrl(data, workCode) {
   return "";
 }
 
+function resolveDlsiteUrl(data, workCode) {
+  const explicitCandidates = [data?.["DLSite链接"], data?.dlsiteUrl];
+  const explicitUrl = explicitCandidates
+    .map((candidate) => normalizeOptionalHttpUrl(candidate))
+    .find(Boolean);
+
+  if (!workCode) {
+    return explicitUrl || "https://www.dlsite.com/";
+  }
+
+  const announceUrl = `https://www.dlsite.com/maniax/announce/=/product_id/${workCode}`;
+  const workUrl = `https://www.dlsite.com/maniax/work/=/product_id/${workCode}`;
+
+  const pageType = String(
+    data?.["DLSite页面类型"] || data?.dlsitePageType || "",
+  ).toLowerCase();
+
+  if (pageType === "announce") {
+    return announceUrl;
+  }
+
+  if (pageType === "work") {
+    return explicitUrl || workUrl;
+  }
+
+  const sourceText = String(data?.["来源"] || data?.source || "").toUpperCase();
+  if (sourceText.includes("ANNOUNCE")) {
+    return announceUrl;
+  }
+
+  return explicitUrl || workUrl;
+}
+
 function normalizeWorkCodeList(rawCodes, maxCodes = Number.MAX_SAFE_INTEGER) {
   if (!Array.isArray(rawCodes) || rawCodes.length === 0) {
     return [];
@@ -992,6 +1974,10 @@ export function formatWorkInfoMessage(rawData, rawCode) {
   const workCode =
     normalizeWorkCode(rawCode) || normalizeWorkCode(rawData?.RJ) || "";
   const data = rawData || {};
+  const ageCategoryText = normalizeAgeCategoryLabel(
+    data["年龄指定"] || data.age_category_string || data.age_category,
+    data.age_category,
+  );
 
   const priceValue = data["价格"];
   const priceText =
@@ -1004,10 +1990,16 @@ export function formatWorkInfoMessage(rawData, rawCode) {
     ["标题", escapeHtml(truncateText(data["标题"], 260))],
     ["社团", escapeHtml(truncateText(data["社团"], 120))],
     ["系列", escapeHtml(truncateText(data["系列"], 120))],
+    ["作者", escapeHtml(formatListField(data["作者"]))],
+    ["剧情", escapeHtml(formatListField(data["剧情"]))],
     ["插画", formatPixivLinks(data["插画"])],
     ["声优", escapeHtml(formatListField(data["声优"]))],
-    ["年龄指定", escapeHtml(data["年龄指定"])],
+    ["音乐", escapeHtml(formatListField(data["音乐"]))],
+    ["年龄指定", escapeHtml(ageCategoryText)],
+    ["作品形式", escapeHtml(truncateText(data["作品形式"], 120))],
+    ["文件形式", escapeHtml(truncateText(data["文件形式"], 120))],
     ["分类", escapeHtml(formatListField(data["分类"]))],
+    ["其他", escapeHtml(truncateText(data["其他"], 120))],
     ["价格", escapeHtml(priceText)],
     ["销量", escapeHtml(data["销量"])],
     ["评分", escapeHtml(data["评分"])],
@@ -1037,9 +2029,7 @@ export function formatWorkInfoMessage(rawData, rawCode) {
 
   linkButtons.push({
     text: "View on DLSite",
-    url: workCode
-      ? `https://www.dlsite.com/maniax/work/=/product_id/${workCode}`
-      : "https://www.dlsite.com/",
+    url: resolveDlsiteUrl(data, workCode),
   });
 
   const replyMarkup = {
@@ -1284,6 +2274,16 @@ export async function getInfoCacheStatus(options = {}) {
     records: Object.keys(entries).length,
     maxFileSizeMB: nextRuntimeConfig.maxFileSizeMB,
     maxFileSizeBytes: nextRuntimeConfig.maxFileSizeBytes,
+    hotCache: {
+      enabled: nextRuntimeConfig.hotCacheEnabled,
+      mode: hotCacheState.mode,
+      pageSize: nextRuntimeConfig.hotCachePageSize,
+      lastCheckedAt: hotCacheState.lastCheckedAt,
+      lastChangedAt: hotCacheState.lastChangedAt,
+      lastResult: hotCacheState.lastResult,
+      lastSyncSummary: hotCacheState.lastSyncSummary,
+      recentWorks: hotCacheState.recentWorks,
+    },
   };
 }
 

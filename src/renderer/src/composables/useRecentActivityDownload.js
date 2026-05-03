@@ -1,5 +1,5 @@
 import { ref } from "vue";
-import { tgDownloadFile } from "../api/tgApi";
+import { tgDownloadFiles } from "../api/tgApi";
 
 export const useRecentActivityDownload = ({ selectedFiles }) => {
   const isDownloading = ref(false);
@@ -7,12 +7,23 @@ export const useRecentActivityDownload = ({ selectedFiles }) => {
   const downloadedCount = ref(0);
   const skippedCount = ref(0);
   const downloadProgress = ref(0);
+  const downloadTotalCount = ref(0);
   const currentFile = ref("");
   const failedFiles = ref([]);
   const concurrentCount = ref(3);
+  const activeSessionId = ref(0);
+
+  const createSession = () => {
+    activeSessionId.value += 1;
+    return activeSessionId.value;
+  };
+
+  const isSessionActive = (sessionId) => activeSessionId.value === sessionId;
 
   const startDownload = async () => {
     if (selectedFiles.value.length === 0 || isDownloading.value) return;
+
+    const sessionId = createSession();
 
     isDownloading.value = true;
     downloadedCount.value = 0;
@@ -24,41 +35,67 @@ export const useRecentActivityDownload = ({ selectedFiles }) => {
 
     const filesToDownload = [...selectedFiles.value];
     const total = filesToDownload.length;
-    const maxConcurrent = concurrentCount.value;
+    const maxConcurrent = Math.min(
+      Math.max(Number(concurrentCount.value) || 1, 1),
+      10,
+    );
+    downloadTotalCount.value = total;
+    const totalBatches = Math.ceil(total / maxConcurrent);
     // 按批次并发下载：每批固定并发数，批间串行推进便于统计进度。
-
-    const downloadWorker = async (file) => {
-      if (isCancelled.value) return { success: false, file };
-
-      if (!file.name) {
-        console.warn(`[downloadWorker] File missing 'name', id=${file.id}`);
-        return { success: false, file, error: "文件缺少名称" };
-      }
-
-      try {
-        const result = await tgDownloadFile({
-          fileId: file.id,
-          fileName: file.name,
-          tgMessageId: file.tgMessageId,
-        });
-        return {
-          success: result.success,
-          skipped: result.skipped,
-          file,
-          error: result.error || result.msg,
-        };
-      } catch (e) {
-        return { success: false, file, error: e.message };
-      }
-    };
 
     try {
       for (let i = 0; i < total; i += maxConcurrent) {
         // 取消只在批次边界生效，避免中途打断已发出的请求 Promise。
-        if (isCancelled.value) break;
+        if (isCancelled.value || !isSessionActive(sessionId)) break;
 
         const batch = filesToDownload.slice(i, i + maxConcurrent);
-        const results = await Promise.all(batch.map(downloadWorker));
+        const batchIndex = Math.floor(i / maxConcurrent) + 1;
+        const invalidFiles = batch
+          .filter((file) => !file.name || !file.tgMessageId)
+          .map((file) => ({
+            success: false,
+            file,
+            error: !file.name ? "文件缺少名称" : "文件缺少 tgMessageId",
+          }));
+
+        const validItems = batch
+          .filter((file) => file.name && file.tgMessageId)
+          .map((file) => ({
+            fileId: file.id,
+            fileName: file.name,
+            tgMessageId: file.tgMessageId,
+          }));
+
+        const batchResult =
+          validItems.length > 0
+            ? await tgDownloadFiles({
+                batchIndex,
+                totalBatches,
+                items: validItems,
+                concurrency: maxConcurrent,
+              })
+            : { results: [] };
+
+        if (!isSessionActive(sessionId)) {
+          return;
+        }
+
+        const normalizedResults = (batchResult.results || []).map((result) => ({
+          success: result.success,
+          skipped: result.skipped,
+          file: batch.find(
+            (item) =>
+              item.tgMessageId === result.tgMessageId &&
+              item.id === result.fileId,
+          ) ||
+            batch.find((item) => item.tgMessageId === result.tgMessageId) || {
+              id: result.fileId,
+              name: result.fileName,
+            },
+          error: result.error || result.msg,
+        }));
+
+        const results = [...normalizedResults, ...invalidFiles];
 
         for (const result of results) {
           if (result.skipped) {
@@ -79,6 +116,10 @@ export const useRecentActivityDownload = ({ selectedFiles }) => {
         downloadProgress.value = Math.round((processed / total) * 100);
       }
 
+      if (!isSessionActive(sessionId)) {
+        return;
+      }
+
       const successCount = downloadedCount.value;
       const skipCount = skippedCount.value;
       const failCount = failedFiles.value.length;
@@ -97,15 +138,20 @@ export const useRecentActivityDownload = ({ selectedFiles }) => {
         alert(message);
       }
     } catch (e) {
-      alert(`下载失败: ${e.message}`);
+      if (isSessionActive(sessionId)) {
+        alert(`下载失败: ${e.message}`);
+      }
     } finally {
-      isDownloading.value = false;
-      currentFile.value = "";
+      if (isSessionActive(sessionId)) {
+        isDownloading.value = false;
+        currentFile.value = "";
+      }
     }
   };
 
   const cancelDownload = () => {
-    // 当前为软取消：标记状态并阻止后续批次，不会强制终止进行中的单请求。
+    // 取消当前会话：进行中的 IPC 可能仍会自然结束，但旧结果不会再污染新一轮状态。
+    createSession();
     isCancelled.value = true;
     isDownloading.value = false;
     currentFile.value = "";
@@ -116,6 +162,7 @@ export const useRecentActivityDownload = ({ selectedFiles }) => {
     downloadedCount,
     skippedCount,
     downloadProgress,
+    downloadTotalCount,
     currentFile,
     failedFiles,
     concurrentCount,
