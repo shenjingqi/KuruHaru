@@ -1,7 +1,7 @@
 # 模块导航索引
 
 > 状态: ✅ 可用  
-> 最后更新: 2026-03-06
+> 最后更新: 2026-05-01
 
 本文档用于快速定位「功能 -> 代码文件 -> 关键 IPC」，并明确**当前已装配模块**与**兼容保留模块**。
 
@@ -11,6 +11,7 @@
 | ------------------------ | ------------------------------------------- | ------------------------- |
 | 配置管理                 | `src/main/modules/config.js`                | ✅ 已装配                 |
 | ASMR 数据抓取 / 云端同步 | `src/main/modules/asmr-localization.js`     | ✅ 已装配                 |
+| ASMR 音声下载任务        | `src/main/modules/asmr-audio-downloader.js` | ✅ 已装配                 |
 | Whisper 转写 / 打包      | `src/main/modules/whisper.js`               | ✅ 已装配                 |
 | TG 登录与上传            | `src/main/utils/telegram-login.js`          | ✅ 已装配                 |
 | TG 最近活动              | `src/main/modules/tg-recent-activity.js`    | ✅ 已装配                 |
@@ -18,7 +19,7 @@
 | TG 信息缓存（BOT A）     | `src/main/modules/tg-info-cache.js`         | ✅ 已装配                 |
 | TG RJ 重复检测           | `src/main/modules/tg-rj-duplicates.js`      | ✅ 已装配                 |
 | TG Info 报错恢复         | `src/main/modules/tg-info-error-recover.js` | ✅ 已装配                 |
-| Workflow Runtime         | `src/main/workflow-runtime/index.js`        | ✅ 已装配                 |
+| Workflow Runtime         | `src/main/workflow-runtime/index.js`        | ⏸️ 代码保留，当前未装配   |
 | TG Bot API 兼容入口      | `src/main/modules/tg-bot-api.js`            | ⚠️ 兼容保留（默认未装配） |
 | ASMR 登录兼容模块        | `src/main/modules/asmr-login.js`            | ⚠️ 兼容保留（默认未装配） |
 | ASMR 旧实现兼容模块      | `src/main/modules/asmr.js`                  | ⚠️ 兼容保留（默认未装配） |
@@ -36,6 +37,7 @@
 主进程启动时会装配以下模块：
 
 - `setupAsmrIPC(...)`（来自 `asmr-localization.js`）
+- `setupAsmrAudioDownloaderIPC()`
 - `setupWhisperIPC()`
 - `setupTelegramIPC()`
 - `setupTgHistoryIPC()`
@@ -44,7 +46,7 @@
 - `setupRjDuplicatesIPC()`
 - `setupTgInfoErrorRecoverIPC()`
 - `setupConfigIPC()`
-- `setupWorkflowRuntimeIPC()`
+- `setupWorkflowRuntimeIPC()`（代码保留，当前主进程暂未装配）
 
 > 注意：最近活动模块的装配函数是 **`setupTgHistoryIPC`**（不是 `setupTGRecentActivityIPC`）。
 
@@ -78,6 +80,17 @@
   - `asmr-set-chinese-list-path` / `asmr-get-chinese-list-path` / `asmr-read-chinese-list`
   - `filter-rj-from-url`
 
+### 3.2.1 `src/main/modules/asmr-audio-downloader.js`
+
+- 导出：`runAsmrAudioDownloader`, `setupAsmrAudioDownloaderIPC`
+- 关键 IPC：
+  - `asmr-audio-downloader-run`
+- 行为补充：
+  - 支持 `RJ` / `VJ` / `BJ` / 6-8 位数字 ID / 作品链接输入
+  - 复用 `asmr-core/audio-download-utils.js` 做轨道解析、黑名单过滤、指纹去重与路径长度校验
+  - 生成 `aria2_tasks.txt` 与 `manual_review.txt`
+  - 可选直推 Aria2 RPC；测试模式下仅生成清单，不提交下载
+
 ### 3.3 `src/main/modules/asmr-login.js`（兼容保留）
 
 - 导出：`setupAsmrIPCHandlers`
@@ -94,6 +107,7 @@
   - `stop-task`（事件）
 - 行为补充：
   - 翻译任务启动后会自动扫描 `targetPath` 下的 `RJ/VJ/BJ` 编号，并触发作品信息缓存预热（复用 `tg-info-cache`）
+  - `zip-subtitles` 在打包前会递归校验目录内音频与字幕是否一一对应；若存在缺失字幕则跳过该目录并返回缺失清单
 
 ### 3.5 `src/main/modules/tg-recent-activity.js`
 
@@ -189,10 +203,12 @@
 - 行为补充：
   - 启动时挂载定义/运行记录目录（`<userData>/workflows/*`）
   - 运行前执行图校验（节点存在性、依赖关系、环路）
+  - `workflow-list-node-definitions` 返回节点 `io.input/io.output` 参数语义，
+    可用于画布端口入参/出参标注
   - 内置首个节点类型 `whisper.translateSubtitles`（翻译字幕）
   - `whisper.translateSubtitles` 必填配置：`exePath`、`targetPath`，`subFormats` 至少一项
   - `whisper.translateSubtitles` 运行时会推送 RJ 维度进度（当前 RJ、已完成作品数、剩余作品数）
-  - `whisper.packSubtitles`: reuse toolbox packing flow; scan subtitle folders and output RJ/VJ/BJ zip archives
+  - `whisper.packSubtitles`: reuse toolbox packing flow; scan subtitle folders, validate audio-subtitle completeness, and output RJ/VJ/BJ zip archives
   - `tg.uploadSubtitles`: reuse smart-scan upload flow; scan archives then send them to target channel
   - `asmr.cloudDeleteRecentUploads`: map recent-upload records to cloud works and execute remote cleanup
   - `files.localDeleteScanned`: reuse local-clean scan behavior for scan-folder + delete-local-files flow
@@ -240,6 +256,7 @@
 - `docs/design-docs/data-flow.md`
 - `docs/design-docs/feature-local-file-management.md`
 - `docs/design-docs/feature-cloud-data-sync.md`
+- `docs/design-docs/feature-asmr-audio-downloader.md`
 - `docs/design-docs/feature-whisper-transcription.md`
 - `docs/design-docs/feature-telegram-upload.md`
 - `docs/design-docs/feature-local-cleaning.md`
@@ -255,6 +272,7 @@
 
 ## 7. Update Log
 
-| Date       | Change |
-| ---------- | ------ |
+| Date       | Change                                                                                                                                                                                  |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-03-13 | Added workflow node definition IO metadata (`io.input` / `io.output`) for explicit canvas input/output parameter labeling.                                                              |
 | 2026-03-06 | Added workflow node-library entries for `whisper.packSubtitles`, `tg.uploadSubtitles`, `asmr.cloudDeleteRecentUploads`, and `files.localDeleteScanned` with data-flow responsibilities. |

@@ -1,31 +1,25 @@
-// localStorage key 带版本号，便于导航结构调整后做无痛迁移或重置。
-export const NAV_GROUP_STORAGE_KEY = "app-navigation-groups-v1";
-export const NAV_RECENT_STORAGE_KEY = "app-navigation-recent-v1";
+﻿export const NAV_GROUP_STORAGE_KEY = "app-navigation-groups-v2";
+export const NAV_RECENT_STORAGE_KEY = "app-navigation-recent-v2";
 
 export const standaloneMenuItems = [
-  { key: "home", label: "仪表盘", icon: "home" },
+  { key: "home", label: "首页", icon: "home" },
 ];
 
-// 导航树的真相源：每个节点约定 { key, label, icon, items?/children? } 结构。
 export const menuGroups = [
   {
-    key: "workflow",
-    label: "高频工作流",
-    icon: "workflow",
+    key: "tasks",
+    label: "任务处理",
+    icon: "tasks",
     items: [
-      { key: "upload", label: "上传字幕", icon: "upload" },
-      { key: "whisper", label: "音声翻译", icon: "whisper" },
-      { key: "recent", label: "最近上传", icon: "recent" },
-      {
-        key: "workflow-designer",
-        label: "工作流设计",
-        icon: "workflow-designer",
-      },
+      { key: "upload", label: "上传工具", icon: "upload" },
+      { key: "whisper", label: "Whisper", icon: "whisper" },
+      { key: "asmr-downloader", label: "音声下载", icon: "asmr-downloader" },
+      { key: "recent", label: "最近活动", icon: "recent" },
     ],
   },
   {
     key: "data",
-    label: "数据与检索",
+    label: "数据工具",
     icon: "data",
     items: [
       {
@@ -38,8 +32,8 @@ export const menuGroups = [
         ],
       },
       { key: "advanced-search", label: "高级搜索", icon: "advanced-search" },
-      { key: "rj-filter", label: "RJ筛选", icon: "rj-filter" },
-      { key: "chinese-list", label: "汉化列表", icon: "chinese-list" },
+      { key: "rj-filter", label: "RJ 过滤", icon: "rj-filter" },
+      { key: "chinese-list", label: "中文列表", icon: "chinese-list" },
       { key: "tools", label: "工具箱", icon: "tools" },
     ],
   },
@@ -48,16 +42,16 @@ export const menuGroups = [
     label: "Telegram",
     icon: "telegram",
     items: [
-      { key: "tg-search-bot", label: "TG搜索Bot", icon: "tg-search-bot" },
-      { key: "tg-info-cache", label: "TG信息缓存", icon: "tg-info-cache" },
+      { key: "tg-search-bot", label: "TG 搜索 Bot", icon: "tg-search-bot" },
+      { key: "tg-info-cache", label: "TG 信息缓存", icon: "tg-info-cache" },
       {
         key: "tg-info-error-recover",
-        label: "TG报错恢复",
+        label: "TG 异常恢复",
         icon: "tg-info-error-recover",
       },
       {
         key: "rj-duplicate-detector",
-        label: "RJ重复检测",
+        label: "RJ 重复检测",
         icon: "rj-duplicate-detector",
       },
     ],
@@ -71,8 +65,7 @@ export const menuGroups = [
 ];
 
 export const createDefaultGroupState = () =>
-  // 默认仅展开 workflow，其他组折叠，避免首次进入时信息密度过高。
   menuGroups.reduce((state, group) => {
-    state[group.key] = group.key === "workflow";
+    state[group.key] = false;
     return state;
   }, {});

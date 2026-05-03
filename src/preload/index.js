@@ -112,6 +112,7 @@ const INVOKE_MAP = {
   },
   readFile: { channel: "fs-read-file", args: ARG_DIRECT },
   readImageAsBase64: { channel: "read-image-as-base64", args: ARG_DIRECT },
+  captureMainWindow: { channel: "window-capture", args: ARG_DIRECT },
   getDefaultAvatar: "get-default-avatar",
 
   // 保存自定义路径配置
@@ -138,6 +139,10 @@ const INVOKE_MAP = {
   asmrLogin: { channel: "asmr-login", args: ARG_DIRECT },
   asmrFetchPlaylist: { channel: "asmr-fetch-playlist", args: ARG_DIRECT },
   asmrDeleteByRJ: { channel: "asmr-delete-by-rj", args: ARG_DIRECT },
+  asmrRunAudioDownloader: {
+    channel: "asmr-audio-downloader-run",
+    args: ARG_DIRECT,
+  },
   asmrDeleteWorks: { channel: "asmr-delete-works", args: ARG_DIRECT },
   asmrFetchChineseWorks: {
     channel: "asmr-fetch-chinese-works",
@@ -177,6 +182,10 @@ const INVOKE_MAP = {
   // Tools
   extractFileNames: { channel: "extract-file-names", args: ARG_DIRECT },
   cleanData: { channel: "clean-data", args: ARG_DIRECT },
+  cleanRecentUploadedSubtitles: {
+    channel: "clean-recent-uploaded-subtitles",
+    args: ARG_DIRECT,
+  },
 
   // Telegram
   tgCheckLogin: "tg-check-login",
@@ -200,6 +209,7 @@ const INVOKE_MAP = {
   tgGetRecentActivity: "get-recent-activity",
   tgReadRjList: { channel: "read-rj-list", args: ARG_DIRECT },
   tgDownloadFile: { channel: "download-tg-file", args: ARG_DIRECT },
+  tgDownloadFiles: { channel: "download-tg-files", args: ARG_DIRECT },
   tgFilterActivityByTime: {
     channel: "tg-filter-activity-by-time",
     args: ARG_DIRECT,
@@ -217,15 +227,40 @@ const INVOKE_MAP = {
   tgInfoErrorRecover: { channel: "tg-info-error-recover", args: ARG_DIRECT },
 
   // Workflow Runtime
+  workflowBootstrap: "workflow-bootstrap",
+  workflowTemplateList: "workflow-template-list",
+  workflowTemplateLoad: { channel: "workflow-template-load", args: ARG_DIRECT },
+  workflowDocumentGet: { channel: "workflow-document-get", args: ARG_DIRECT },
+  workflowDocumentSave: { channel: "workflow-document-save", args: ARG_DIRECT },
+  workflowCatalogGet: "workflow-catalog-get",
+  workflowNodeDocsGet: { channel: "workflow-node-docs-get", args: ARG_DIRECT },
+  workflowEnqueue: { channel: "workflow-enqueue", args: ARG_DIRECT },
+  workflowPartialEnqueue: {
+    channel: "workflow-partial-enqueue",
+    args: ARG_DIRECT,
+  },
+  workflowRunGet: { channel: "workflow-run-get", args: ARG_DIRECT },
+  workflowRunList: { channel: "workflow-run-list", args: ARG_DIRECT },
+  workflowRecoveryReportGet: {
+    channel: "workflow-recovery-report-get",
+    args: ARG_DIRECT,
+  },
   workflowList: "workflow-list",
   workflowGet: { channel: "workflow-get", args: ARG_DIRECT },
   workflowSave: { channel: "workflow-save", args: ARG_DIRECT },
   workflowDelete: { channel: "workflow-delete", args: ARG_DIRECT },
   workflowValidate: { channel: "workflow-validate", args: ARG_DIRECT },
   workflowRun: { channel: "workflow-run", args: ARG_DIRECT },
+  workflowQueueRunFront: {
+    channel: "workflow-queue-run-front",
+    args: ARG_DIRECT,
+  },
+  workflowQueueGet: "workflow-queue-get",
+  workflowQueueClearPending: "workflow-queue-clear-pending",
   workflowCancel: { channel: "workflow-cancel", args: ARG_DIRECT },
   workflowGetRun: { channel: "workflow-get-run", args: ARG_DIRECT },
   workflowListRuns: { channel: "workflow-list-runs", args: ARG_DIRECT },
+  workflowGetObjectInfo: "workflow-get-object-info",
   workflowListNodeDefinitions: "workflow-list-node-definitions",
 };
 
@@ -254,12 +289,14 @@ const LISTENER_MAP = {
     channel: "log-update",
     clearBeforeListen: true,
     mapValue: (value) => value || { type: "system", msg: "" },
+    returnUnsubscribe: true,
   },
   onTaskFinished: {
     channel: "task-finished",
     mode: LISTENER_EVENT_AND_VALUE,
     clearBeforeListen: true,
     mapValue: (value) => value || {},
+    returnUnsubscribe: true,
   },
 
   // 云端数据更新监听
@@ -338,6 +375,7 @@ api.dialog = {
 api.system = {
   clearCache: api.clearCache,
   readImageAsBase64: api.readImageAsBase64,
+  captureMainWindow: api.captureMainWindow,
   getDefaultAvatar: api.getDefaultAvatar,
   getWindowState: api.windowControls.getState,
   onWindowStateChanged: api.onWindowStateChanged,
@@ -362,6 +400,7 @@ api.local = {
 api.tools = {
   extractFileNames: api.extractFileNames,
   cleanData: api.cleanData,
+  cleanRecentUploadedSubtitles: api.cleanRecentUploadedSubtitles,
   zipSubtitles: api.zipSubtitles,
 };
 
@@ -370,6 +409,7 @@ api.asmr = {
   fetchCloudWorks: api.asmrFetchCloudWorks,
   getCachedCloudWorks: api.asmrGetCachedCloudWorks,
   triggerCloudDataFetch: api.triggerCloudDataFetch,
+  runAudioDownloader: api.asmrRunAudioDownloader,
   fetchChineseWorks: api.asmrFetchChineseWorks,
   setChineseListPath: api.asmrSetChineseListPath,
   getChineseListPath: api.asmrGetChineseListPath,
@@ -393,6 +433,7 @@ api.tg = {
   scanRecentActivity: api.tgScanRecentActivity,
   readRjList: api.tgReadRjList,
   downloadFile: api.tgDownloadFile,
+  downloadFiles: api.tgDownloadFiles,
   botStart: api.tgBotStart,
   botStop: api.tgBotStop,
   botStatus: api.tgBotStatus,
@@ -407,15 +448,31 @@ api.tg = {
 };
 
 api.workflow = {
+  bootstrap: api.workflowBootstrap,
+  templateList: api.workflowTemplateList,
+  templateLoad: api.workflowTemplateLoad,
+  documentGet: api.workflowDocumentGet,
+  documentSave: api.workflowDocumentSave,
+  catalogGet: api.workflowCatalogGet,
+  nodeDocsGet: api.workflowNodeDocsGet,
+  enqueue: api.workflowEnqueue,
+  partialEnqueue: api.workflowPartialEnqueue,
+  runGet: api.workflowRunGet,
+  runList: api.workflowRunList,
+  recoveryReportGet: api.workflowRecoveryReportGet,
   list: api.workflowList,
   get: api.workflowGet,
   save: api.workflowSave,
   delete: api.workflowDelete,
   validate: api.workflowValidate,
   run: api.workflowRun,
+  queueRunFront: api.workflowQueueRunFront,
+  queueGet: api.workflowQueueGet,
+  queueClearPending: api.workflowQueueClearPending,
   cancel: api.workflowCancel,
   getRun: api.workflowGetRun,
   listRuns: api.workflowListRuns,
+  getObjectInfo: api.workflowGetObjectInfo,
   listNodeDefinitions: api.workflowListNodeDefinitions,
   onRunEvent: api.onWorkflowRunEvent,
 };

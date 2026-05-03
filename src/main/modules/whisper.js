@@ -5,6 +5,12 @@ import fs from "fs";
 import archiver from "archiver";
 import { createLogSender } from "../utils/logger";
 import { buildInfoCacheFromWorkCodes } from "./tg-info-cache";
+import {
+  buildSubtitleCompletenessReport,
+  collectPackFilesInDirectory,
+  formatSubtitleCompletenessMessage,
+  MEDIA_EXTENSIONS,
+} from "./whisper-pack-utils";
 
 // 创建日志发送器
 const logger = createLogSender("whisper");
@@ -128,28 +134,40 @@ export function setupWhisperIPC() {
     ipcMain.handle(channel, handler);
   });
 
-  // 🟢 辅助函数：递归扫描子目录（异步版本，用于原地打包）
-  async function scanSubDir(dir, basePath, fileList, onFile) {
-    try {
-      const items = await fs.promises.readdir(dir);
-      for (const item of items) {
-        const full = path.join(dir, item);
-        const stat = await fs.promises.stat(full);
+  async function collectFilesForPacking(folderPath) {
+    const { subtitleFiles, audioFiles, latestSubtitleMtimeMs } =
+      await collectPackFilesInDirectory({
+        folderPath,
+        basePath: folderPath,
+      });
 
-        if (stat.isDirectory()) {
-          await scanSubDir(full, basePath, fileList, onFile);
-        } else if (
-          [".srt", ".lrc", ".vtt", ".txt", ".ass"].includes(
-            path.extname(item).toLowerCase(),
-          )
-        ) {
-          fileList.push({ full, rel: path.relative(basePath, full) });
-          if (onFile) onFile(stat);
-        }
-      }
-    } catch {
-      // 忽略读取错误
-    }
+    const completeness = buildSubtitleCompletenessReport({
+      audioFiles,
+      subtitleFiles,
+    });
+
+    return {
+      filesToZip: subtitleFiles.map((item) => ({
+        full: item.fullPath,
+        rel: item.relativePath,
+      })),
+      maxMtime: latestSubtitleMtimeMs,
+      completeness,
+    };
+  }
+
+  async function countMediaFilesInFolder(dirPath) {
+    const { audioFiles } = await collectPackFilesInDirectory({
+      folderPath: dirPath,
+      basePath: dirPath,
+    });
+
+    return audioFiles.filter((item) => {
+      const ext = path
+        .extname(item.relativePath || item.fullPath || "")
+        .toLowerCase();
+      return MEDIA_EXTENSIONS.has(ext);
+    }).length;
   }
 
   // 🟢 辅助函数：原地打包（输出目录和源目录相同），避免扫描到zip文件
@@ -157,115 +175,98 @@ export function setupWhisperIPC() {
     const outputName = `${rjCode}.zip`;
     const outputPath = path.join(folderPath, outputName);
 
-    // 扫描字幕文件（先收集所有文件）
-    const filesToZip = [];
-    let maxMtime = 0;
-
     try {
-      const allItems = await fs.promises.readdir(folderPath);
-      for (const f of allItems) {
-        // 跳过 zip 文件本身（包括旧的）
-        if (f.toLowerCase() === outputName.toLowerCase()) continue;
+      const { filesToZip, maxMtime, completeness } =
+        await collectFilesForPacking(folderPath);
 
-        const full = path.join(folderPath, f);
-        const stat = await fs.promises.stat(full);
-
-        if (stat.isDirectory()) {
-          // 递归扫描子目录（不递归到zip文件，因为zip文件不是目录）
-          await scanSubDir(full, folderPath, filesToZip, (stat) => {
-            if (stat.mtimeMs > maxMtime) maxMtime = stat.mtimeMs;
-          });
-        } else if (
-          [".srt", ".lrc", ".vtt", ".txt", ".ass"].includes(
-            path.extname(f).toLowerCase(),
-          )
-        ) {
-          filesToZip.push({ full, rel: path.relative(folderPath, full) });
-          if (stat.mtimeMs > maxMtime) maxMtime = stat.mtimeMs;
-        }
+      if (filesToZip.length === 0) {
+        return { success: false, msg: "无字幕文件" };
       }
+
+      if (!completeness.isComplete) {
+        const msg = formatSubtitleCompletenessMessage(completeness);
+        logger.warn(`[zip-subtitles] ${rjCode} ${msg}`);
+        return {
+          success: false,
+          msg,
+          validation: completeness,
+        };
+      }
+
+      try {
+        await fs.promises.access(outputPath);
+        const zipStat = await fs.promises.stat(outputPath);
+        if (zipStat.mtimeMs >= maxMtime) {
+          logger.info(`跳过 ${outputName} (已是最新)`);
+          return {
+            success: true,
+            msg: "已跳过 (已是最新)",
+            fileCount: filesToZip.length,
+            skipped: true,
+          };
+        }
+        logger.info(`检测到更新，删除旧zip: ${outputName}`);
+        await fs.promises.unlink(outputPath);
+      } catch {
+        // 文件不存在，继续打包
+      }
+      if (fs.existsSync(outputPath)) {
+        const zipStat = fs.statSync(outputPath);
+        if (zipStat.mtimeMs >= maxMtime) {
+          logger.info(`跳过 ${outputName} (已是最新)`);
+          return {
+            success: true,
+            msg: "已跳过 (已是最新)",
+            fileCount: filesToZip.length,
+            skipped: true,
+          };
+        }
+        logger.info(`检测到更新，删除旧zip: ${outputName}`);
+        fs.unlinkSync(outputPath);
+      }
+
+      logger.info(`打包中: ${outputName}`);
+
+      return new Promise((resolve) => {
+        const output = fs.createWriteStream(outputPath);
+        const archive = archiver("zip", { zlib: { level: 9 } });
+
+        output.on("close", () => {
+          logger.info(`打包完成: ${outputName}`);
+          if (event.sender && !event.sender.isDestroyed()) {
+            event.sender.send("task-finished", {
+              taskType: "pack",
+              success: true,
+              msg: `文件已生成: ${outputName}`,
+            });
+          }
+          resolve({
+            success: true,
+            msg: `已打包 ${filesToZip.length} 个字幕文件`,
+            outputPath,
+            fileCount: filesToZip.length,
+          });
+        });
+
+        archive.on("error", (e) => {
+          logger.error(e.message);
+          resolve({ success: false, msg: e.message });
+        });
+
+        archive.on("warning", (err) => {
+          if (err.code !== "ENOENT") {
+            logger.warn(err.message);
+          }
+        });
+
+        archive.pipe(output);
+        filesToZip.forEach((f) => archive.file(f.full, { name: f.rel }));
+        archive.finalize();
+      });
     } catch (e) {
       logger.error(`扫描文件夹失败: ${e.message}`);
       return { success: false, msg: `扫描失败: ${e.message}` };
     }
-
-    if (filesToZip.length === 0) {
-      return { success: false, msg: "无字幕文件" };
-    }
-
-    // 检查是否有更新
-    try {
-      await fs.promises.access(outputPath);
-      const zipStat = await fs.promises.stat(outputPath);
-      if (zipStat.mtimeMs >= maxMtime) {
-        logger.info(`跳过 ${outputName} (已是最新)`);
-        return {
-          success: true,
-          msg: "已跳过 (已是最新)",
-          fileCount: filesToZip.length,
-          skipped: true,
-        };
-      }
-      // 有更新：删除旧zip
-      logger.info(`检测到更新，删除旧zip: ${outputName}`);
-      await fs.promises.unlink(outputPath);
-    } catch {
-      // 文件不存在，继续打包
-    }
-    if (fs.existsSync(outputPath)) {
-      const zipStat = fs.statSync(outputPath);
-      if (zipStat.mtimeMs >= maxMtime) {
-        logger.info(`跳过 ${outputName} (已是最新)`);
-        return {
-          success: true,
-          msg: "已跳过 (已是最新)",
-          fileCount: filesToZip.length,
-          skipped: true,
-        };
-      }
-      // 有更新：删除旧zip
-      logger.info(`检测到更新，删除旧zip: ${outputName}`);
-      fs.unlinkSync(outputPath);
-    }
-
-    logger.info(`打包中: ${outputName}`);
-
-    return new Promise((resolve) => {
-      const output = fs.createWriteStream(outputPath);
-      const archive = archiver("zip", { zlib: { level: 9 } });
-
-      output.on("close", () => {
-        logger.info(`打包完成: ${outputName}`);
-        if (event.sender && !event.sender.isDestroyed()) {
-          event.sender.send("task-finished", {
-            taskType: "pack",
-            success: true,
-            msg: `文件已生成: ${outputName}`,
-          });
-        }
-        resolve({
-          success: true,
-          msg: `已打包 ${filesToZip.length} 个字幕文件`,
-          outputPath,
-          fileCount: filesToZip.length,
-        });
-      });
-
-      archive.on("error", (e) => {
-        logger.error(e.message);
-        resolve({ success: false, msg: e.message });
-      });
-
-      archive.on("warning", (err) => {
-        if (err.code !== "ENOENT") {
-          logger.warn(err.message);
-        }
-      });
-
-      archive.pipe(output);
-      filesToZip.forEach((f) => archive.file(f.full, { name: f.rel }));
-      archive.finalize();
-    });
   }
 
   // 新增：统计文件数 (给前端用)
@@ -275,23 +276,7 @@ export function setupWhisperIPC() {
     } catch {
       return 0;
     }
-    let count = 0;
-    const exts = [".mp4", ".mkv", ".avi", ".mp3", ".wav", ".flac", ".m4a"];
-    async function scan(d) {
-      try {
-        const files = await fs.promises.readdir(d);
-        for (const f of files) {
-          const full = path.join(d, f);
-          const stat = await fs.promises.stat(full);
-          if (stat.isDirectory()) await scan(full);
-          else if (exts.includes(path.extname(f).toLowerCase())) count++;
-        }
-      } catch {
-        // Ignore scan errors
-      }
-    }
-    await scan(dirPath);
-    return count;
+    return countMediaFilesInFolder(dirPath);
   }
 
   // 1. 开始翻译
@@ -326,6 +311,8 @@ export function setupWhisperIPC() {
       if (event.sender && !event.sender.isDestroyed()) {
         event.sender.send("task-finished", {
           taskType: "translate",
+          success: false,
+          reason: "validation-error",
           error: "引擎路径未设置",
         });
       }
@@ -337,6 +324,8 @@ export function setupWhisperIPC() {
       if (event.sender && !event.sender.isDestroyed()) {
         event.sender.send("task-finished", {
           taskType: "translate",
+          success: false,
+          reason: "validation-error",
           error: "目标路径未设置",
         });
       }
@@ -387,6 +376,8 @@ export function setupWhisperIPC() {
         if (event.sender && !event.sender.isDestroyed()) {
           event.sender.send("task-finished", {
             taskType: "translate",
+            success: false,
+            reason: "spawn-error",
             error: spawnError.message,
           });
         }
@@ -404,6 +395,8 @@ export function setupWhisperIPC() {
         if (event.sender && !event.sender.isDestroyed()) {
           event.sender.send("task-finished", {
             taskType: "translate",
+            success: false,
+            reason: "spawn-error",
             error: "spawn() returned null",
           });
         }
@@ -437,7 +430,7 @@ export function setupWhisperIPC() {
         }
 
         // 检测进度：正在翻译（1/3）
-        const progressMatch = line.match(/正在翻译[（(](\d+)[）)]/);
+        const progressMatch = line.match(/正在翻译[（(](\d+)\/(\d+)[）)]/);
         if (progressMatch) {
           processedFiles = parseInt(progressMatch[1]);
           const total = parseInt(progressMatch[2]);
@@ -449,6 +442,7 @@ export function setupWhisperIPC() {
             event.sender.send("log-update", {
               type: "whisper-progress",
               progress: percent,
+              currentIndex: processedFiles,
               currentFile: fileName,
               totalFiles: total,
               file: fileName,
@@ -502,6 +496,8 @@ export function setupWhisperIPC() {
         if (event.sender && !event.sender.isDestroyed()) {
           event.sender.send("task-finished", {
             taskType: "translate",
+            success: false,
+            reason: "process-error",
             error: err.message,
           });
         }
@@ -510,6 +506,13 @@ export function setupWhisperIPC() {
 
       pythonProcess.on("close", (code, signal) => {
         logger.info("引擎关闭 - 退出码: " + code + ", 信号: " + signal);
+
+        const stderrSummary = stderrBuffer.trim()
+          ? stderrBuffer.split("\n").slice(0, 5).join("\n")
+          : "";
+        const nonRecoverableReason = stderrBuffer.includes("_ArrayMemoryError")
+          ? "array-memory-error"
+          : undefined;
 
         if (code !== 0 && code !== null) {
           logger.error("[ERROR] Python 异常退出，码: " + code);
@@ -524,14 +527,17 @@ export function setupWhisperIPC() {
           if (code !== 0 && code !== null) {
             errorMsg = "进程异常退出 (退出码: " + code + ")";
             if (stderrBuffer.trim()) {
-              errorMsg +=
-                "\n错误信息: " +
-                stderrBuffer.split("\n").slice(0, 5).join("\n");
+              errorMsg += "\n错误信息: " + stderrSummary;
             }
           }
           event.sender.send("task-finished", {
             taskType: "translate",
+            success: !errorMsg,
+            reason:
+              nonRecoverableReason || (errorMsg ? "process-exit" : "completed"),
             error: errorMsg,
+            exitCode: code,
+            signal,
           });
         }
         pythonProcess = null;
@@ -578,6 +584,8 @@ export function setupWhisperIPC() {
         if (event && event.sender && !event.sender.isDestroyed()) {
           event.sender.send("task-finished", {
             taskType: "translate",
+            success: false,
+            reason: "user-stop",
             error: "用户停止任务",
           });
         }
@@ -633,6 +641,7 @@ export function setupWhisperIPC() {
 
     let totalPacked = 0;
     let totalSkipped = 0;
+    let totalFailed = 0;
     const results = [];
 
     for (const folder of folders) {
@@ -649,6 +658,8 @@ export function setupWhisperIPC() {
           totalSkipped++;
         } else if (result.success) {
           totalPacked++;
+        } else {
+          totalFailed++;
         }
         results.push(`${rjCode}: ${result.msg}`);
       } else {
@@ -657,18 +668,19 @@ export function setupWhisperIPC() {
       }
     }
 
-    if (totalPacked === 0 && totalSkipped === 0) {
+    if (totalPacked === 0 && totalSkipped === 0 && totalFailed === 0) {
       return { success: false, msg: "未找到包含RJ号的文件夹" };
     }
 
-    const summary = `打包完成: 成功 ${totalPacked} 个，跳过 ${totalSkipped} 个`;
+    const summary = `打包完成: 成功 ${totalPacked} 个，跳过 ${totalSkipped} 个，失败 ${totalFailed} 个`;
     logger.info(summary);
     return {
-      success: true,
+      success: totalPacked > 0 || totalSkipped > 0,
       msg: summary,
       results,
       totalPacked,
       totalSkipped,
+      totalFailed,
     };
   }
 
@@ -677,18 +689,22 @@ export function setupWhisperIPC() {
     const outputName = `${rjCode}.zip`;
     const outputPath = path.join(outputDir, outputName);
 
-    // 扫描字幕文件
-    const filesToZip = [];
-    let maxMtime = 0;
-
     try {
-      // 使用异步扫描函数
-      await scanSubDir(folderPath, folderPath, filesToZip, (stat) => {
-        if (stat.mtimeMs > maxMtime) maxMtime = stat.mtimeMs;
-      });
+      const { filesToZip, maxMtime, completeness } =
+        await collectFilesForPacking(folderPath);
 
       if (filesToZip.length === 0) {
         return { success: false, msg: "无字幕文件" };
+      }
+
+      if (!completeness.isComplete) {
+        const msg = formatSubtitleCompletenessMessage(completeness);
+        logger.warn(`[zip-subtitles] ${rjCode} ${msg}`);
+        return {
+          success: false,
+          msg,
+          validation: completeness,
+        };
       }
 
       // 🟢 检查是否有更新：如果zip存在且比所有字幕文件新，则跳过
@@ -719,11 +735,13 @@ export function setupWhisperIPC() {
 
         output.on("close", () => {
           logger.info(`打包完成: ${outputName}`);
-          event.sender.send("task-finished", {
-            taskType: "pack",
-            success: true,
-            msg: `文件已生成: ${outputName}`,
-          });
+          if (event.sender && !event.sender.isDestroyed()) {
+            event.sender.send("task-finished", {
+              taskType: "pack",
+              success: true,
+              msg: `文件已生成: ${outputName}`,
+            });
+          }
           resolve({
             success: true,
             msg: `已打包 ${filesToZip.length} 个字幕文件`,

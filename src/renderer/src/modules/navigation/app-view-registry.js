@@ -1,11 +1,11 @@
 import HomePanel from "../../components/HomePanel.vue";
+import AsmrDownloader from "../../components/AsmrDownloader.vue";
 import WhisperTool from "../../components/WhisperTool.vue";
 import LocalCleaner from "../../components/LocalCleaner.vue";
 import CloudCleaner from "../../components/CloudCleaner.vue";
 import UploadTool from "../../components/UploadTool.vue";
 import Settings from "../../components/Settings.vue";
 import RecentActivity from "../../components/RecentActivity.vue";
-import WorkflowDesigner from "../../components/WorkflowDesigner.vue";
 import TgSearchBot from "../../components/TgSearchBot.vue";
 import TgInfoCache from "../../components/TgInfoCache.vue";
 import TgInfoErrorRecover from "../../components/TgInfoErrorRecover.vue";
@@ -20,9 +20,9 @@ const appViewRegistry = createViewRegistry({
   HomePanel,
   UploadTool,
   WhisperTool,
+  AsmrDownloader,
   CloudCleaner,
   RecentActivity,
-  WorkflowDesigner,
   TgSearchBot,
   TgInfoCache,
   TgInfoErrorRecover,

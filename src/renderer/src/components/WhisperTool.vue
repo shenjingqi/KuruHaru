@@ -2,7 +2,7 @@
   <div class="page-container whisper-theme">
     <div class="page-header">
       <h2 class="page-title">音声翻译</h2>
-      <div class="status-tag" :class="{ running: store.isBusy }">
+      <div class="status-tag" :class="{ running: isStartLocked }">
         {{ statusText }}
       </div>
     </div>
@@ -39,7 +39,7 @@
       <div class="action-footer">
         <button
           class="btn-primary"
-          :disabled="store.isBusy || !canStart"
+          :disabled="isStartLocked || !canStart"
           @click="startTranslate"
         >
           开始翻译
@@ -71,6 +71,9 @@
       <div class="modal-box card">
         <div class="modal-icon">{{ resultData.success ? "✓" : "!" }}</div>
         <h3>{{ resultData.title }}</h3>
+        <p v-if="resultData.message" class="modal-message">
+          {{ resultData.message }}
+        </p>
         <button class="btn-primary full" @click="showResultModal = false">
           关闭
         </button>
@@ -93,6 +96,7 @@ const {
   showResultModal,
   resultData,
   statusText,
+  isStartLocked,
   selectExe,
   selectTarget,
   startTranslate,
@@ -315,6 +319,15 @@ const {
   font-size: 18px;
   font-weight: 500;
   color: #26251f;
+}
+
+.modal-message {
+  margin: 0 0 20px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #66614f;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .btn-full {

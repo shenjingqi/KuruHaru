@@ -14,13 +14,17 @@ import {
   startBot,
   triggerStartupHistorySync,
 } from "./modules/tg-search-bot";
-import { setupTgInfoCacheIPC } from "./modules/tg-info-cache";
+import {
+  setupTgInfoCacheIPC,
+  startInfoCacheHotScheduler,
+} from "./modules/tg-info-cache";
 import { setupRjDuplicatesIPC } from "./modules/tg-rj-duplicates";
 import { setupTgInfoErrorRecoverIPC } from "./modules/tg-info-error-recover";
+import { setupAsmrAudioDownloaderIPC } from "./modules/asmr-audio-downloader";
 import { setupConfigIPC, getConfig, saveConfig } from "./modules/config";
-import { setupWorkflowRuntimeIPC } from "./workflow-runtime";
 import { scanForArchives } from "./utils/archive-scanner";
 import { createLogSender } from "./utils/logger";
+import { cleanupRecentUploadedSubtitles } from "./modules/recent-upload-local-cleaner";
 
 // 全局窗口引用
 let mainWindow = null;
@@ -30,6 +34,66 @@ const logger = createLogSender("app");
 
 // 托盘图标
 let tray = null;
+
+function isBrokenPipeError(error) {
+  const code = String(error?.code || error?.errno || "").toUpperCase();
+  if (code === "EPIPE") {
+    return true;
+  }
+
+  const message = String(error?.message || error || "");
+  return message.includes("EPIPE");
+}
+
+function patchConsoleForBrokenPipe() {
+  const methodNames = ["log", "info", "warn", "error", "debug"];
+  const originalConsole = {};
+
+  methodNames.forEach((name) => {
+    if (typeof console[name] === "function") {
+      originalConsole[name] = console[name].bind(console);
+    }
+  });
+
+  methodNames.forEach((name) => {
+    const rawMethod = originalConsole[name];
+    if (typeof rawMethod !== "function") {
+      return;
+    }
+
+    console[name] = (...args) => {
+      try {
+        rawMethod(...args);
+      } catch (error) {
+        if (!isBrokenPipeError(error)) {
+          throw error;
+        }
+      }
+    };
+  });
+}
+
+function registerMainProcessErrorGuards() {
+  const swallowBrokenPipe = (error) => {
+    if (isBrokenPipeError(error)) {
+      return;
+    }
+
+    logger.error(`Uncaught exception: ${error?.stack || error}`);
+  };
+
+  process.on("uncaughtException", swallowBrokenPipe);
+  process.on("unhandledRejection", (reason) => {
+    if (isBrokenPipeError(reason)) {
+      return;
+    }
+
+    logger.error(`Unhandled rejection: ${reason?.stack || reason}`);
+  });
+}
+
+patchConsoleForBrokenPipe();
+registerMainProcessErrorGuards();
 
 const WINDOW_FRAME_MODE = {
   CUSTOM: "custom",
@@ -44,6 +108,67 @@ const DEFAULT_BLUR_INTENSITY = 8;
 const MAX_BLUR_INTENSITY = 40;
 const DEFAULT_ACCENT_COLOR = "#adb571";
 const DEFAULT_BLUR_RENDER_MODE = "system";
+const DEV_RENDERER_URL =
+  process.env.ELECTRON_RENDERER_URL || "http://localhost:5173";
+
+function resolveRendererLaunchQuery() {
+  const mappings = [
+    ["WORKFLOW_INITIAL_VIEW", "view"],
+    ["WORKFLOW_PARITY_SCENE", "workflowParityScene"],
+    ["WORKFLOW_PARITY_CAPTURE_PATH", "workflowParityCapturePath"],
+    ["WORKFLOW_PARITY_CAPTURE_DELAY", "workflowParityCaptureDelay"],
+    ["WORKFLOW_PARITY_AUTO_EXIT", "workflowParityAutoExit"],
+  ];
+
+  return Object.fromEntries(
+    mappings
+      .map(([envKey, queryKey]) => {
+        const value = process.env[envKey];
+        if (typeof value !== "string") {
+          return null;
+        }
+        const normalized = value.trim();
+        return normalized ? [queryKey, normalized] : null;
+      })
+      .filter(Boolean),
+  );
+}
+
+function buildRendererLaunchTarget() {
+  const query = resolveRendererLaunchQuery();
+
+  if (process.env.NODE_ENV === "development") {
+    const url = new URL(DEV_RENDERER_URL);
+    Object.entries(query).forEach(([key, value]) => {
+      url.searchParams.set(key, value);
+    });
+    return {
+      mode: "url",
+      target: url.toString(),
+    };
+  }
+
+  return {
+    mode: "file",
+    target: join(__dirname, "../renderer/index.html"),
+    query,
+  };
+}
+
+function loadMainWindowRenderer(windowInstance) {
+  const launchTarget = buildRendererLaunchTarget();
+
+  if (launchTarget.mode === "url") {
+    windowInstance.loadURL(launchTarget.target);
+    return launchTarget.target;
+  }
+
+  windowInstance.loadFile(launchTarget.target, {
+    query: launchTarget.query,
+  });
+  return launchTarget.target;
+}
+
 let activeWindowFrameMode = resolveEffectiveWindowFrameMode(
   DEFAULT_WINDOW_FRAME_MODE,
 );
@@ -319,12 +444,7 @@ function ensureMainWindowContent(windowInstance) {
 
   logger.warn("⚠️ 检测到窗口内容为空，尝试重新加载渲染页面");
 
-  if (process.env.NODE_ENV === "development") {
-    windowInstance.loadURL("http://localhost:5173");
-    return;
-  }
-
-  windowInstance.loadFile(join(__dirname, "../renderer/index.html"));
+  loadMainWindowRenderer(windowInstance);
 }
 
 function restoreAndRevealWindow(windowInstance) {
@@ -357,6 +477,131 @@ function getAliveMainWindow() {
   }
 
   return mainWindow;
+}
+
+function resolveWindowCapturePath(rawPath) {
+  const explicitPath =
+    typeof rawPath === "string" && rawPath.trim() ? rawPath.trim() : "";
+  const fallbackName = `kuruharu-window-capture-${Date.now()}.png`;
+  const fallbackPath = path.join(app.getPath("temp"), fallbackName);
+  const outputPath = explicitPath ? path.resolve(explicitPath) : fallbackPath;
+  const parentDirectory = path.dirname(outputPath);
+
+  if (!fs.existsSync(parentDirectory)) {
+    fs.mkdirSync(parentDirectory, { recursive: true });
+  }
+
+  return outputPath;
+}
+
+async function captureWindowToFile(windowInstance, rawPath) {
+  if (
+    !windowInstance ||
+    !windowInstance.webContents ||
+    windowInstance.webContents.isDestroyed()
+  ) {
+    return {
+      success: false,
+      error: "window-not-ready",
+    };
+  }
+
+  try {
+    const image = await windowInstance.webContents.capturePage();
+    const outputPath = resolveWindowCapturePath(rawPath);
+    fs.writeFileSync(outputPath, image.toPNG());
+    const size = image.getSize();
+
+    return {
+      success: true,
+      path: outputPath,
+      width: size.width,
+      height: size.height,
+    };
+  } catch (error) {
+    logger.error(`??????: ${error?.stack || error?.message || error}`);
+    return {
+      success: false,
+      error: error?.message || "capture-failed",
+    };
+  }
+}
+
+function scheduleWorkflowParityCapture(windowInstance) {
+  const capturePath = String(
+    process.env.WORKFLOW_PARITY_CAPTURE_PATH || "",
+  ).trim();
+  if (!capturePath) {
+    return;
+  }
+
+  const initialView = String(process.env.WORKFLOW_INITIAL_VIEW || "").trim();
+  const scene = String(process.env.WORKFLOW_PARITY_SCENE || "").trim();
+  const delayMs = Math.max(
+    200,
+    Number.parseInt(process.env.WORKFLOW_PARITY_CAPTURE_DELAY || "700", 10) ||
+      700,
+  );
+  const autoExit = /^(1|true|yes)$/i.test(
+    String(process.env.WORKFLOW_PARITY_AUTO_EXIT || "").trim(),
+  );
+
+  setTimeout(async () => {
+    try {
+      if (initialView) {
+        await windowInstance.webContents.executeJavaScript(
+          `window.__appShell?.setView?.(${JSON.stringify(initialView)})`,
+        );
+      }
+    } catch (error) {
+      logger.warn(`应用视图切换失败: ${error?.message || error}`);
+    }
+
+    setTimeout(async () => {
+      try {
+        if (scene) {
+          await windowInstance.webContents.executeJavaScript(
+            `new Promise((resolve) => {
+              const startedAt = Date.now();
+              const applyScene = () => {
+                if (typeof window.__workflowParity?.applyScene === "function") {
+                  Promise.resolve(window.__workflowParity.applyScene(${JSON.stringify(scene)}))
+                    .then(() => resolve(true))
+                    .catch(() => resolve(false));
+                  return;
+                }
+                if (Date.now() - startedAt > 5000) {
+                  resolve(false);
+                  return;
+                }
+                window.setTimeout(applyScene, 120);
+              };
+              applyScene();
+            })`,
+          );
+        }
+      } catch (error) {
+        logger.warn(`工作流场景注入失败: ${error?.message || error}`);
+      }
+
+      setTimeout(async () => {
+        const result = await captureWindowToFile(windowInstance, capturePath);
+        if (result.success) {
+          logger.debug(`工作流对标截图已保存: ${result.path}`);
+        }
+        if (autoExit && result.success) {
+          windowInstance.close();
+        }
+      }, delayMs);
+    }, 420);
+  }, 280);
+}
+
+function registerWindowCaptureIPC() {
+  ipcMain.handle("window-capture", async (_event, payload = {}) => {
+    const win = getAliveMainWindow();
+    return captureWindowToFile(win, payload?.path);
+  });
 }
 
 function registerWindowControlIPC() {
@@ -584,8 +829,8 @@ function createWindow() {
   if (process.env.NODE_ENV === "development") {
     mainWindow.webContents.openDevTools({ mode: "detach" }); // 使用独立窗口模式
     logger.debug("开发模式：强制打开 DevTools");
-    mainWindow.loadURL("http://localhost:5173");
-    logger.debug("加载开发服务器: http://localhost:5173");
+    mainWindow.loadURL(DEV_RENDERER_URL);
+    logger.debug(`加载开发服务器: ${DEV_RENDERER_URL}`);
   } else {
     mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
     logger.debug("加载生产构建页面");
@@ -652,6 +897,7 @@ function createWindow() {
   mainWindow.webContents.on("did-finish-load", () => {
     logger.debug("页面加载完成");
     emitWindowState(mainWindow);
+    scheduleWorkflowParityCapture(mainWindow);
   });
 
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
@@ -694,6 +940,7 @@ function createWindow() {
 }
 
 registerWindowControlIPC();
+registerWindowCaptureIPC();
 
 nativeTheme.on("updated", () => {
   const win = getAliveMainWindow();
@@ -1023,6 +1270,42 @@ ipcMain.handle(
   },
 );
 
+ipcMain.handle(
+  "clean-recent-uploaded-subtitles",
+  async (_event, { archiveDir, subtitleDir, deleteFiles = false } = {}) => {
+    try {
+      const config = getConfig();
+      const result = await cleanupRecentUploadedSubtitles({
+        archiveDir,
+        subtitleDir,
+        deleteFiles,
+        recentActivityDir: config.paths?.uploadHistoryDir,
+      });
+
+      if (!result.success) {
+        logger.warn(
+          `[clean-recent-uploaded-subtitles] ${result.msg || "清理失败"}`,
+        );
+      } else {
+        logger.info(
+          `[clean-recent-uploaded-subtitles] matched archives=${result.matchedArchiveCount} folders=${result.matchedFolderCount} delete=${result.actuallyDeleted}`,
+        );
+      }
+
+      return result;
+    } catch (error) {
+      logger.error(
+        "[clean-recent-uploaded-subtitles] 错误:",
+        error?.message || error,
+      );
+      return {
+        success: false,
+        msg: error?.message || String(error),
+      };
+    }
+  },
+);
+
 // 写入文件
 ipcMain.handle("write-file", async (event, { path: filePath, content }) => {
   try {
@@ -1077,10 +1360,8 @@ app.whenReady().then(() => {
   setupTgInfoCacheIPC();
   setupRjDuplicatesIPC();
   setupTgInfoErrorRecoverIPC();
+  setupAsmrAudioDownloaderIPC();
   setupConfigIPC();
-  setupWorkflowRuntimeIPC().catch((error) => {
-    logger.error("[workflow-runtime] IPC 注册失败", error?.message || error);
-  });
 
   // 4. 启动后自动启动 Bot（默认开启）+ TG 索引同步（异步，不阻塞应用启动）
   setTimeout(() => {
@@ -1112,6 +1393,13 @@ app.whenReady().then(() => {
     triggerStartupHistorySync().catch((error) => {
       logger.error(
         "[tg-search-bot] 启动自动同步任务异常",
+        error?.message || error,
+      );
+    });
+
+    startInfoCacheHotScheduler({ startupDelayMs: 0 }).catch((error) => {
+      logger.error(
+        "[tg-info-cache] 启动热缓存任务异常",
         error?.message || error,
       );
     });
