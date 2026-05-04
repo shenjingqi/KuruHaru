@@ -1,29 +1,28 @@
-import fs from 'fs';
-import path from 'path';
-import axios from 'axios';
-import { ipcMain } from 'electron';
-import { getConfig } from './config.js';
-import { getAsmrClient } from './httpClient.js';
-import { createLogSender } from '../utils/logger.js';
-import { normalizeError } from '../utils/errorHandler.js';
-import { withRetry } from '../utils/retry.js';
+import fs from "fs";
+import path from "path";
+import { ipcMain } from "electron";
+import { getConfig } from "./config.js";
+import { getAsmrClient } from "./httpClient.js";
+import { createLogSender } from "../utils/logger.js";
+import { normalizeError } from "../utils/errorHandler.js";
+import { withRetry } from "../utils/retry.js";
 import {
   DEFAULT_MAX_AUTO_DOWNLOAD_TASKS_PER_WORK,
   buildDownloadPlanForWork,
   parseAudioNodes,
   parseBatchDownloadInput,
   shouldManualReviewByTaskCount,
-} from './asmr-core/audio-download-utils.js';
+} from "./asmr-core/audio-download-utils.js";
 
-const logger = createLogSender('asmr-audio-downloader');
+const logger = createLogSender("asmr-audio-downloader");
 
-const CHANNEL_NAME = 'asmr-audio-downloader-run';
-const API_BASE_URL = 'https://api.asmr-200.com/api/tracks/';
-const ARIA2_INPUT_FILE = 'aria2_tasks.txt';
-const MANUAL_REVIEW_FILE = 'manual_review.txt';
-const DEFAULT_ARIA2_RPC_URL = 'http://localhost:6800/jsonrpc';
-const DEFAULT_ARIA2_SPLIT = '16';
-const DEFAULT_ARIA2_MAX_CONNECTIONS = '16';
+const CHANNEL_NAME = "asmr-audio-downloader-run";
+const API_BASE_URL = "https://api.asmr-200.com/api/tracks/";
+const ARIA2_INPUT_FILE = "aria2_tasks.txt";
+const MANUAL_REVIEW_FILE = "manual_review.txt";
+const DEFAULT_ARIA2_RPC_URL = "http://localhost:6800/jsonrpc";
+const DEFAULT_ARIA2_SPLIT = "16";
+const DEFAULT_ARIA2_MAX_CONNECTIONS = "16";
 const API_REQUEST_DELAY_MS = 500;
 const RATE_LIMIT_RETRY_MAX = 3;
 const RATE_LIMIT_BASE_SLEEP_MS = 10000;
@@ -31,22 +30,22 @@ const NETWORK_RETRY_MAX = 3;
 const NETWORK_RETRY_BACKOFF_MS = 1000;
 const MAX_PATH_LIMIT = 250;
 const DEFAULT_USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function normalizeBoolean(value, fallbackValue) {
-  if (typeof value === 'boolean') {
+  if (typeof value === "boolean") {
     return value;
   }
 
   return fallbackValue;
 }
 
-function trimString(value, fallbackValue = '') {
-  if (typeof value !== 'string') {
+function trimString(value, fallbackValue = "") {
+  if (typeof value !== "string") {
     return fallbackValue;
   }
 
@@ -55,7 +54,7 @@ function trimString(value, fallbackValue = '') {
 }
 
 function normalizePositiveInteger(value, fallbackValue) {
-  const normalizedValue = Number.parseInt(String(value ?? ''), 10);
+  const normalizedValue = Number.parseInt(String(value ?? ""), 10);
   if (!Number.isFinite(normalizedValue) || normalizedValue <= 0) {
     return fallbackValue;
   }
@@ -69,23 +68,30 @@ function resolveRuntimeOptions(payload = {}) {
   const pathsConfig = config?.paths || {};
 
   return {
-    inputText: String(payload.inputText || ''),
+    inputText: String(payload.inputText || ""),
     downloadDir: trimString(
       payload.downloadDir,
       trimString(
         pathsConfig.asmrDownloadDir,
-        trimString(pathsConfig.toolOutputDir, ''),
+        trimString(pathsConfig.toolOutputDir, ""),
       ),
     ),
     useAria2: normalizeBoolean(
       payload.useAria2,
       asmrConfig.downloadUseAria2 !== false,
     ),
-    testMode: normalizeBoolean(payload.testMode, asmrConfig.downloadTestMode === true),
-    rpcUrl: trimString(payload.rpcUrl, trimString(asmrConfig.downloadRpcUrl, DEFAULT_ARIA2_RPC_URL)),
-    rpcSecret: typeof payload.rpcSecret === 'string'
-      ? payload.rpcSecret
-      : String(asmrConfig.downloadRpcSecret || ''),
+    testMode: normalizeBoolean(
+      payload.testMode,
+      asmrConfig.downloadTestMode === true,
+    ),
+    rpcUrl: trimString(
+      payload.rpcUrl,
+      trimString(asmrConfig.downloadRpcUrl, DEFAULT_ARIA2_RPC_URL),
+    ),
+    rpcSecret:
+      typeof payload.rpcSecret === "string"
+        ? payload.rpcSecret
+        : String(asmrConfig.downloadRpcSecret || ""),
     maxAutoTasksPerWork: normalizePositiveInteger(
       payload.maxAutoTasksPerWork,
       normalizePositiveInteger(
@@ -109,7 +115,7 @@ async function fetchTrackTree(apiId) {
             timeout: 15000,
             validateStatus: () => true,
             headers: {
-              'User-Agent': DEFAULT_USER_AGENT,
+              "User-Agent": DEFAULT_USER_AGENT,
             },
           }),
         {
@@ -126,7 +132,7 @@ async function fetchTrackTree(apiId) {
       if (response.status === 404) {
         return {
           success: true,
-          status: 'not_found',
+          status: "not_found",
           data: null,
         };
       }
@@ -136,8 +142,8 @@ async function fetchTrackTree(apiId) {
           logger.warn(`[fetch] ${apiId} 命中限流且达到最大重试次数`);
           return {
             success: false,
-            status: 'rate_limited',
-            message: '接口限流，达到最大重试次数',
+            status: "rate_limited",
+            message: "接口限流，达到最大重试次数",
           };
         }
 
@@ -152,25 +158,25 @@ async function fetchTrackTree(apiId) {
       if (response.status < 200 || response.status >= 300) {
         return {
           success: false,
-          status: 'http_error',
+          status: "http_error",
           message: `接口返回异常状态码 ${response.status}`,
         };
       }
 
       return {
         success: true,
-        status: 'ok',
+        status: "ok",
         data: Array.isArray(response.data) ? response.data : [],
       };
     } catch (error) {
       const normalizedError = normalizeError(error);
       logger.error(
         `[fetch] ${apiId} 请求失败: ${normalizedError.message}`,
-        normalizedError.details || '',
+        normalizedError.details || "",
       );
       return {
         success: false,
-        status: normalizedError.type || 'error',
+        status: normalizedError.type || "error",
         message: normalizedError.message,
       };
     }
@@ -178,8 +184,8 @@ async function fetchTrackTree(apiId) {
 
   return {
     success: false,
-    status: 'unknown_error',
-    message: '未知错误',
+    status: "unknown_error",
+    message: "未知错误",
   };
 }
 
@@ -193,17 +199,20 @@ async function writeBackupFiles({ downloadDir, manualItems, tasks }) {
     manualReviewPath = path.join(downloadDir, MANUAL_REVIEW_FILE);
     await fs.promises.writeFile(
       manualReviewPath,
-      `${manualItems.join('\n')}\n`,
-      'utf-8',
+      `${manualItems.join("\n")}\n`,
+      "utf-8",
     );
   }
 
   if (tasks.length > 0) {
     aria2InputPath = path.join(downloadDir, ARIA2_INPUT_FILE);
     const content = tasks
-      .map((task) => `${task.downloadUrl}\n\tout=${task.outPath.replace(/\\/g, '/')}\n`)
-      .join('');
-    await fs.promises.writeFile(aria2InputPath, content, 'utf-8');
+      .map(
+        (task) =>
+          `${task.downloadUrl}\n\tout=${task.outPath.replace(/\\/g, "/")}\n`,
+      )
+      .join("");
+    await fs.promises.writeFile(aria2InputPath, content, "utf-8");
   }
 
   return {
@@ -213,20 +222,16 @@ async function writeBackupFiles({ downloadDir, manualItems, tasks }) {
 }
 
 async function pushTasksToAria2({ tasks, downloadDir, rpcUrl, rpcSecret }) {
-  const aria2Client = axios.create({
-    timeout: 5000,
-    proxy: false,
-    validateStatus: () => true,
-  });
+  const aria2Client = getAsmrClient();
 
   let pushedCount = 0;
   const pushErrors = [];
 
   for (const task of tasks) {
     const payload = {
-      jsonrpc: '2.0',
-      id: 'kuruharu_asmr_downloader',
-      method: 'aria2.addUri',
+      jsonrpc: "2.0",
+      id: "kuruharu_asmr_downloader",
+      method: "aria2.addUri",
       params: [],
     };
 
@@ -234,17 +239,14 @@ async function pushTasksToAria2({ tasks, downloadDir, rpcUrl, rpcSecret }) {
       payload.params.push(`token:${rpcSecret}`);
     }
 
-    payload.params.push(
-      [task.downloadUrl],
-      {
-        dir: downloadDir,
-        out: task.outPath.replace(/\\/g, '/'),
-        split: DEFAULT_ARIA2_SPLIT,
-        'max-connection-per-server': DEFAULT_ARIA2_MAX_CONNECTIONS,
-        'user-agent': DEFAULT_USER_AGENT,
-        continue: 'true',
-      },
-    );
+    payload.params.push([task.downloadUrl], {
+      dir: downloadDir,
+      out: task.outPath.replace(/\\/g, "/"),
+      split: DEFAULT_ARIA2_SPLIT,
+      "max-connection-per-server": DEFAULT_ARIA2_MAX_CONNECTIONS,
+      "user-agent": DEFAULT_USER_AGENT,
+      continue: "true",
+    });
 
     try {
       const response = await withRetry(
@@ -277,7 +279,9 @@ async function pushTasksToAria2({ tasks, downloadDir, rpcUrl, rpcSecret }) {
         outPath: task.outPath,
         message: normalizedError.message,
       });
-      logger.error(`[aria2] 推送失败: ${task.outPath} -> ${normalizedError.message}`);
+      logger.error(
+        `[aria2] 推送失败: ${task.outPath} -> ${normalizedError.message}`,
+      );
       break;
     }
   }
@@ -293,18 +297,20 @@ export async function runAsmrAudioDownloader(payload = {}) {
   if (!options.inputText.trim()) {
     return {
       success: false,
-      message: '请输入 RJ/VJ/BJ 编号列表',
+      message: "请输入 RJ/VJ/BJ 编号列表",
     };
   }
 
   if (!options.downloadDir) {
     return {
       success: false,
-      message: '请选择下载目录',
+      message: "请选择下载目录",
     };
   }
 
-  const { workItems, invalidItems } = parseBatchDownloadInput(options.inputText);
+  const { workItems, invalidItems } = parseBatchDownloadInput(
+    options.inputText,
+  );
   const manualItems = invalidItems.map(
     (item) => `${item.input} | Reason: ${item.reason}`,
   );
@@ -321,17 +327,17 @@ export async function runAsmrAudioDownloader(payload = {}) {
     const fetchResult = await fetchTrackTree(workItem.apiId);
     await sleep(API_REQUEST_DELAY_MS);
 
-    if (!fetchResult.success || fetchResult.status !== 'ok') {
+    if (!fetchResult.success || fetchResult.status !== "ok") {
       const reason =
-        fetchResult.status === 'not_found'
-          ? 'API获取失败或作品不存在'
-          : fetchResult.message || '作品轨道获取失败';
+        fetchResult.status === "not_found"
+          ? "API获取失败或作品不存在"
+          : fetchResult.message || "作品轨道获取失败";
 
       manualItems.push(`${workItem.displayCode} | Reason: ${reason}`);
       processedItems.push({
         input: workItem.rawInput,
         workCode: workItem.displayCode,
-        status: 'manual',
+        status: "manual",
         reason,
       });
       continue;
@@ -346,25 +352,27 @@ export async function runAsmrAudioDownloader(payload = {}) {
     });
 
     if (tasks.length === 0) {
-      const reason = '全目录被过滤，无有效音频';
+      const reason = "全目录被过滤，无有效音频";
       manualItems.push(`${workItem.displayCode} | Reason: ${reason}`);
       processedItems.push({
         input: workItem.rawInput,
         workCode: workItem.displayCode,
-        status: 'manual',
+        status: "manual",
         reason,
       });
       continue;
     }
 
     if (overflowPaths.length > 0) {
-      const longestPathLength = Math.max(...overflowPaths.map((item) => item.length));
+      const longestPathLength = Math.max(
+        ...overflowPaths.map((item) => item.length),
+      );
       const reason = `${overflowPaths.length} 条路径超长（最长 ${longestPathLength} 字符），触发 MAX_PATH 限制`;
       manualItems.push(`${workItem.displayCode} | Reason: ${reason}`);
       processedItems.push({
         input: workItem.rawInput,
         workCode: workItem.displayCode,
-        status: 'manual',
+        status: "manual",
         reason,
       });
       continue;
@@ -376,7 +384,7 @@ export async function runAsmrAudioDownloader(payload = {}) {
       processedItems.push({
         input: workItem.rawInput,
         workCode: workItem.displayCode,
-        status: 'manual',
+        status: "manual",
         reason,
       });
       continue;
@@ -386,7 +394,7 @@ export async function runAsmrAudioDownloader(payload = {}) {
     processedItems.push({
       input: workItem.rawInput,
       workCode: workItem.displayCode,
-      status: 'queued',
+      status: "queued",
       taskCount: tasks.length,
     });
   }
@@ -414,7 +422,7 @@ export async function runAsmrAudioDownloader(payload = {}) {
 
     return {
       success: true,
-      message: '音声下载任务处理完成',
+      message: "音声下载任务处理完成",
       summary: {
         inputCount: workItems.length + invalidItems.length,
         validCount: workItems.length,
