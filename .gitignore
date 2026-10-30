@@ -30,3 +30,10 @@ config/*.json.backup
 
 # Codepilot
 .codepilot-uploads/
+
+# Temp, cache & test output
+.tmp*
+output/
+__pycache__/
+*.pyc
+scripts/baseline-*.json

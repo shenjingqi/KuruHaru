@@ -143,6 +143,12 @@ const INVOKE_MAP = {
     channel: "asmr-audio-downloader-run",
     args: ARG_DIRECT,
   },
+  translationAutomationStatus: "translation-automation-status",
+  translationAutomationRun: "translation-automation-run",
+  translationAutomationSaveConfig: {
+    channel: "translation-automation-save-config",
+    args: ARG_DIRECT,
+  },
   asmrDeleteWorks: { channel: "asmr-delete-works", args: ARG_DIRECT },
   asmrFetchChineseWorks: {
     channel: "asmr-fetch-chinese-works",
@@ -186,6 +192,10 @@ const INVOKE_MAP = {
     channel: "clean-recent-uploaded-subtitles",
     args: ARG_DIRECT,
   },
+  convertSubtitleFormat: {
+    channel: "convert-subtitle-format",
+    args: ARG_DIRECT,
+  },
 
   // Telegram
   tgCheckLogin: "tg-check-login",
@@ -200,6 +210,7 @@ const INVOKE_MAP = {
   tgBotSearch: { channel: "tg-bot-search", args: ARG_DIRECT },
   tgBotInfo: { channel: "tg-bot-info", args: ARG_DIRECT },
   tgBotSyncHistory: { channel: "tg-bot-sync-history", args: ARG_DIRECT },
+  tgBotGenerateDailyZip: "tg-bot-generate-daily-zip",
   tgInfoCacheBuild: { channel: "tg-info-cache-build", args: ARG_DIRECT },
   tgInfoCacheStatus: { channel: "tg-info-cache-status", args: ARG_DIRECT },
 
@@ -323,6 +334,11 @@ const LISTENER_MAP = {
     mapValue: (value) => value || {},
     returnUnsubscribe: true,
   },
+  onTranslationAutomationEvent: {
+    channel: "translation-automation-event",
+    mapValue: (value) => value || {},
+    returnUnsubscribe: true,
+  },
 };
 
 const api = {
@@ -401,6 +417,7 @@ api.tools = {
   extractFileNames: api.extractFileNames,
   cleanData: api.cleanData,
   cleanRecentUploadedSubtitles: api.cleanRecentUploadedSubtitles,
+  convertSubtitleFormat: api.convertSubtitleFormat,
   zipSubtitles: api.zipSubtitles,
 };
 
@@ -418,6 +435,13 @@ api.asmr = {
   filterRjFromUrl: api.filterRjFromUrl,
   deleteWorks: api.asmrDeleteWorks,
   deleteByRJ: api.asmrDeleteByRJ,
+};
+
+api.translationAutomation = {
+  status: api.translationAutomationStatus,
+  run: api.translationAutomationRun,
+  saveConfig: api.translationAutomationSaveConfig,
+  onEvent: api.onTranslationAutomationEvent,
 };
 
 api.tg = {
@@ -440,6 +464,7 @@ api.tg = {
   botSearch: api.tgBotSearch,
   botInfo: api.tgBotInfo,
   botSyncHistory: api.tgBotSyncHistory,
+  botGenerateDailyZip: api.tgBotGenerateDailyZip,
   infoCacheBuild: api.tgInfoCacheBuild,
   infoCacheStatus: api.tgInfoCacheStatus,
   scanRjDuplicates: api.tgScanRjDuplicates,

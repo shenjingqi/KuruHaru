@@ -70,7 +70,34 @@
             </template>
             获取频道消息并保存索引
           </n-button>
+
+          <n-button
+            type="info"
+            :loading="isGeneratingDailyZip"
+            @click="handleGenerateDailyZip"
+          >
+            <template #icon>
+              <CloudUploadOutlined />
+            </template>
+            强制生成并上传整合包
+          </n-button>
         </div>
+
+        <n-alert
+          v-if="dailyZipResult?.url"
+          type="success"
+          title="整合包已上传"
+          class="daily-zip-result"
+        >
+          <a
+            :href="dailyZipResult.url"
+            target="_blank"
+            rel="noreferrer"
+            class="daily-zip-link"
+          >
+            {{ dailyZipResult.fileName || "打开整合包链接" }}
+          </a>
+        </n-alert>
 
         <div class="search-section">
           <div class="search-input-group">
@@ -243,8 +270,8 @@
               </li>
               <li>TXT 构建作品信息缓存请到「TG信息缓存」页面</li>
               <li>
-                群聊命令支持：/search@BotName RJ123456 或 @BotName /search
-                RJ123456
+                群聊命令支持：/search@BotName RJ123456、@BotName /search
+                RJ123456、@BotName RJ123456
               </li>
               <li>Bot 会先查历史索引，再查前置包内存索引（极速）</li>
               <li>命中前置包后会后台补充频道结果并更新历史索引</li>
@@ -272,6 +299,7 @@ import {
   PlayCircleOutlined,
   StopOutlined,
   SyncOutlined,
+  CloudUploadOutlined,
   SearchOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
@@ -301,6 +329,9 @@ const {
   handleSearch,
   handleInfoSearch,
   handleSyncHistory,
+  isGeneratingDailyZip,
+  dailyZipResult,
+  handleGenerateDailyZip,
 } = useTgSearchBotWorkflow({ message });
 </script>
 

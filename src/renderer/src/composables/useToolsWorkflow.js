@@ -5,10 +5,37 @@ import {
   extractFileNames as runExtractFileNames,
   cleanData as runCleanData,
   cleanRecentUploadedSubtitles as runCleanRecentUploadedSubtitles,
+  convertSubtitleFormat as runConvertSubtitleFormat,
   zipSubtitles,
 } from "../api/toolsApi";
 
 export const useToolsWorkflow = () => {
+  const getDirectoryPath = (rawPath) => {
+    const normalizedPath = String(rawPath || "").trim();
+    if (!normalizedPath) {
+      return "";
+    }
+
+    const lastSlashIndex = Math.max(
+      normalizedPath.lastIndexOf("\\"),
+      normalizedPath.lastIndexOf("/"),
+    );
+
+    if (lastSlashIndex < 0) {
+      return normalizedPath;
+    }
+
+    if (lastSlashIndex <= 2 && /^[A-Za-z]:[\\/]/.test(normalizedPath)) {
+      return normalizedPath.slice(0, lastSlashIndex + 1);
+    }
+
+    if (lastSlashIndex === 0) {
+      return normalizedPath.slice(0, 1);
+    }
+
+    return normalizedPath.slice(0, lastSlashIndex);
+  };
+
   // 提取文件名功能
   const sourceDir = ref("");
   const outputPath = ref("");
@@ -32,6 +59,14 @@ export const useToolsWorkflow = () => {
   const recentUploadCleanupResult = ref("");
   const recentUploadCleanupDetails = ref("");
 
+  // 字幕格式互转
+  const subtitleConvertSourcePath = ref("");
+  const subtitleConvertOutputPath = ref("");
+  const subtitleConvertTargetFormat = ref("srt");
+  const isConvertingSubtitle = ref(false);
+  const subtitleConvertResult = ref("");
+  const subtitleConvertDetails = ref("");
+
   // 打包字幕功能
   const zipMediaPath = ref("");
   const zipOutputPath = ref("");
@@ -45,6 +80,7 @@ export const useToolsWorkflow = () => {
       outputPath.value = cfg.paths.toolOutputDir;
       zipOutputPath.value = cfg.paths.toolOutputDir;
       recentUploadArchiveDir.value = cfg.paths.toolOutputDir;
+      subtitleConvertOutputPath.value = cfg.paths.toolOutputDir;
     }
     if (cfg?.whisper?.targetPath) {
       zipMediaPath.value = cfg.whisper.targetPath;
@@ -290,6 +326,98 @@ export const useToolsWorkflow = () => {
     }
   };
 
+  const selectSubtitleConvertSourcePath = async () => {
+    const res = await openFile({
+      type: "file",
+    });
+    if (res && res.filePath) {
+      subtitleConvertSourcePath.value = res.filePath;
+      if (/\.srt$/i.test(res.filePath)) {
+        subtitleConvertTargetFormat.value = "lrc";
+      } else if (/\.lrc$/i.test(res.filePath)) {
+        subtitleConvertTargetFormat.value = "srt";
+      }
+      if (!subtitleConvertOutputPath.value) {
+        subtitleConvertOutputPath.value = getDirectoryPath(res.filePath);
+      }
+    }
+  };
+
+  const selectSubtitleConvertSourceDir = async () => {
+    const res = await openDirectory();
+    if (res && res.filePath) {
+      subtitleConvertSourcePath.value = res.filePath;
+      if (!subtitleConvertOutputPath.value) {
+        subtitleConvertOutputPath.value = res.filePath;
+      }
+    }
+  };
+
+  const selectSubtitleConvertOutputPath = async () => {
+    const res = await openDirectory();
+    if (res && res.filePath) {
+      subtitleConvertOutputPath.value = res.filePath;
+    }
+  };
+
+  const convertSubtitleFormat = async () => {
+    if (!subtitleConvertSourcePath.value) return;
+
+    isConvertingSubtitle.value = true;
+    subtitleConvertResult.value = "";
+    subtitleConvertDetails.value = "";
+
+    try {
+      const res = await runConvertSubtitleFormat({
+        sourcePath: subtitleConvertSourcePath.value,
+        outputPath: subtitleConvertOutputPath.value,
+        targetFormat: subtitleConvertTargetFormat.value,
+      });
+
+      if (res.success) {
+        const convertedCount = Number(res.convertedCount || 0);
+        const targetLabel = String(res.targetFormat || "").toUpperCase();
+        subtitleConvertResult.value =
+          convertedCount > 1
+            ? `✅ 已批量转换 ${convertedCount} 个文件为 ${targetLabel}`
+            : `✅ 已转换为 ${targetLabel}：${res.outputPath}`;
+
+        const details = [];
+        if (res.mode === "directory") {
+          details.push(`输出目录: ${res.outputPath}`);
+          details.push(`成功数量: ${convertedCount}`);
+          details.push(`失败数量: ${res.failedCount || 0}`);
+        } else {
+          details.push(`输出文件: ${res.outputPath}`);
+          details.push(`字幕条数: ${res.cueCount || 0}`);
+        }
+
+        if (Array.isArray(res.failedFiles) && res.failedFiles.length > 0) {
+          details.push("");
+          details.push("失败文件:");
+          res.failedFiles.forEach((item) => {
+            details.push(`- ${item.sourcePath} :: ${item.error}`);
+          });
+        }
+
+        subtitleConvertDetails.value = details.join("\n");
+
+        await saveCustomPaths({
+          toolOutputDir:
+            res.mode === "file"
+              ? getDirectoryPath(res.outputPath)
+              : subtitleConvertOutputPath.value || res.outputPath,
+        });
+      } else {
+        subtitleConvertResult.value = `❌ 失败: ${res.msg || res.message || "未知错误"}`;
+      }
+    } catch (e) {
+      subtitleConvertResult.value = `❌ 错误: ${e.message}`;
+    } finally {
+      isConvertingSubtitle.value = false;
+    }
+  };
+
   return {
     sourceDir,
     outputPath,
@@ -308,6 +436,12 @@ export const useToolsWorkflow = () => {
     isCleaningRecentUploaded,
     recentUploadCleanupResult,
     recentUploadCleanupDetails,
+    subtitleConvertSourcePath,
+    subtitleConvertOutputPath,
+    subtitleConvertTargetFormat,
+    isConvertingSubtitle,
+    subtitleConvertResult,
+    subtitleConvertDetails,
     zipMediaPath,
     zipOutputPath,
     isZipping,
@@ -321,6 +455,10 @@ export const useToolsWorkflow = () => {
     selectRecentUploadArchiveDir,
     selectRecentUploadSubtitleDir,
     cleanRecentUploadedSubtitles,
+    selectSubtitleConvertSourcePath,
+    selectSubtitleConvertSourceDir,
+    selectSubtitleConvertOutputPath,
+    convertSubtitleFormat,
     selectZipMediaPath,
     selectZipOutputPath,
     startZipSubtitles,

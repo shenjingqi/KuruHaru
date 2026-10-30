@@ -6,6 +6,7 @@ import {
   tgBotSearch,
   tgBotInfo,
   tgBotSyncHistory,
+  tgBotGenerateDailyZip,
   tgInfoCacheStatus,
 } from "../api/tgApi";
 
@@ -22,6 +23,7 @@ export const useTgSearchBotWorkflow = ({ message }) => {
   const isSearching = ref(false);
   const isInfoSearching = ref(false);
   const isSyncingHistory = ref(false);
+  const isGeneratingDailyZip = ref(false);
 
   // 搜索相关
   const searchRjCode = ref("");
@@ -30,6 +32,7 @@ export const useTgSearchBotWorkflow = ({ message }) => {
   const infoResult = ref(null);
   const syncResult = ref(null);
   const infoCacheStatusResult = ref(null);
+  const dailyZipResult = ref(null);
 
   // 获取 Bot 状态
   const getBotStatus = async () => {
@@ -162,6 +165,29 @@ export const useTgSearchBotWorkflow = ({ message }) => {
     }
   };
 
+  const handleGenerateDailyZip = async () => {
+    isGeneratingDailyZip.value = true;
+    try {
+      const result = await tgBotGenerateDailyZip();
+      dailyZipResult.value = result;
+      if (result?.success && result?.url) {
+        message.success(
+          `整合包已上传：${result.fileName || "kuruharu 每日整合包"}`,
+        );
+      } else {
+        message.error(result?.error || "整合包生成失败");
+      }
+    } catch (error) {
+      dailyZipResult.value = {
+        success: false,
+        error: `生成失败: ${error.message}`,
+      };
+      message.error(`整合包生成失败: ${error.message}`);
+    } finally {
+      isGeneratingDailyZip.value = false;
+    }
+  };
+
   // 组件挂载时获取 Bot 状态
   onMounted(() => {
     getBotStatus();
@@ -175,11 +201,13 @@ export const useTgSearchBotWorkflow = ({ message }) => {
     isSearching,
     isInfoSearching,
     isSyncingHistory,
+    isGeneratingDailyZip,
     searchRjCode,
     searchResult,
     infoWorkCode,
     infoResult,
     syncResult,
+    dailyZipResult,
     infoCacheStatusResult,
     getBotStatus,
     getInfoCacheStatusResult,
@@ -188,5 +216,6 @@ export const useTgSearchBotWorkflow = ({ message }) => {
     handleSearch,
     handleInfoSearch,
     handleSyncHistory,
+    handleGenerateDailyZip,
   };
 };

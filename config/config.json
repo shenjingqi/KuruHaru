@@ -19,6 +19,7 @@
     "password": "",
     "token": "",
     "playlistId": "",
+    "translationQueuePlaylistId": "",
     "rememberMe": false,
     "proxyUrl": ""
   },

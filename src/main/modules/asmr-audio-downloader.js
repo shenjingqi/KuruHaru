@@ -7,6 +7,7 @@ import { createLogSender } from "../utils/logger.js";
 import { normalizeError } from "../utils/errorHandler.js";
 import { withRetry } from "../utils/retry.js";
 import {
+  DEFAULT_FILTER_VIDEO_FORMATS,
   DEFAULT_MAX_AUTO_DOWNLOAD_TASKS_PER_WORK,
   buildDownloadPlanForWork,
   parseAudioNodes,
@@ -62,6 +63,36 @@ function normalizePositiveInteger(value, fallbackValue) {
   return normalizedValue;
 }
 
+function normalizeOutputPath(value) {
+  return String(value || "")
+    .replace(/\//g, path.sep)
+    .replace(/\\/g, path.sep)
+    .toLowerCase();
+}
+
+function getTaskOutputPath(downloadDir, task) {
+  return path.resolve(downloadDir, task.outPath.replace(/[\\/]/g, path.sep));
+}
+
+function getRequestedOutPathsByCode(value) {
+  if (!value || typeof value !== "object") return new Map();
+
+  return new Map(
+    Object.entries(value)
+      .map(([code, outPaths]) => [
+        String(code || "")
+          .trim()
+          .toUpperCase(),
+        new Set(
+          (Array.isArray(outPaths) ? outPaths : [])
+            .map((outPath) => String(outPath || "").replace(/\\/g, "/"))
+            .filter(Boolean),
+        ),
+      ])
+      .filter(([, outPaths]) => outPaths.size > 0),
+  );
+}
+
 function resolveRuntimeOptions(payload = {}) {
   const config = getConfig();
   const asmrConfig = config?.asmr || {};
@@ -98,6 +129,16 @@ function resolveRuntimeOptions(payload = {}) {
         asmrConfig.downloadMaxAutoTasksPerWork,
         DEFAULT_MAX_AUTO_DOWNLOAD_TASKS_PER_WORK,
       ),
+    ),
+    filterVideoFormats: normalizeBoolean(
+      payload.filterVideoFormats,
+      normalizeBoolean(
+        asmrConfig.downloadFilterVideoFormats,
+        DEFAULT_FILTER_VIDEO_FORMATS,
+      ),
+    ),
+    requestedOutPathsByCode: getRequestedOutPathsByCode(
+      payload.requestedOutPathsByCode,
     ),
   };
 }
@@ -221,13 +262,109 @@ async function writeBackupFiles({ downloadDir, manualItems, tasks }) {
   };
 }
 
+async function readExistingAria2Tasks(aria2Client, rpcUrl, rpcSecret) {
+  const fields = ["gid", "status", "dir", "files"];
+  const makeParams = (params) => [
+    ...(rpcSecret ? [`token:${rpcSecret}`] : []),
+    ...params,
+  ];
+  const requests = [
+    ["kuruharu_asmr_downloader_active", "aria2.tellActive", [fields]],
+    [
+      "kuruharu_asmr_downloader_waiting",
+      "aria2.tellWaiting",
+      [0, 1000, fields],
+    ],
+    [
+      "kuruharu_asmr_downloader_stopped",
+      "aria2.tellStopped",
+      [0, 1000, fields],
+    ],
+  ];
+  const responses = await Promise.all(
+    requests.map(([id, method, params]) =>
+      aria2Client.post(
+        rpcUrl,
+        {
+          jsonrpc: "2.0",
+          id,
+          method,
+          params: makeParams(params),
+        },
+        { timeout: 10000 },
+      ),
+    ),
+  );
+  const tasksByOutputPath = new Map();
+  for (const response of responses) {
+    for (const task of response?.data?.result || []) {
+      for (const file of task?.files || []) {
+        const outputPath = normalizeOutputPath(file?.path);
+        if (outputPath) tasksByOutputPath.set(outputPath, task);
+      }
+    }
+  }
+  return tasksByOutputPath;
+}
+
 async function pushTasksToAria2({ tasks, downloadDir, rpcUrl, rpcSecret }) {
   const aria2Client = getAsmrClient();
 
   let pushedCount = 0;
   const pushErrors = [];
+  const pushedTasks = [];
+  let existingTasksByOutputPath = new Map();
+
+  try {
+    existingTasksByOutputPath = await readExistingAria2Tasks(
+      aria2Client,
+      rpcUrl,
+      rpcSecret,
+    );
+  } catch (error) {
+    logger.warn(
+      `[aria2] 读取已有任务失败，将继续逐项提交: ${normalizeError(error).message}`,
+    );
+  }
 
   for (const task of tasks) {
+    const outputPath = getTaskOutputPath(downloadDir, task);
+    const tempPath = `${outputPath}.aria2`;
+    const existingTask = existingTasksByOutputPath.get(
+      normalizeOutputPath(outputPath),
+    );
+
+    if (
+      existingTask &&
+      ["active", "waiting", "paused"].includes(String(existingTask.status))
+    ) {
+      pushedTasks.push({
+        outPath: task.outPath,
+        gid: existingTask.gid,
+      });
+      logger.info(
+        `[aria2] 已存在下载任务，复用 gid: ${task.outPath} -> ${existingTask.gid}`,
+      );
+      continue;
+    }
+
+    const outputExists = await fs.promises
+      .stat(outputPath)
+      .then((stat) => stat.isFile() && stat.size > 0)
+      .catch(() => false);
+    const tempExists = await fs.promises
+      .access(tempPath, fs.constants.F_OK)
+      .then(() => true)
+      .catch(() => false);
+    if (outputExists && !tempExists) {
+      pushedTasks.push({
+        outPath: task.outPath,
+        gid: `local:${normalizeOutputPath(task.outPath)}`,
+      });
+      logger.info(`[aria2] 本地文件已完整，跳过重复提交: ${task.outPath}`);
+      continue;
+    }
+
     const payload = {
       jsonrpc: "2.0",
       id: "kuruharu_asmr_downloader",
@@ -246,6 +383,7 @@ async function pushTasksToAria2({ tasks, downloadDir, rpcUrl, rpcSecret }) {
       "max-connection-per-server": DEFAULT_ARIA2_MAX_CONNECTIONS,
       "user-agent": DEFAULT_USER_AGENT,
       continue: "true",
+      "auto-file-renaming": "false",
     });
 
     try {
@@ -264,6 +402,14 @@ async function pushTasksToAria2({ tasks, downloadDir, rpcUrl, rpcSecret }) {
 
       if (response.status === 200 && response.data?.result) {
         pushedCount += 1;
+        pushedTasks.push({
+          outPath: task.outPath,
+          gid: response.data.result,
+        });
+        existingTasksByOutputPath.set(normalizeOutputPath(outputPath), {
+          gid: response.data.result,
+          status: "waiting",
+        });
         continue;
       }
 
@@ -289,6 +435,7 @@ async function pushTasksToAria2({ tasks, downloadDir, rpcUrl, rpcSecret }) {
   return {
     pushedCount,
     pushErrors,
+    pushedTasks,
   };
 }
 
@@ -318,7 +465,9 @@ export async function runAsmrAudioDownloader(payload = {}) {
   const allTasks = [];
 
   logger.info(
-    `[run] 开始处理 ${workItems.length} 个有效编号，下载目录: ${options.downloadDir}`,
+    `[run] 开始处理 ${workItems.length} 个有效编号，下载目录: ${options.downloadDir}，视频过滤: ${
+      options.filterVideoFormats ? "on" : "off"
+    }`,
   );
 
   for (const workItem of workItems) {
@@ -349,9 +498,18 @@ export async function runAsmrAudioDownloader(payload = {}) {
       filesData,
       downloadDir: options.downloadDir,
       maxPathLimit: MAX_PATH_LIMIT,
+      filterVideoFormats: options.filterVideoFormats,
     });
+    const requestedOutPaths = options.requestedOutPathsByCode.get(
+      workItem.displayCode.toUpperCase(),
+    );
+    const selectedTasks = requestedOutPaths
+      ? tasks.filter((task) =>
+          requestedOutPaths.has(task.outPath.replace(/\\/g, "/")),
+        )
+      : tasks;
 
-    if (tasks.length === 0) {
+    if (selectedTasks.length === 0) {
       const reason = "全目录被过滤，无有效音频";
       manualItems.push(`${workItem.displayCode} | Reason: ${reason}`);
       processedItems.push({
@@ -378,7 +536,10 @@ export async function runAsmrAudioDownloader(payload = {}) {
       continue;
     }
 
-    if (shouldManualReviewByTaskCount(tasks, options.maxAutoTasksPerWork)) {
+    if (
+      !requestedOutPaths &&
+      shouldManualReviewByTaskCount(tasks, options.maxAutoTasksPerWork)
+    ) {
       const reason = `下载任务数量 ${tasks.length} 超过自动处理上限 ${options.maxAutoTasksPerWork}，请人工筛选`;
       manualItems.push(`${workItem.displayCode} | Reason: ${reason}`);
       processedItems.push({
@@ -390,12 +551,12 @@ export async function runAsmrAudioDownloader(payload = {}) {
       continue;
     }
 
-    allTasks.push(...tasks);
+    allTasks.push(...selectedTasks);
     processedItems.push({
       input: workItem.rawInput,
       workCode: workItem.displayCode,
       status: "queued",
-      taskCount: tasks.length,
+      taskCount: selectedTasks.length,
     });
   }
 
@@ -409,6 +570,7 @@ export async function runAsmrAudioDownloader(payload = {}) {
     let aria2PushResult = {
       pushedCount: 0,
       pushErrors: [],
+      pushedTasks: [],
     };
 
     if (allTasks.length > 0 && options.useAria2 && !options.testMode) {
@@ -434,6 +596,7 @@ export async function runAsmrAudioDownloader(payload = {}) {
         useAria2: options.useAria2,
         testMode: options.testMode,
         maxAutoTasksPerWork: options.maxAutoTasksPerWork,
+        filterVideoFormats: options.filterVideoFormats,
         downloadDir: options.downloadDir,
         manualReviewPath: backupFiles.manualReviewPath,
         aria2InputPath: backupFiles.aria2InputPath,
@@ -441,6 +604,13 @@ export async function runAsmrAudioDownloader(payload = {}) {
       manualItems,
       processedItems,
       pushErrors: aria2PushResult.pushErrors,
+      taskManifest: allTasks.map((task) => ({
+        outPath: task.outPath,
+        workCode: task.outPath.split("/")[0],
+        gid: aria2PushResult.pushedTasks.find(
+          (item) => item.outPath === task.outPath,
+        )?.gid,
+      })),
       taskPreview: allTasks.slice(0, 50).map((task) => task.outPath),
     };
   } catch (error) {
@@ -461,7 +631,7 @@ export function setupAsmrAudioDownloaderIPC() {
     // ignore duplicate registration cleanup
   }
 
-  ipcMain.handle(CHANNEL_NAME, async (_event, payload = {}) =>
+  ipcMain.handle(CHANNEL_NAME, (_event, payload = {}) =>
     runAsmrAudioDownloader(payload),
   );
 }

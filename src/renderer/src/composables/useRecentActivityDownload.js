@@ -51,19 +51,29 @@ export const useRecentActivityDownload = ({ selectedFiles }) => {
         const batch = filesToDownload.slice(i, i + maxConcurrent);
         const batchIndex = Math.floor(i / maxConcurrent) + 1;
         const invalidFiles = batch
-          .filter((file) => !file.name || !file.tgMessageId)
+          .filter(
+            (file) =>
+              !(file.name || file.fileName) ||
+              !(file.tgMessageId || file.messageId),
+          )
           .map((file) => ({
             success: false,
             file,
-            error: !file.name ? "文件缺少名称" : "文件缺少 tgMessageId",
+            error: !(file.name || file.fileName)
+              ? "文件缺少名称"
+              : "文件缺少 Telegram 消息 ID",
           }));
 
         const validItems = batch
-          .filter((file) => file.name && file.tgMessageId)
+          .filter(
+            (file) =>
+              (file.name || file.fileName) &&
+              (file.tgMessageId || file.messageId),
+          )
           .map((file) => ({
             fileId: file.id,
-            fileName: file.name,
-            tgMessageId: file.tgMessageId,
+            fileName: file.name || file.fileName,
+            tgMessageId: file.tgMessageId || file.messageId,
           }));
 
         const batchResult =

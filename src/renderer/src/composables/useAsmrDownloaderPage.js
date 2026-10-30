@@ -1,14 +1,15 @@
-import { computed, onMounted, ref } from 'vue';
-import { loadConfig, saveConfig } from '../api/configApi';
-import { openDirectory, openFile } from '../api/dialogApi';
-import { asmrRunAudioDownloader } from '../api/asmrApi';
-import { readFile } from '../api/localApi';
+import { computed, onMounted, ref } from "vue";
+import { loadConfig, saveConfig } from "../api/configApi";
+import { openDirectory, openFile } from "../api/dialogApi";
+import { asmrRunAudioDownloader } from "../api/asmrApi";
+import { readFile } from "../api/localApi";
 
-const DEFAULT_RPC_URL = 'http://localhost:6800/jsonrpc';
+const DEFAULT_RPC_URL = "http://localhost:6800/jsonrpc";
 const DEFAULT_MAX_AUTO_TASKS_PER_WORK = 20;
+const DEFAULT_FILTER_VIDEO_FORMATS = true;
 
-function buildInputStats(rawText = '') {
-  const rawLines = String(rawText || '').split(/\r?\n/);
+function buildInputStats(rawText = "") {
+  const rawLines = String(rawText || "").split(/\r?\n/);
   const nonEmptyLines = rawLines.map((line) => line.trim()).filter(Boolean);
   const uniqueCodes = new Set();
   let recognizedCount = 0;
@@ -21,7 +22,8 @@ function buildInputStats(rawText = '') {
     const numericMatches = prefixedMatches.length
       ? []
       : [...line.matchAll(/\b\d{6,8}\b/g)].map((match) => `RJ${match[0]}`);
-    const candidates = prefixedMatches.length > 0 ? prefixedMatches : numericMatches;
+    const candidates =
+      prefixedMatches.length > 0 ? prefixedMatches : numericMatches;
 
     if (candidates.length === 0) {
       invalidLineCount += 1;
@@ -43,15 +45,20 @@ function buildInputStats(rawText = '') {
 function formatSummary(result) {
   const summary = result?.summary || {};
   const lines = [
-    `✅ ${result?.message || '音声下载任务处理完成'}`,
+    `✅ ${result?.message || "音声下载任务处理完成"}`,
     `- 输入行数：${summary.inputCount ?? 0}`,
     `- 有效编号：${summary.validCount ?? 0}`,
     `- 人工复核：${summary.manualCount ?? 0}`,
     `- 生成任务：${summary.taskCount ?? 0}`,
     `- 推送到 Aria2：${summary.pushedCount ?? 0}`,
     `- 推送失败：${summary.pushErrorCount ?? 0}`,
-    `- 运行模式：${summary.testMode ? '测试模式（仅生成清单）' : summary.useAria2 ? '生成并推送到 Aria2' : '仅生成清单'}`,
-    `- 下载目录：${summary.downloadDir || '未设置'}`,
+    `- 视频格式过滤：${
+      summary.filterVideoFormats === false
+        ? "关闭（mp4 / m4v / mkv / avi / mov / webm / flv / wmv 参与去重，音频优先）"
+        : "开启（优先音频，仅无音频版本的轨道保留视频兜底）"
+    }`,
+    `- 运行模式：${summary.testMode ? "测试模式（仅生成清单）" : summary.useAria2 ? "生成并推送到 Aria2" : "仅生成清单"}`,
+    `- 下载目录：${summary.downloadDir || "未设置"}`,
     `- 单作品自动处理上限：${summary.maxAutoTasksPerWork ?? DEFAULT_MAX_AUTO_TASKS_PER_WORK}`,
   ];
 
@@ -63,22 +70,23 @@ function formatSummary(result) {
     lines.push(`- 人工复核：${summary.manualReviewPath}`);
   }
 
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 export const useAsmrDownloaderPage = () => {
   const configSnapshot = ref({ asmr: {}, paths: {} });
-  const inputText = ref('');
-  const downloadDir = ref('');
+  const inputText = ref("");
+  const downloadDir = ref("");
   const rpcUrl = ref(DEFAULT_RPC_URL);
-  const rpcSecret = ref('');
+  const rpcSecret = ref("");
   const useAria2 = ref(true);
   const testMode = ref(false);
+  const filterVideoFormats = ref(DEFAULT_FILTER_VIDEO_FORMATS);
   const maxAutoTasksPerWork = ref(DEFAULT_MAX_AUTO_TASKS_PER_WORK);
   const isSubmitting = ref(false);
-  const summaryText = ref('');
-  const errorText = ref('');
-  const importText = ref('');
+  const summaryText = ref("");
+  const errorText = ref("");
+  const importText = ref("");
   const taskPreview = ref([]);
   const manualItems = ref([]);
   const pushErrors = ref([]);
@@ -86,7 +94,9 @@ export const useAsmrDownloaderPage = () => {
   const inputStats = computed(() => buildInputStats(inputText.value));
 
   const canSubmit = computed(
-    () => Boolean(inputText.value.trim() && downloadDir.value.trim()) && !isSubmitting.value,
+    () =>
+      Boolean(inputText.value.trim() && downloadDir.value.trim()) &&
+      !isSubmitting.value,
   );
 
   const hasResult = computed(
@@ -113,22 +123,27 @@ export const useAsmrDownloaderPage = () => {
       rpcUrl.value = config.asmr.downloadRpcUrl;
     }
 
-    if (typeof config?.asmr?.downloadRpcSecret === 'string') {
+    if (typeof config?.asmr?.downloadRpcSecret === "string") {
       rpcSecret.value = config.asmr.downloadRpcSecret;
     }
 
-    if (typeof config?.asmr?.downloadUseAria2 === 'boolean') {
+    if (typeof config?.asmr?.downloadUseAria2 === "boolean") {
       useAria2.value = config.asmr.downloadUseAria2;
     }
 
-    if (typeof config?.asmr?.downloadTestMode === 'boolean') {
+    if (typeof config?.asmr?.downloadTestMode === "boolean") {
       testMode.value = config.asmr.downloadTestMode;
+    }
+
+    if (typeof config?.asmr?.downloadFilterVideoFormats === "boolean") {
+      filterVideoFormats.value = config.asmr.downloadFilterVideoFormats;
     }
 
     if (Number.isFinite(Number(config?.asmr?.downloadMaxAutoTasksPerWork))) {
       maxAutoTasksPerWork.value = Math.max(
         1,
-        Number.parseInt(config.asmr.downloadMaxAutoTasksPerWork, 10) || DEFAULT_MAX_AUTO_TASKS_PER_WORK,
+        Number.parseInt(config.asmr.downloadMaxAutoTasksPerWork, 10) ||
+          DEFAULT_MAX_AUTO_TASKS_PER_WORK,
       );
     }
   });
@@ -143,8 +158,8 @@ export const useAsmrDownloaderPage = () => {
   const importFromTxt = async () => {
     try {
       const result = await openFile({
-        type: 'file',
-        filters: [{ name: 'TXT', extensions: ['txt'] }],
+        type: "file",
+        filters: [{ name: "TXT", extensions: ["txt"] }],
       });
 
       if (!result?.filePath) {
@@ -152,16 +167,16 @@ export const useAsmrDownloaderPage = () => {
       }
 
       const content = await readFile(result.filePath);
-      if (typeof content !== 'string') {
-        errorText.value = '❌ 读取 txt 失败：文件内容为空';
+      if (typeof content !== "string") {
+        errorText.value = "❌ 读取 txt 失败：文件内容为空";
         return;
       }
 
       inputText.value = content.trim();
       importText.value = `已从 ${result.filePath} 导入 ${content.split(/\r?\n/).filter(Boolean).length} 行内容`;
-      errorText.value = '';
+      errorText.value = "";
     } catch (error) {
-      errorText.value = `❌ 导入 txt 失败：${error?.message || '未知错误'}`;
+      errorText.value = `❌ 导入 txt 失败：${error?.message || "未知错误"}`;
     }
   };
 
@@ -173,9 +188,15 @@ export const useAsmrDownloaderPage = () => {
         downloadRpcSecret: rpcSecret.value,
         downloadUseAria2: useAria2.value,
         downloadTestMode: testMode.value,
+        downloadFilterVideoFormats: filterVideoFormats.value,
         downloadMaxAutoTasksPerWork: Math.max(
           1,
-          Number.parseInt(String(maxAutoTasksPerWork.value || DEFAULT_MAX_AUTO_TASKS_PER_WORK), 10) || DEFAULT_MAX_AUTO_TASKS_PER_WORK,
+          Number.parseInt(
+            String(
+              maxAutoTasksPerWork.value || DEFAULT_MAX_AUTO_TASKS_PER_WORK,
+            ),
+            10,
+          ) || DEFAULT_MAX_AUTO_TASKS_PER_WORK,
         ),
       },
       paths: {
@@ -201,9 +222,9 @@ export const useAsmrDownloaderPage = () => {
     }
 
     isSubmitting.value = true;
-    summaryText.value = '';
-    errorText.value = '';
-    importText.value = '';
+    summaryText.value = "";
+    errorText.value = "";
+    importText.value = "";
     taskPreview.value = [];
     manualItems.value = [];
     pushErrors.value = [];
@@ -216,24 +237,36 @@ export const useAsmrDownloaderPage = () => {
         rpcSecret: rpcSecret.value,
         useAria2: useAria2.value,
         testMode: testMode.value,
+        filterVideoFormats: filterVideoFormats.value,
         maxAutoTasksPerWork: Math.max(
           1,
-          Number.parseInt(String(maxAutoTasksPerWork.value || DEFAULT_MAX_AUTO_TASKS_PER_WORK), 10) || DEFAULT_MAX_AUTO_TASKS_PER_WORK,
+          Number.parseInt(
+            String(
+              maxAutoTasksPerWork.value || DEFAULT_MAX_AUTO_TASKS_PER_WORK,
+            ),
+            10,
+          ) || DEFAULT_MAX_AUTO_TASKS_PER_WORK,
         ),
       });
 
       if (!result?.success) {
-        errorText.value = `❌ ${result?.message || '音声下载任务处理失败'}`;
+        errorText.value = `❌ ${result?.message || "音声下载任务处理失败"}`;
         return;
       }
 
       summaryText.value = formatSummary(result);
-      taskPreview.value = Array.isArray(result.taskPreview) ? result.taskPreview : [];
-      manualItems.value = Array.isArray(result.manualItems) ? result.manualItems : [];
-      pushErrors.value = Array.isArray(result.pushErrors) ? result.pushErrors : [];
+      taskPreview.value = Array.isArray(result.taskPreview)
+        ? result.taskPreview
+        : [];
+      manualItems.value = Array.isArray(result.manualItems)
+        ? result.manualItems
+        : [];
+      pushErrors.value = Array.isArray(result.pushErrors)
+        ? result.pushErrors
+        : [];
       await persistSettings();
     } catch (error) {
-      errorText.value = `❌ ${error?.message || '音声下载任务处理失败'}`;
+      errorText.value = `❌ ${error?.message || "音声下载任务处理失败"}`;
     } finally {
       isSubmitting.value = false;
     }
@@ -246,6 +279,7 @@ export const useAsmrDownloaderPage = () => {
     rpcSecret,
     useAria2,
     testMode,
+    filterVideoFormats,
     maxAutoTasksPerWork,
     isSubmitting,
     summaryText,

@@ -32,15 +32,22 @@
 
         <div class="stats-row">
           <span class="stats-badge">总行数 {{ inputStats.lineCount }}</span>
-          <span class="stats-badge">识别到 {{ inputStats.recognizedCount }}</span>
+          <span class="stats-badge"
+            >识别到 {{ inputStats.recognizedCount }}</span
+          >
           <span class="stats-badge">去重后 {{ inputStats.uniqueCount }}</span>
-          <span v-if="inputStats.invalidLineCount > 0" class="stats-badge stats-badge-warn">
+          <span
+            v-if="inputStats.invalidLineCount > 0"
+            class="stats-badge stats-badge-warn"
+          >
             无效 {{ inputStats.invalidLineCount }}
           </span>
         </div>
 
         <div class="field-group">
-          <label class="field-label" for="asmr-downloader-input">编号列表</label>
+          <label class="field-label" for="asmr-downloader-input"
+            >编号列表</label
+          >
           <textarea
             id="asmr-downloader-input"
             v-model="inputText"
@@ -58,7 +65,9 @@
               readonly
               placeholder="选择下载目录"
             />
-            <button class="btn-secondary" @click="selectDownloadDir">选择</button>
+            <button class="btn-secondary" @click="selectDownloadDir">
+              选择
+            </button>
           </div>
         </div>
 
@@ -71,6 +80,20 @@
             <label class="checkbox-label">
               <input v-model="testMode" type="checkbox" class="checkbox" />
               <span>测试模式（仅生成清单，不推送）</span>
+            </label>
+            <label class="checkbox-label">
+              <input
+                v-model="filterVideoFormats"
+                type="checkbox"
+                class="checkbox"
+              />
+              <span class="checkbox-copy">
+                <span>过滤视频格式（优先音频，无音频时保留视频）</span>
+                <small class="checkbox-note">
+                  默认开启；同一轨道同时有音频和视频时只保留音频，仅当轨道只有视频版本时才保留视频（mp4
+                  / m4v / mkv / avi / mov / webm / flv / wmv）。
+                </small>
+              </span>
             </label>
           </div>
 
@@ -96,7 +119,9 @@
           </div>
 
           <div class="field-group">
-            <label class="field-label" for="asmr-max-auto-tasks">单作品自动处理上限</label>
+            <label class="field-label" for="asmr-max-auto-tasks"
+              >单作品自动处理上限</label
+            >
             <input
               id="asmr-max-auto-tasks"
               v-model.number="maxAutoTasksPerWork"
@@ -109,8 +134,12 @@
           </div>
         </div>
 
-        <button class="btn-primary submit-btn" :disabled="!canSubmit" @click="runDownloader">
-          {{ isSubmitting ? '处理中...' : '生成下载任务' }}
+        <button
+          class="btn-primary submit-btn"
+          :disabled="!canSubmit"
+          @click="runDownloader"
+        >
+          {{ isSubmitting ? "处理中..." : "生成下载任务" }}
         </button>
       </article>
 
@@ -140,14 +169,14 @@
           <div v-if="taskPreview.length" class="result-section">
             <h4 class="result-title">任务预览（前 50 条）</h4>
             <div class="result-box compact-box">
-              <pre>{{ taskPreview.join('\n') }}</pre>
+              <pre>{{ taskPreview.join("\n") }}</pre>
             </div>
           </div>
 
           <div v-if="manualItems.length" class="result-section">
             <h4 class="result-title">人工复核</h4>
             <div class="result-box compact-box">
-              <pre>{{ manualItems.join('\n') }}</pre>
+              <pre>{{ manualItems.join("\n") }}</pre>
             </div>
           </div>
 
@@ -157,7 +186,7 @@
               <pre>{{
                 pushErrors
                   .map((item) => `${item.outPath} | ${item.message}`)
-                  .join('\n')
+                  .join("\n")
               }}</pre>
             </div>
           </div>
@@ -168,7 +197,7 @@
 </template>
 
 <script setup>
-import { useAsmrDownloaderPage } from '../composables/useAsmrDownloaderPage';
+import { useAsmrDownloaderPage } from "../composables/useAsmrDownloaderPage";
 
 const {
   inputText,
@@ -177,6 +206,7 @@ const {
   rpcSecret,
   useAria2,
   testMode,
+  filterVideoFormats,
   maxAutoTasksPerWork,
   isSubmitting,
   summaryText,
@@ -409,6 +439,18 @@ const {
   color: #66614f;
 }
 
+.checkbox-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.checkbox-note {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: #8b856f;
+}
+
 .checkbox {
   width: 1.125rem;
   height: 1.125rem;
@@ -424,7 +466,9 @@ const {
   font-size: 0.9375rem;
   font-weight: 600;
   cursor: pointer;
-  transition: background-color 0.2s ease, transform 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    transform 0.2s ease;
 }
 
 .btn-primary {
@@ -506,7 +550,7 @@ const {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  font-family: 'Cascadia Mono', 'Consolas', monospace;
+  font-family: "Cascadia Mono", "Consolas", monospace;
   font-size: 0.8125rem;
   line-height: 1.6;
 }

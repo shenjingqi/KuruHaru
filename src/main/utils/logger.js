@@ -54,6 +54,13 @@ const DEFAULT_CONFIG = {
   level: "info",
   enableFileLog: true,
 };
+const LOG_CONFIG_CACHE_TTL_MS = 1000;
+const MAX_LOG_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+const LOG_BACKUP_SUFFIX = ".1";
+
+let cachedLoggingConfig = null;
+let loggingConfigCacheExpiresAt = 0;
+let fileWriteQueue = Promise.resolve();
 
 function normalizeLogLevel(level) {
   const normalizedLevel = String(level || "")
@@ -72,13 +79,21 @@ function normalizeLogLevel(level) {
  * 使用动态导入避免循环依赖
  */
 async function getLoggingConfig() {
+  const now = Date.now();
+  if (cachedLoggingConfig && now < loggingConfigCacheExpiresAt) {
+    return cachedLoggingConfig;
+  }
+
   try {
     const { getConfig } = await import("../modules/config");
     const fullConfig = getConfig();
-    return { ...DEFAULT_CONFIG, ...fullConfig.logging };
+    cachedLoggingConfig = { ...DEFAULT_CONFIG, ...fullConfig.logging };
   } catch {
-    return { ...DEFAULT_CONFIG };
+    cachedLoggingConfig = { ...DEFAULT_CONFIG };
   }
+
+  loggingConfigCacheExpiresAt = now + LOG_CONFIG_CACHE_TTL_MS;
+  return cachedLoggingConfig;
 }
 
 /**
@@ -162,27 +177,48 @@ function safeConsoleWrite(method, ...args) {
 /**
  * 写入文件日志 (异步)
  */
-async function writeToFile(message, type) {
-  const config = await getLoggingConfig();
-  if (!config.enableFileLog) return;
-
+async function rotateLogFileIfNeeded(logFilePath) {
   try {
-    const logDir = await getLogDirectory();
-    const logFilePath = path.join(logDir, "app.log");
-
-    if (!fs.existsSync(logDir)) {
-      fs.mkdirSync(logDir, { recursive: true });
+    const { size } = await fs.promises.stat(logFilePath);
+    if (size < MAX_LOG_FILE_SIZE_BYTES) {
+      return;
     }
 
-    // 使用异步写入，不阻塞主线程
-    await fs.promises.appendFile(logFilePath, message + "\n", "utf-8");
-  } catch (e) {
-    safeConsoleWrite(
-      console.error,
-      `[Logger] Failed to write to log file (${type}):`,
-      e,
-    );
+    const backupPath = `${logFilePath}${LOG_BACKUP_SUFFIX}`;
+    await fs.promises.rm(backupPath, { force: true });
+    await fs.promises.rename(logFilePath, backupPath);
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      throw error;
+    }
   }
+}
+
+function writeToFile(message, type) {
+  fileWriteQueue = fileWriteQueue
+    .catch(() => undefined)
+    .then(async () => {
+      const config = await getLoggingConfig();
+      if (!config.enableFileLog) {
+        return;
+      }
+
+      const logDir = await getLogDirectory();
+      const logFilePath = path.join(logDir, "app.log");
+
+      await fs.promises.mkdir(logDir, { recursive: true });
+      await rotateLogFileIfNeeded(logFilePath);
+      await fs.promises.appendFile(logFilePath, `${message}\n`, "utf-8");
+    })
+    .catch((error) => {
+      safeConsoleWrite(
+        console.error,
+        `[Logger] Failed to write to log file (${type}):`,
+        error,
+      );
+    });
+
+  return fileWriteQueue;
 }
 
 /**

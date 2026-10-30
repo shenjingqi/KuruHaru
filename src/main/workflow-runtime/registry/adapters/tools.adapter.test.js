@@ -16,6 +16,8 @@ vi.mock("../../../utils/archive-scanner", () => ({
 
 vi.mock("../../../modules/config", () => ({
   getConfig: () => ({}),
+  // tg-daily-zip 在模块加载期就会调用 getDataDir()，mock 需要补齐该导出。
+  getDataDir: () => "test-data-dir",
 }));
 
 vi.mock("../../../modules/httpClient", () => ({

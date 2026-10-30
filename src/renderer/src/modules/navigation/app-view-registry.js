@@ -1,6 +1,7 @@
 import HomePanel from "../../components/HomePanel.vue";
 import AsmrDownloader from "../../components/AsmrDownloader.vue";
 import WhisperTool from "../../components/WhisperTool.vue";
+import TranslationAutomation from "../../components/TranslationAutomation.vue";
 import LocalCleaner from "../../components/LocalCleaner.vue";
 import CloudCleaner from "../../components/CloudCleaner.vue";
 import UploadTool from "../../components/UploadTool.vue";
@@ -20,6 +21,7 @@ const appViewRegistry = createViewRegistry({
   HomePanel,
   UploadTool,
   WhisperTool,
+  TranslationAutomation,
   AsmrDownloader,
   CloudCleaner,
   RecentActivity,

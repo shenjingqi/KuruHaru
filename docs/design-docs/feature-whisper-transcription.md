@@ -1,7 +1,7 @@
 # Whisper 语音转字幕（实现留存）
 
 > 状态: ✅ 已实现  
-> 最后更新: 2026-05-01
+> 最后更新: 2026-08-01
 
 本文档沉淀 Whisper 功能实现态设计，覆盖媒体计数、任务启动/停止、进度回传与字幕打包。
 
@@ -47,6 +47,20 @@
    - 允许较高累计自动恢复次数，以支持大批量目录持续跑完；
    - 若连续多次恢复后仍无新进度，则停止自动重试并把失败结果展示给用户。
 5. `task-finished` 现在会补充 `success`、`reason`、`exitCode`、`signal` 等字段，供前端进行更稳定的恢复判定。
+
+### 2.1.2 自动翻译子进程诊断日志
+
+自动翻译队列启动 `infer.exe` 时，会在配置的 `paths.logsDir` 下创建
+`whisper-runs/<RJ编号>-<时间戳>-<主进程PID>.jsonl`。
+
+- `spawn-requested`：可执行文件、完整参数、目标目录和父进程信息。
+- `spawned`：实际子进程 PID。
+- `output`：子进程 stdout/stderr 的原始文本片段，并标明来源流。
+- `watchdog-timeout` / `termination-requested`：无活动看门狗触发和终止请求。
+- `process-error` / `process-closed`：启动错误、退出码、信号和 stderr 尾部。
+
+UI 中的 `[Whisper] 已合并 N 行输出` 仅是显示摘要，不作为崩溃诊断真相源；
+诊断文件用于保留原始输出和进程生命周期。
 
 ### 2.2 任务中断
 
@@ -97,3 +111,10 @@
 | 翻译前 RJ 缓存 | `src/main/modules/whisper.js` + `tg-info-cache.js` |
 | IPC 桥接       | `src/preload/index.js`                             |
 | 页面交互       | `src/renderer/src/components/WhisperTool.vue`      |
+
+---
+
+## 6. 页面主题
+
+- `WhisperTool.vue` 在页面根节点定义 `--accent`，供全局按钮主题使用。
+- 开始翻译按钮和已选字幕格式标签均使用该令牌；全局主题对已选标签提供专用规则，避免基础标签皮肤覆盖选中颜色。

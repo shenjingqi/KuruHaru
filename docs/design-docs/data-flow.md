@@ -1,7 +1,7 @@
 # 数据流设计
 
 > 状态: ✅ 稳定  
-> 最后更新: 2026-04-15
+> 最后更新: 2026-05-20
 
 > 本轮同步标记: 2026-03-11（逐条派发完成态修复）
 > 真相源路径: `docs/design-docs/data-flow.md`
@@ -34,7 +34,7 @@ Renderer (Vue Components)
 
 | 业务域              | 主要通道（节选）                                                                                                                                                                                                                      | 处理文件                                                                                             |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| 配置与通用文件      | `get-config`, `save-config`, `dialog:*`, `write-file`, `fs-read-file`, `clean-data`, `clean-recent-uploaded-subtitles`, `extract-file-names`                                                                                          | `src/main/modules/config.js`, `src/main/index.js`, `src/main/modules/recent-upload-local-cleaner.js` |
+| 配置与通用文件      | `get-config`, `save-config`, `dialog:*`, `write-file`, `fs-read-file`, `clean-data`, `clean-recent-uploaded-subtitles`, `extract-file-names`, `convert-subtitle-format`                                                               | `src/main/modules/config.js`, `src/main/index.js`, `src/main/modules/recent-upload-local-cleaner.js`, `src/main/modules/subtitle-format-converter.js` |
 | ASMR 音声下载任务   | `asmr-audio-downloader-run`                                                                                                                                                                                                           | `src/main/modules/asmr-audio-downloader.js`                                                          |
 | ASMR 云端与筛选     | `asmr-fetch-cloud-works`, `asmr-trigger-cloud-data-fetch`, `asmr-get-cached-cloud-works`, `load-tag-db`, `asmr-fetch-playlist`, `filter-rj-from-url`                                                                                  | `src/main/modules/asmr-localization.js`                                                              |
 | ASMR 清理与汉化列表 | `asmr-delete-works`, `asmr-delete-local-files`, `asmr-delete-by-rj`, `asmr-fetch-chinese-works`, `asmr-set-chinese-list-path`                                                                                                         | `src/main/modules/asmr-localization.js`                                                              |
@@ -149,8 +149,8 @@ AsmrDownloader.vue
         └─ asmr-audio-downloader.js
             ├─ 解析 RJ/VJ/BJ / 数字输入
             ├─ 调用 api.asmr-200.com/api/tracks/:id 获取轨道树
-            ├─ 过滤黑名单目录/文件并做指纹去重
-            ├─ 落盘 aria2_tasks.txt / manual_review.txt
+            ├─ 过滤黑名单目录/文件，按音频指纹做格式优选去重（目录不参与身份判定，mp3 优先）
+            ├─ 任务按 outPath 去重后落盘 aria2_tasks.txt / manual_review.txt
             └─ 可选推送到 Aria2 RPC
 ```
 
@@ -175,7 +175,19 @@ Tools.vue
             └─ 返回预览结果或执行本地删除
 ```
 
-### 3.10 TG Info 报错恢复
+### 3.11 工具箱 SRT / LRC 互转
+
+```text
+Tools.vue
+    └─ invoke('convert-subtitle-format', { sourcePath, outputPath, targetFormat })
+        └─ subtitle-format-converter.js
+            ├─ 判断单文件 / 目录批量模式
+            ├─ 解析 .srt 或 .lrc 时间轴与文本
+            ├─ 执行格式转换并写入目标路径
+            └─ 返回成功数量、失败数量与输出位置
+```
+
+### 3.12 TG Info 报错恢复
 
 ```text
 任意前端/脚本调用
@@ -187,7 +199,7 @@ Tools.vue
             └─ 按转发来源删除频道原帖（safetyMode 可只预览不删除）
 ```
 
-### 3.11 Workflow 设计器执行链路
+### 3.13 Workflow 设计器执行链路
 
 ```text
 WorkflowDesigner.vue / useWorkflowDesigner.js
@@ -276,6 +288,7 @@ event.sender.send("task-finished", { success: true });
 
 | 日期       | 变更                                                                                                                                                   |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 2026-05-20 | 新增工具箱 `convert-subtitle-format` 数据流说明，覆盖 SRT/LRC 单文件与目录批量互转。                                                                  |
 | 2026-03-11 | 修复 `whisper.translateSubtitles` 在逐条模式下未等待全部 `emitItem` 派发完成，并在收尾补发未出队 work，避免 pack/upload 仅执行首条或漏项后提前显示完成 |
 | 2026-03-11 | `tg.uploadSubtitles` now refreshes recent activity and applies run-level duplicate-upload guard                                                        |
 | 2026-03-06 | Added workflow node-library responsibilities (pack/upload/cloud recent delete/local scanned delete)                                                    |
