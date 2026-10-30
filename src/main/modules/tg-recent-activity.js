@@ -18,6 +18,7 @@ import {
   createAnchorFromMessage,
   formatFile,
   getFileName,
+  getMessageDocument,
   isReferenceFile,
   isValidRJFile,
   removeDuplicates,
@@ -45,6 +46,7 @@ let isConnected = false;
 let cachedDialogs = null;
 let cachedDialogsTime = 0;
 const DIALOGS_CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
+const TELEGRAM_REQUEST_TIMEOUT_MS = 60 * 1000;
 
 // ==========================================
 // 核心工具函数
@@ -55,12 +57,23 @@ const DIALOGS_CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
  * 解决 CHAT_ID_INVALID 的关键：如果直接用 ID 失败，就拉取列表刷新缓存
  * 优化：添加对话列表缓存，减少重复 API 调用
  */
-async function resolveEntity(_client, chatIdInput) {
+async function resolveEntity(client, chatIdInput) {
+  const activeClient = client || telegramClient;
   const peerId = normalizePeerEntityInput(chatIdInput);
+
+  const logResolvedEntity = (entity, source) => {
+    const entityId =
+      entity?.id ?? entity?.channelId ?? entity?.chatId ?? entity?.userId;
+    logger.info(
+      `[resolveEntity] ${source} 输入=${chatIdInput} => class=${entity?.className || "unknown"}, id=${entityId || "unknown"}, title=${entity?.title || "-"}, username=${entity?.username || "-"}`,
+    );
+  };
 
   // 2. 尝试直接获取 (利用 GramJS 本地缓存)
   try {
-    return await telegramClient.getEntity(peerId);
+    const entity = await activeClient.getEntity(peerId);
+    logResolvedEntity(entity, "直接命中");
+    return entity;
   } catch {
     logger.warn(`本地缓存未找到 ID ${chatIdInput}，正在刷新对话列表...`);
   }
@@ -74,19 +87,51 @@ async function resolveEntity(_client, chatIdInput) {
   try {
     if (!isCacheValid) {
       logger.debug("[resolveEntity] 刷新对话列表缓存");
-      await telegramClient.getDialogs({ limit: 100 });
+      await activeClient.getDialogs({ limit: 100 });
       cachedDialogs = true;
       cachedDialogsTime = now;
     } else {
       logger.debug("[resolveEntity] 使用缓存的对话列表");
     }
-    return await telegramClient.getEntity(peerId);
+    const entity = await activeClient.getEntity(peerId);
+    logResolvedEntity(entity, "刷新后命中");
+    return entity;
   } catch (e) {
     logger.error(`无法解析群组 ID: ${chatIdInput}`, e.message);
     throw new Error(
       `无法找到群组/频道 (ID: ${chatIdInput})。请确保机器人已加入该群组且配置正确。`,
     );
   }
+}
+
+async function withTelegramRequestTimeout(request, operation) {
+  let timeoutId = null;
+
+  try {
+    return await Promise.race([
+      request,
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+          const error = new Error(
+            `${operation} 超时（${Math.round(TELEGRAM_REQUEST_TIMEOUT_MS / 1000)} 秒）`,
+          );
+          error.code = "ETIMEDOUT";
+          reject(error);
+        }, TELEGRAM_REQUEST_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+async function resetTelegramClientAfterTimeout() {
+  const previousClient = telegramClient;
+  telegramClient = null;
+  isConnected = false;
+  cachedDialogs = null;
+  cachedDialogsTime = 0;
+  await previousClient?.disconnect().catch(() => {});
 }
 
 /**
@@ -131,7 +176,7 @@ async function getConnectedClient() {
  * 倒序回溯初始化：从当前时间往历史查找最近的整合包
  * 【场景】只在本地没有数据、或清空缓存后首次运行时调用
  */
-async function findLatestAnchorAndFill() {
+async function findLatestAnchorAndFill(_client, options = {}) {
   logger.debug("[初始化] 本地为空，正在倒序回溯寻找最近的整合包(>150MB)...");
 
   const BACKWARD_LIMIT = 10000; // 限制回溯最近 10000 条消息，避免卡死
@@ -141,8 +186,13 @@ async function findLatestAnchorAndFill() {
 
   try {
     const config = getConfig();
-    const chatIdStr = config.tg.discussion || config.tg.channel;
+    const chatIdStr =
+      String(options.chatIdStr || "").trim() ||
+      config.tg.discussion ||
+      config.tg.channel;
     if (!chatIdStr) throw new Error("未配置讨论组或频道 ID");
+
+    logger.info(`[初始化] 选用扫描目标: ${chatIdStr}`);
 
     const entity = await resolveEntity(telegramClient, chatIdStr);
 
@@ -151,25 +201,47 @@ async function findLatestAnchorAndFill() {
       limit: BACKWARD_LIMIT,
     });
 
+    logger.info("[初始化] 从当前最新消息开始向更旧消息回溯扫描");
+
     for await (const msg of iterator) {
       // 记录见过的最大 ID，作为下次增量扫描的起点
       if (msg.id > maxIdScanned) maxIdScanned = msg.id;
 
-      if (!msg || !msg.document) continue;
+      const document = getMessageDocument(msg);
 
-      const fileName = getFileName(msg.document);
+      if (!msg || !document) {
+        logger.debug(`[初始化][跳过] ID ${msg?.id ?? "unknown"} 没有 document`);
+        continue;
+      }
+
+      const fileName = getFileName(document);
+      const fileSizeMB = ((document.size || 0) / 1024 / 1024).toFixed(2);
+      const mimeType = document.mimeType || "unknown";
+      const referenceMatched = isReferenceFile(msg);
+      const validMatched = isValidRJFile(msg);
+
+      logger.debug(
+        `[初始化][扫描] ID ${msg.id}, fileName=${fileName}, size=${fileSizeMB}MB, mimeType=${mimeType}, ref=${referenceMatched}, valid=${validMatched}`,
+      );
 
       // 1. 判断是否是整合包（基准点）
-      if (isReferenceFile(msg)) {
-        logger.info(
-          `[初始化] 找到基准整合包: ID ${msg.id}, 大小: ${(msg.document.size / 1024 / 1024).toFixed(2)}MB, 文件名: ${fileName}`,
-        );
-        foundAnchor = createAnchorFromMessage(msg);
-        break; // 关键：找到最新的一个大包就停止，不再往历史找
+      if (referenceMatched) {
+        if (!foundAnchor) {
+          logger.info(
+            `[初始化] 找到基准整合包: ID ${msg.id}, 大小: ${(document.size / 1024 / 1024).toFixed(2)}MB, 文件名: ${fileName}`,
+          );
+          foundAnchor = createAnchorFromMessage(msg);
+          logger.info("[初始化] 已记录基准整合包，停止向更旧消息扫描...");
+        } else {
+          logger.debug(
+            `[初始化][忽略] 更旧的整合包: ID ${msg.id}, 文件名: ${fileName}`,
+          );
+        }
+        break;
       }
 
       // 2. 还没找到基准，先把路过的有效 RJ 文件收集起来
-      if (isValidRJFile(msg)) {
+      if (validMatched) {
         const formattedFile = formatFile(msg);
         logger.debug(
           `[formatFile] Formatted file: name=${formattedFile.name}, id=${formattedFile.id}`,
@@ -220,19 +292,32 @@ async function findLatestAnchorAndFill() {
 async function getNewMessages(_client, discussionId, minId) {
   try {
     if (!discussionId) return [];
-    const entity = await resolveEntity(telegramClient, discussionId);
+    const client = _client || telegramClient;
+    const entity = await withTelegramRequestTimeout(
+      resolveEntity(client, discussionId),
+      "讨论组实体解析",
+    );
 
     // 使用 min_id 只获取比指定 ID 更新的消息
     // GramJS getMessages 返回顺序通常是 [最新 -> 最旧]，我们需要反转
-    const messages = await telegramClient.getMessages(entity, {
-      limit: 500, // 一次最多拿500条，不够再拿（通常够了）
-      minId: minId,
-    });
+    const messages = await withTelegramRequestTimeout(
+      client.getMessages(entity, {
+        limit: 500, // 一次最多拿500条，不够再拿（通常够了）
+        minId: minId,
+      }),
+      "讨论组增量消息扫描",
+    );
 
     // 过滤无文件的消息并反转顺序 -> [旧 -> 新]
-    return messages.filter((msg) => msg && msg.document).reverse();
+    return messages.filter((msg) => getMessageDocument(msg)).reverse();
   } catch (error) {
     logger.error("获取增量消息失败:", error.message);
+    if (error?.code === "ETIMEDOUT") {
+      logger.warn(
+        "讨论组扫描超时，已重置 Telegram 客户端并使用本地最近上传缓存",
+      );
+      await resetTelegramClientAfterTimeout();
+    }
     return [];
   }
 }
@@ -240,10 +325,14 @@ async function getNewMessages(_client, discussionId, minId) {
 /**
  * 主逻辑：执行完整的最近活动扫描和保存流程
  */
-export async function scanAndSaveRecentActivity() {
+export async function scanAndSaveRecentActivity(options = {}) {
   try {
     const config = getConfig();
     const telegramClient = await getConnectedClient(); // 确保连接
+    const scanChatId =
+      String(options.chatIdStr || "").trim() ||
+      config.tg.discussion ||
+      config.tg.channel;
 
     // 1. 读取本地缓存
     const store = loadRecentActivity(config.paths.uploadHistoryDir);
@@ -266,7 +355,9 @@ export async function scanAndSaveRecentActivity() {
     // =========================================================
     if (!localData.metadata.lastScannedId) {
       logger.debug("[状态] 全新环境或缓存丢失，执行回溯初始化...");
-      const initData = await findLatestAnchorAndFill(telegramClient);
+      const initData = await findLatestAnchorAndFill(telegramClient, {
+        chatIdStr: scanChatId,
+      });
       saveRecentActivity(config.paths.uploadHistoryDir, initData);
       return { success: true, data: initData };
     }
@@ -276,12 +367,9 @@ export async function scanAndSaveRecentActivity() {
     // =========================================================
     const minId = localData.metadata.lastScannedId;
     logger.info(`[状态] 增量更新，起点 Message ID: ${minId}`);
+    logger.info(`[状态] 选用增量扫描目标: ${scanChatId || "未配置"}`);
 
-    const newMessages = await getNewMessages(
-      telegramClient,
-      config.tg.discussion,
-      minId,
-    );
+    const newMessages = await getNewMessages(telegramClient, scanChatId, minId);
 
     if (newMessages.length === 0) {
       logger.info("没有新消息，无需更新");
@@ -292,12 +380,33 @@ export async function scanAndSaveRecentActivity() {
 
     let hasChanges = false;
     let newFilesBuffer = []; // 暂存本次发现的新资源
+    let maxScannedMessageId = localData.metadata.lastScannedId;
 
     for (const msg of newMessages) {
+      if (msg.id > maxScannedMessageId) {
+        maxScannedMessageId = msg.id;
+      }
+
+      const document = getMessageDocument(msg);
+      if (!document) {
+        logger.debug(`[增量][跳过] ID ${msg?.id ?? "unknown"} 没有 document`);
+        continue;
+      }
+
+      const fileName = getFileName(document);
+      const fileSizeMB = ((document.size || 0) / 1024 / 1024).toFixed(2);
+      const mimeType = document.mimeType || "unknown";
+      const referenceMatched = isReferenceFile(msg);
+      const validMatched = isValidRJFile(msg);
+
+      logger.debug(
+        `[增量][扫描] ID ${msg.id}, fileName=${fileName}, size=${fileSizeMB}MB, mimeType=${mimeType}, ref=${referenceMatched}, valid=${validMatched}`,
+      );
+
       // Check A: 发现新整合包 (体积 > 150MB)
-      if (isReferenceFile(msg)) {
+      if (referenceMatched) {
         logger.info(
-          `🔥 [重置] 发现新整合包 (ID: ${msg.id}, Size: ${msg.document.size})，清空旧列表。`,
+          `🔥 [重置] 发现新整合包 (ID: ${msg.id}, Size: ${document.size})，清空旧列表。`,
         );
 
         // 1. 更新基准信息
@@ -308,36 +417,30 @@ export async function scanAndSaveRecentActivity() {
         newFilesBuffer = []; // 清空当前缓存
         hasChanges = true;
 
-        // ✅ 修复：只在找到有效内容时更新扫描进度
-        if (msg.id > localData.metadata.lastScannedId) {
-          localData.metadata.lastScannedId = msg.id;
-        }
-
         continue; // 整合包本身不进入资源列表
       }
 
       // Check B: 有效资源文件
-      if (isValidRJFile(msg)) {
+      if (validMatched) {
         const formattedFile = formatFile(msg);
         logger.debug(
           `[formatFile] Formatted file: name=${formattedFile.name}, id=${formattedFile.id}`,
         );
         newFilesBuffer.push(formattedFile);
         hasChanges = true;
-
-        // 修复：只在找到有效文件时更新扫描进度
-        if (msg.id > localData.metadata.lastScannedId) {
-          localData.metadata.lastScannedId = msg.id;
-        }
       } else {
         // 调试日志：记录被过滤的消息
-        const fileName = getFileName(msg.document);
-        const fileSize = msg.document?.size || 0;
+        const fileSize = document.size || 0;
         logger.info(
           `[过滤] 消息 ID ${msg.id} 被过滤: 文件名=${fileName}, 大小=${(fileSize / 1024 / 1024).toFixed(2)}MB`,
         );
       }
+      if (msg.id > localData.metadata.lastScannedId) {
+        localData.metadata.lastScannedId = msg.id;
+      }
     }
+
+    localData.metadata.lastScannedId = maxScannedMessageId;
 
     // 合并新文件到旧列表
     if (newFilesBuffer.length > 0) {
@@ -375,7 +478,7 @@ export async function scanAndSaveRecentActivity() {
 // 下载功能 (核心修复)
 // ==========================================
 
-async function downloadTelegramFileByMessage(
+export async function downloadTelegramFileByMessage(
   messageId,
   savePath,
   context = {},
@@ -548,6 +651,34 @@ async function downloadTelegramFilesBatch(payload) {
 // 数据存取 (保持通用性)
 // ==========================================
 
+function compactRecentActivityFile(file) {
+  const timestamp = Number(file?.timestamp);
+  const date =
+    typeof file?.date === "string" && file.date
+      ? file.date
+      : Number.isFinite(timestamp)
+        ? new Date(timestamp).toISOString()
+        : null;
+  const fileSize = Number(file?.fileSize ?? file?.size);
+
+  return {
+    rjCode: file?.rjCode || file?.id || null,
+    messageId: file?.messageId ?? file?.tgMessageId ?? null,
+    date,
+    fileName: file?.fileName || file?.name || "unknown",
+    fileSize: Number.isFinite(fileSize) ? fileSize : 0,
+  };
+}
+
+function compactRecentActivityData(activityData) {
+  return {
+    ...activityData,
+    files: Array.isArray(activityData?.files)
+      ? activityData.files.map(compactRecentActivityFile)
+      : [],
+  };
+}
+
 export function saveRecentActivity(outputDir, activityData) {
   try {
     let targetDir =
@@ -560,7 +691,7 @@ export function saveRecentActivity(outputDir, activityData) {
     const outputPath = path.join(targetDir, "recent_activity.json");
     fs.writeFileSync(
       outputPath,
-      JSON.stringify(activityData, null, 2),
+      JSON.stringify(compactRecentActivityData(activityData), null, 2),
       "utf-8",
     );
     return { success: true, filePath: outputPath };
@@ -583,25 +714,16 @@ export function loadRecentActivity(inputDir) {
     if (!content.trim()) return { success: false, error: "文件为空" };
 
     const data = JSON.parse(content);
+    const compactData = compactRecentActivityData(data);
 
-    // 兼容性处理：为旧数据添加name字段
-    if (data.files && Array.isArray(data.files)) {
-      let needsMigration = false;
-      data.files.forEach((file) => {
-        if (!file.name && file.fileName) {
-          file.name = file.fileName;
-          needsMigration = true;
-        }
-      });
-
-      // 如果数据被迁移，重新保存
-      if (needsMigration) {
-        logger.info("检测到旧版数据，已自动迁移添加name字段");
-        saveRecentActivity(inputDir, data);
-      }
+    if (
+      JSON.stringify(data.files || []) !== JSON.stringify(compactData.files)
+    ) {
+      logger.info("检测到旧版最近上传缓存，已自动精简文件记录字段");
+      saveRecentActivity(inputDir, compactData);
     }
 
-    return { success: true, data: data };
+    return { success: true, data: compactData };
   } catch (error) {
     logger.error("读取数据失败:", error.message);
     return { success: false, error: error.message };

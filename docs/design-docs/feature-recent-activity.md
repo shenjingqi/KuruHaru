@@ -40,6 +40,14 @@
 2. 主进程扫描频道历史并生成结构化记录。
 3. 将结果落盘到 `recent_activity.json`。
 
+<<<<<<< ours
+<<<<<<< ours
+补充说明：整合包锚点必须同时满足“文件体积大于 150MB”以及 Telegram 文档被识别为 zip。zip 识别优先读取 TG 文档文件名，必要时回退到 `mimeType`；初始化扫描在找到锚点后会继续向更旧消息扫描，不会提前中断。
+
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
 ### 2.2 读取与展示
 
 1. 前端调用 `tg-read-recent-activity` 或 `get-recent-activity`。

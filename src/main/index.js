@@ -1,4 +1,11 @@
-import { app, BrowserWindow, ipcMain, dialog, nativeTheme } from "electron";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  nativeTheme,
+  shell,
+} from "electron";
 import path, { join } from "path";
 import fs from "fs";
 import icon from "../../resources/icon.png?asset";
@@ -21,10 +28,12 @@ import {
 import { setupRjDuplicatesIPC } from "./modules/tg-rj-duplicates";
 import { setupTgInfoErrorRecoverIPC } from "./modules/tg-info-error-recover";
 import { setupAsmrAudioDownloaderIPC } from "./modules/asmr-audio-downloader";
+import { setupTranslationAutomationIPC } from "./modules/translation-automation";
 import { setupConfigIPC, getConfig, saveConfig } from "./modules/config";
 import { scanForArchives } from "./utils/archive-scanner";
 import { createLogSender } from "./utils/logger";
 import { cleanupRecentUploadedSubtitles } from "./modules/recent-upload-local-cleaner";
+import { convertSubtitleFormatTask } from "./modules/subtitle-format-converter";
 
 // 全局窗口引用
 let mainWindow = null;
@@ -167,6 +176,30 @@ function loadMainWindowRenderer(windowInstance) {
     query: launchTarget.query,
   });
   return launchTarget.target;
+}
+
+function configureMainWindowNavigation(windowInstance) {
+  windowInstance.webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      const targetUrl = new URL(url);
+      if (targetUrl.protocol === "http:" || targetUrl.protocol === "https:") {
+        shell.openExternal(targetUrl.toString()).catch((error) => {
+          logger.warn(`打开外部链接失败: ${error?.message || error}`);
+        });
+      } else {
+        logger.warn(`已阻止不安全的新窗口协议: ${targetUrl.protocol}`);
+      }
+    } catch {
+      logger.warn(`已阻止无效的新窗口地址: ${url}`);
+    }
+
+    return { action: "deny" };
+  });
+
+  windowInstance.webContents.on("will-navigate", (event, url) => {
+    event.preventDefault();
+    logger.warn(`已阻止主窗口导航: ${url}`);
+  });
 }
 
 let activeWindowFrameMode = resolveEffectiveWindowFrameMode(
@@ -815,25 +848,25 @@ function createWindow() {
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       sandbox: false,
-      nodeIntegration: true,
+      nodeIntegration: false,
       contextIsolation: true,
-      backgroundThrottling: false,
+      // 长时间后台运行的下载/翻译由主进程负责，渲染器允许节流以避免 GPU 合成堆积。
+      backgroundThrottling: true,
     },
   });
 
+  configureMainWindowNavigation(mainWindow);
   applyWindowsDesktopMaterial(mainWindow);
 
   logger.debug("窗口对象已创建");
 
-  // 加载开发服务器页面
+  const rendererTarget = loadMainWindowRenderer(mainWindow);
   if (process.env.NODE_ENV === "development") {
     mainWindow.webContents.openDevTools({ mode: "detach" }); // 使用独立窗口模式
     logger.debug("开发模式：强制打开 DevTools");
-    mainWindow.loadURL(DEV_RENDERER_URL);
-    logger.debug(`加载开发服务器: ${DEV_RENDERER_URL}`);
+    logger.debug(`加载开发服务器: ${rendererTarget}`);
   } else {
-    mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
-    logger.debug("加载生产构建页面");
+    logger.debug(`加载生产构建页面: ${rendererTarget}`);
   }
 
   mainWindow.on("ready-to-show", () => {
@@ -1306,6 +1339,37 @@ ipcMain.handle(
   },
 );
 
+ipcMain.handle(
+  "convert-subtitle-format",
+  async (_event, { sourcePath, outputPath, targetFormat } = {}) => {
+    try {
+      const result = await convertSubtitleFormatTask({
+        sourcePath,
+        outputPath,
+        targetFormat,
+      });
+
+      if (result.success) {
+        logger.info(
+          `[convert-subtitle-format] success source=${sourcePath} target=${targetFormat} mode=${result.mode} converted=${result.convertedCount || 0}`,
+        );
+      } else {
+        logger.warn(
+          `[convert-subtitle-format] failed source=${sourcePath} target=${targetFormat} msg=${result.msg || result.message || "unknown"}`,
+        );
+      }
+
+      return result;
+    } catch (error) {
+      logger.error("[convert-subtitle-format] 错误:", error?.message || error);
+      return {
+        success: false,
+        msg: error?.message || String(error),
+      };
+    }
+  },
+);
+
 // 写入文件
 ipcMain.handle("write-file", async (event, { path: filePath, content }) => {
   try {
@@ -1344,13 +1408,7 @@ app.whenReady().then(() => {
   // 设置应用用户模型ID，确保任务栏图标正确显示
   app.setAppUserModelId("com.kuruharu.app");
 
-  // 1. 创建窗口
-  createWindow();
-
-  // 2. 应用系统设置
-  applySystemSettings();
-
-  // 3. 加载各个功能模块
+  // 1. 先注册全部 IPC，避免首屏请求与 handler 装配产生竞态。
   logger.debug("开始加载功能模块...");
   setupAsmrIPC(join(app.getPath("userData"), "data", "uploaded_records.json"));
   setupWhisperIPC();
@@ -1361,7 +1419,14 @@ app.whenReady().then(() => {
   setupRjDuplicatesIPC();
   setupTgInfoErrorRecoverIPC();
   setupAsmrAudioDownloaderIPC();
+  setupTranslationAutomationIPC();
   setupConfigIPC();
+
+  // 2. 在窗口创建前应用系统配置，确保首屏使用当前主题与托盘设置。
+  applySystemSettings();
+
+  // 3. 创建窗口
+  createWindow();
 
   // 4. 启动后自动启动 Bot（默认开启）+ TG 索引同步（异步，不阻塞应用启动）
   setTimeout(() => {

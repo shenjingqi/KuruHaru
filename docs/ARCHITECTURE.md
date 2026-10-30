@@ -1,7 +1,7 @@
 # ARCHITECTURE.md — KuruHaru 项目架构
 
 > 状态: 🔄 持续更新  
-> 最后更新: 2026-03-05
+> 最后更新: 2026-08-01
 
 > 单智能体快速入口：`docs/README.md`
 
@@ -37,6 +37,11 @@ Renderer (Vue 3 + Pinia + Naive UI)
 - Renderer 不直接访问 Node.js/文件系统。
 - Renderer 通过 `window.api` 调用主进程能力。
 - 主进程能力通过 IPC 通道暴露。
+- 主窗口启用 `contextIsolation: true` 与 `nodeIntegration: false`；Node.js 能力只能通过 preload 白名单 API 使用。
+- 主窗口启动前完成 IPC 装配，避免首屏请求在 handler 注册前到达。
+- 新窗口请求仅允许以系统浏览器打开 `http:`/`https:` 外链，主窗口内导航会被阻止。
+- 长时运行的翻译任务只向 UI 推送合并后的 Whisper 原始输出；日志文件串行写入并在单文件达到 `10 MiB` 时滚动，避免 I/O 或 IPC 洪泛导致窗口失去响应。
+- Windows 系统毛玻璃以原生窗口材质为唯一模糊层；渲染层仅保留静态渐变，避免透明无边框窗口叠加多个 CSS `backdrop-filter` 后出现合成器卡顿。
 
 ---
 
@@ -83,6 +88,9 @@ Renderer (Vue 3 + Pinia + Naive UI)
 - 请求/响应：`dialog:openFile`、`get-config`、`tg-scan-recent-activity`
 - 事件推送：`start-task`/`stop-task`、`log-update`、`task-finished`
 - 工作流运行事件：`workflow-run-event`（携带 `runId` 的节点与运行态事件）
+
+窗口加载使用统一的 `loadMainWindowRenderer()` 入口，开发与生产环境都会保留
+`WORKFLOW_INITIAL_VIEW`、`WORKFLOW_PARITY_SCENE` 等启动参数，供工作流截图和初始视图场景使用。
 
 ---
 

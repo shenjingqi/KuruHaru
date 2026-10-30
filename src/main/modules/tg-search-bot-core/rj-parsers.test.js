@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { extractRJCode, extractRJCodes } from "./rj-parsers";
+import {
+  extractMentionSearchWorkCodeToken,
+  extractRJCode,
+  extractRJCodes,
+} from "./rj-parsers";
 
 describe("tg-search-bot-core/rj-parsers", () => {
   it("normalizes 7-digit prefixed work codes", () => {
@@ -21,5 +25,32 @@ describe("tg-search-bot-core/rj-parsers", () => {
       "VJ07654321",
       "BJ223344",
     ]);
+  });
+
+  it("extracts a direct @bot search token when the message only contains one code", () => {
+    expect(
+      extractMentionSearchWorkCodeToken("@KuruHaruBot RJ1200722", "KuruHaruBot"),
+    ).toBe("RJ1200722");
+    expect(
+      extractMentionSearchWorkCodeToken("@kuruharubot 1234567", "@KuruHaruBot"),
+    ).toBe("1234567");
+  });
+
+  it("ignores mentions for other bots or non-search message shapes", () => {
+    expect(
+      extractMentionSearchWorkCodeToken("@OtherBot RJ1200722", "KuruHaruBot"),
+    ).toBe(null);
+    expect(
+      extractMentionSearchWorkCodeToken(
+        "@KuruHaruBot /search RJ1200722",
+        "KuruHaruBot",
+      ),
+    ).toBe(null);
+    expect(
+      extractMentionSearchWorkCodeToken(
+        "@KuruHaruBot RJ1200722 extra",
+        "KuruHaruBot",
+      ),
+    ).toBe(null);
   });
 });

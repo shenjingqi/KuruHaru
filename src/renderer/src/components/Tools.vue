@@ -237,6 +237,86 @@
         </div>
       </div>
 
+      <div class="tool-card card">
+        <div class="tool-header">
+          <span class="tool-icon">🔁</span>
+          <h3 class="tool-name">SRT / LRC 互转</h3>
+        </div>
+        <p class="tool-desc">
+          支持单文件互转，也可批量扫描目录内的字幕文件并输出到目标目录
+        </p>
+
+        <div class="tool-form">
+          <div class="form-row">
+            <label class="form-label">源文件或目录</label>
+            <div class="input-wrap input-wrap-stack">
+              <input
+                v-model="subtitleConvertSourcePath"
+                class="input"
+                readonly
+                placeholder="选择 .srt / .lrc 文件，或选择字幕目录"
+              />
+              <div class="action-row">
+                <button
+                  class="btn-secondary"
+                  @click="selectSubtitleConvertSourcePath"
+                >
+                  选文件
+                </button>
+                <button
+                  class="btn-secondary"
+                  @click="selectSubtitleConvertSourceDir"
+                >
+                  选目录
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <label class="form-label">目标格式</label>
+            <select v-model="subtitleConvertTargetFormat" class="input select">
+              <option value="srt">SRT</option>
+              <option value="lrc">LRC</option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <label class="form-label">输出目录</label>
+            <div class="input-wrap">
+              <input
+                v-model="subtitleConvertOutputPath"
+                class="input"
+                readonly
+                placeholder="默认输出到源文件同目录 / 源目录"
+              />
+              <button
+                class="btn-secondary"
+                @click="selectSubtitleConvertOutputPath"
+              >
+                选择
+              </button>
+            </div>
+          </div>
+
+          <button
+            class="btn-primary full"
+            :disabled="!subtitleConvertSourcePath || isConvertingSubtitle"
+            @click="convertSubtitleFormat"
+          >
+            {{ isConvertingSubtitle ? "转换中..." : "开始转换" }}
+          </button>
+
+          <div v-if="subtitleConvertResult" class="result-box">
+            <p>{{ subtitleConvertResult }}</p>
+          </div>
+
+          <div v-if="subtitleConvertDetails" class="result-box">
+            <pre>{{ subtitleConvertDetails }}</pre>
+          </div>
+        </div>
+      </div>
+
       <!-- 打包字幕工具 -->
 
       <div class="tool-card card">
@@ -315,6 +395,12 @@ const {
   isCleaningRecentUploaded,
   recentUploadCleanupResult,
   recentUploadCleanupDetails,
+  subtitleConvertSourcePath,
+  subtitleConvertOutputPath,
+  subtitleConvertTargetFormat,
+  isConvertingSubtitle,
+  subtitleConvertResult,
+  subtitleConvertDetails,
   zipMediaPath,
   zipOutputPath,
   isZipping,
@@ -328,6 +414,10 @@ const {
   selectRecentUploadArchiveDir,
   selectRecentUploadSubtitleDir,
   cleanRecentUploadedSubtitles,
+  selectSubtitleConvertSourcePath,
+  selectSubtitleConvertSourceDir,
+  selectSubtitleConvertOutputPath,
+  convertSubtitleFormat,
   selectZipMediaPath,
   selectZipOutputPath,
   startZipSubtitles,
@@ -434,6 +524,16 @@ const {
   gap: 8px;
 }
 
+.input-wrap-stack {
+  flex-direction: column;
+}
+
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .input {
   flex: 1;
   padding: 10px 14px;
@@ -443,6 +543,7 @@ const {
   font-size: 14px;
   outline: none;
   color: #26251f;
+  min-height: 44px;
 }
 
 .input:focus {
@@ -506,6 +607,7 @@ const {
   font-weight: 500;
   background: #f2ede0;
   white-space: nowrap;
+  min-height: 44px;
 }
 
 .btn-secondary:hover:not(:disabled) {
@@ -549,5 +651,19 @@ const {
   background: #fff;
   border-radius: 12px;
   border: 1px solid #d8d0bb;
+}
+
+@media (max-width: 767px) {
+  .tools-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .input-wrap {
+    flex-direction: column;
+  }
+
+  .btn-secondary {
+    width: 100%;
+  }
 }
 </style>

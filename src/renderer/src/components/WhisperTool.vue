@@ -106,6 +106,8 @@ const {
 
 <style scoped>
 .page-container {
+  --accent: #adb571;
+
   height: 100%;
   display: flex;
   flex-direction: column;

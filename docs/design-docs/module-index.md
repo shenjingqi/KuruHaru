@@ -1,7 +1,7 @@
 # 模块导航索引
 
 > 状态: ✅ 可用  
-> 最后更新: 2026-05-01
+> 最后更新: 2026-05-20
 
 本文档用于快速定位「功能 -> 代码文件 -> 关键 IPC」，并明确**当前已装配模块**与**兼容保留模块**。
 
@@ -64,6 +64,18 @@
   - `get-tg-config` / `save-tg-config`
   - `get-whisper-config` / `save-whisper-config`
   - `get-system-config` / `save-system-config`
+  - `convert-subtitle-format`（由 `src/main/index.js` 注册，逻辑委派给 `subtitle-format-converter.js`）
+
+### 3.1.1 `src/main/modules/subtitle-format-converter.js`
+
+- 导出：`convertSubtitleFormatTask`
+- 关键 IPC：
+  - `convert-subtitle-format`
+- 行为补充：
+  - 支持 `.srt` 与 `.lrc` 单文件互转
+  - 支持目录批量模式，递归扫描源目录并保持相对目录结构输出
+  - `LRC -> SRT` 使用下一句时间推断结束时间；最后一句默认补 `3s`
+  - `SRT -> LRC` 以开始时间为准，合并多行文本为单行歌词
 
 ### 3.2 `src/main/modules/asmr-localization.js`
 
@@ -274,5 +286,6 @@
 
 | Date       | Change                                                                                                                                                                                  |
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-05-20 | Added `convert-subtitle-format` toolbox IPC and `subtitle-format-converter.js` module for SRT/LRC single-file and batch directory conversion.                                         |
 | 2026-03-13 | Added workflow node definition IO metadata (`io.input` / `io.output`) for explicit canvas input/output parameter labeling.                                                              |
 | 2026-03-06 | Added workflow node-library entries for `whisper.packSubtitles`, `tg.uploadSubtitles`, `asmr.cloudDeleteRecentUploads`, and `files.localDeleteScanned` with data-flow responsibilities. |

@@ -35,6 +35,20 @@ export const useRecentActivitySelectionFilter = ({ message, dialog }) => {
     return allFiles.value.filter((f) => selectedFileIds.value.has(f.id));
   });
 
+  const normalizeRecentActivityFile = (file) => {
+    const messageId = file.messageId || file.tgMessageId;
+    const id =
+      file.id || file.rjCode || String(messageId || file.fileName || "");
+
+    return {
+      ...file,
+      id,
+      name: file.name || file.fileName || "unknown",
+      size: file.size ?? file.fileSize ?? 0,
+      tgMessageId: messageId,
+    };
+  };
+
   const updateSkipFiles = () => {
     // 排除时统一比对 RJ 数字部分，并同步取消对应勾选，避免提交脏数据。
     skipFiles.value = allFiles.value.filter((file) => {
@@ -58,16 +72,10 @@ export const useRecentActivitySelectionFilter = ({ message, dialog }) => {
         result.data &&
         Array.isArray(result.data.files)
       ) {
-        // 只保留可直接处理的小文件，减少后续 UI 和下载流程负担。
-        const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
-        const filteredFiles = result.data.files.filter((file) => {
-          const fileSize = file.fileSize || file.size || 0;
-          return fileSize < MAX_FILE_SIZE;
-        });
-
         // 同一作品可能多次出现，按 RJ/ID 去重并保留最新时间版本。
         const fileMap = new Map();
-        filteredFiles.forEach((file) => {
+        result.data.files.forEach((rawFile) => {
+          const file = normalizeRecentActivityFile(rawFile);
           const id = file.rjCode || file.id;
           const existing = fileMap.get(id);
           if (existing) {
@@ -85,21 +93,6 @@ export const useRecentActivitySelectionFilter = ({ message, dialog }) => {
           const dateA = new Date(a.date).getTime();
           const dateB = new Date(b.date).getTime();
           return dateB - dateA;
-        });
-
-        allFiles.value.forEach((file) => {
-          if (!file.name) {
-            file.name = file.fileName || "unknown";
-            console.warn(
-              `[loadRecentActivity] File missing 'name', id=${file.id}, using fallback: ${file.name}`,
-            );
-          }
-          if (!file.id) {
-            file.id = file.rjCode || Date.now().toString();
-            console.warn(
-              `[loadRecentActivity] File missing 'id', using fallback: ${file.id}`,
-            );
-          }
         });
 
         // 每次加载默认全选，再应用排除规则做二次收敛。

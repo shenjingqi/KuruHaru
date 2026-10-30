@@ -58,6 +58,31 @@
     "targetPath": "",
     "subFormats": ["lrc"]
   },
+  "translationAutomation": {
+    "enabled": false,
+    "runOnStartup": true,
+    "scanIntervalMs": 1800000,
+    "recentOrder": "create_date",
+    "recentPageSize": 100,
+    "recentMaxPages": 3,
+    "maxWorksPerCycle": 3,
+    "maxDownloadTasksPerWork": 200,
+    "aria2RestartMaxAttempts": 3,
+    "aria2RestartCooldownMs": 300000,
+    "aria2EarlyRetryPercent": 80,
+    "includeTags": [],
+    "excludeTags": [],
+    "requireAllIncludeTags": false,
+    "startHour": 1,
+    "endHour": 7,
+    "downloadWaitTimeoutMs": 21600000,
+    "downloadPollIntervalMs": 30000,
+    "downloadStablePolls": 2,
+    "whisperStallTimeoutMs": 600000,
+    "whisperActivityPollMs": 15000,
+    "cleanupLocalAfterUpload": true,
+    "packageDirName": "_translated_packages"
+  },
   "logging": {
     "level": "info",
     "enableFileLog": true

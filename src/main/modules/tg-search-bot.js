@@ -2,7 +2,7 @@
  * Telegram 搜索 Bot 模块（Bot API 版本）
  * 功能：
  * 1. 通过 Bot API 响应 /start /search /info /help
- * 2. 搜索优先级：历史索引 > 前置包内存索引（极速）> 频道检索（后台补充）
+ * 2. 搜索优先级：历史上传索引 > 前置包内存索引 > One 入队
  * 3. 支持用户/群组白名单
  * 4. 支持 Polling（开发）与 Webhook（生产）模式
  */
@@ -15,6 +15,7 @@ import { ipcMain, app } from "electron";
 import fs from "fs/promises";
 import path from "path";
 import { getConfig, getDataDir } from "./config";
+import { enqueueRunningTranslationWork } from "./translation-automation.js";
 import { normalizeError } from "../utils/errorHandler";
 import { createLogSender } from "../utils/logger";
 import { getAsmrClient } from "./httpClient";
@@ -25,7 +26,11 @@ import {
   toSafeBoolean,
   ensureHistoryShape,
 } from "./tg-search-bot-core/normalizers";
-import { extractRJCode, extractRJCodes } from "./tg-search-bot-core/rj-parsers";
+import {
+  extractMentionSearchWorkCodeToken,
+  extractRJCode,
+  extractRJCodes,
+} from "./tg-search-bot-core/rj-parsers";
 import {
   buildMessageLinksByEntity,
   isSameChannel,
@@ -56,6 +61,12 @@ import {
   formatWorkInfoMessage,
   getInfoCacheRuntimeConfig,
 } from "./tg-info-cache";
+import { getTranslationAutomationStatus } from "./translation-automation";
+import {
+  generateDailyZip,
+  getLatestDailyZip,
+  prefetchDailyZipSources,
+} from "./tg-daily-zip";
 
 const logger = createLogSender("tg-search-bot");
 
@@ -63,11 +74,15 @@ const SEARCH_COMMAND_REGEX = /^(?:@\w+\s+)?\/search(?:@\w+)?\s+(.+)/i;
 const INFO_COMMAND_REGEX = /^(?:@\w+\s+)?\/info(?:@\w+)?\s+(.+)/i;
 const START_COMMAND_REGEX = /^(?:@\w+\s+)?\/start(?:@\w+)?$/i;
 const HELP_COMMAND_REGEX = /^(?:@\w+\s+)?\/help(?:@\w+)?$/i;
+const STATUS_COMMAND_REGEX = /^(?:@\w+\s+)?\/status(?:@\w+)?$/i;
+const ZIP_COMMAND_REGEX = /^(?:@\w+\s+)?\/zip(?:@\w+)?$/i;
 
 const BOT_COMMANDS = [
   { command: "start", description: "启动说明" },
   { command: "search", description: "搜索 RJ/VJ/BJ 资源链接" },
   { command: "info", description: "查询 RJ/VJ/BJ 详情" },
+  { command: "status", description: "查看自动翻译队列状态" },
+  { command: "zip", description: "获取最近上传资源整合包链接" },
   { command: "help", description: "查看帮助" },
 ];
 
@@ -88,6 +103,7 @@ let bot = null;
 let botRunning = false;
 let botStartTimestamp = 0;
 let runningMode = "polling";
+let currentBotUsername = "";
 
 let telegramClient = null;
 let telegramClientConnected = false;
@@ -109,6 +125,8 @@ const ONE_QUEUE_ADD_WORKS_API =
   "https://api.asmr-200.com/api/playlist/add-works-to-playlist";
 const QUEUE_CHECK_MAX_PAGES = 200;
 const SEARCH_COMMAND_TIMEOUT_MS = 45000;
+const DEFAULT_TRANSLATION_QUEUE_CACHE_REFRESH_MS = 5 * 60 * 1000;
+const DEFAULT_SEARCH_RETRY_DELAY_MS = 60 * 1000;
 const SEARCH_PIPELINE_STAGE = {
   history: "历史索引",
   preset: "前置包",
@@ -148,6 +166,24 @@ let presetIndexCache = {
 };
 const recentInfoReplyKeys = new Map();
 const recentPlainTextMessageKeys = new Map();
+let translationQueueCachePath = "";
+let translationQueueCache = {
+  updatedAt: "",
+  playlistId: "",
+  works: [],
+};
+let translationQueueRefreshTimer = null;
+let searchRetryQueuePath = "";
+let searchRetryQueue = {
+  updatedAt: "",
+  tasks: [],
+};
+let searchRetryTimer = null;
+let searchRetryProcessing = false;
+let dailyZipInitialTimer = null;
+let dailyZipIntervalTimer = null;
+let dailyZipPrefetchInitialTimer = null;
+let dailyZipPrefetchIntervalTimer = null;
 
 function buildIncomingMessageKey(msg) {
   return `${String(msg?.chat?.id || "")}:${String(msg?.message_id || "")}`;
@@ -251,6 +287,11 @@ function getBotRuntimeConfig(config = getConfig()) {
     tgConfig.botHistoryPath ||
     legacyBotConfig.historyPath ||
     path.join(getDataDir(), "tg-bot-history.json");
+  const translationQueueCacheRefreshMs = Number(
+    tgConfig.translationQueueCacheRefreshMs,
+  );
+  const searchRetryDelayMs = Number(tgConfig.searchRetryDelayMs);
+  const searchRetryMaxAttempts = Number(tgConfig.searchRetryMaxAttempts);
 
   return {
     botToken,
@@ -266,6 +307,25 @@ function getBotRuntimeConfig(config = getConfig()) {
     syncSearchCacheOnUpload,
     whitelistDebugLog,
     historyFilePath: configuredHistoryPath,
+    translationQueueCachePath:
+      tgConfig.translationQueueCachePath ||
+      path.join(getDataDir(), "tg-translation-queue-cache.json"),
+    translationQueueCacheRefreshMs:
+      Number.isFinite(translationQueueCacheRefreshMs) &&
+      translationQueueCacheRefreshMs > 0
+        ? translationQueueCacheRefreshMs
+        : DEFAULT_TRANSLATION_QUEUE_CACHE_REFRESH_MS,
+    searchRetryQueuePath:
+      tgConfig.searchRetryQueuePath ||
+      path.join(getDataDir(), "tg-search-retry-queue.json"),
+    searchRetryDelayMs:
+      Number.isFinite(searchRetryDelayMs) && searchRetryDelayMs > 0
+        ? searchRetryDelayMs
+        : DEFAULT_SEARCH_RETRY_DELAY_MS,
+    searchRetryMaxAttempts:
+      Number.isFinite(searchRetryMaxAttempts) && searchRetryMaxAttempts >= 0
+        ? Math.floor(searchRetryMaxAttempts)
+        : 0,
   };
 }
 
@@ -285,6 +345,464 @@ function getTranslationQueueRuntimeConfig(config = getConfig()) {
     token,
     playlistId: configuredPlaylistId,
   };
+}
+
+function normalizeTranslationQueueCache(rawCache, playlistId = "") {
+  const works = Array.isArray(rawCache?.works)
+    ? rawCache.works.filter((work) => work && typeof work === "object")
+    : [];
+
+  return {
+    updatedAt: String(rawCache?.updatedAt || ""),
+    playlistId: String(rawCache?.playlistId || playlistId || "").trim(),
+    works,
+  };
+}
+
+async function ensureTranslationQueueCacheLoaded(runtimeConfig) {
+  const nextPath = String(
+    runtimeConfig?.translationQueueCachePath || "",
+  ).trim();
+  const playlistId = String(
+    getTranslationQueueRuntimeConfig(getConfig()).playlistId || "",
+  ).trim();
+
+  if (
+    translationQueueCachePath === nextPath &&
+    translationQueueCache.playlistId === playlistId
+  ) {
+    return;
+  }
+
+  translationQueueCachePath = nextPath;
+  translationQueueCache = normalizeTranslationQueueCache({}, playlistId);
+
+  if (!translationQueueCachePath) {
+    return;
+  }
+
+  try {
+    await fs.mkdir(path.dirname(translationQueueCachePath), {
+      recursive: true,
+    });
+    const content = await fs.readFile(translationQueueCachePath, "utf-8");
+    const loadedCache = normalizeTranslationQueueCache(JSON.parse(content));
+    translationQueueCache =
+      loadedCache.playlistId === playlistId
+        ? loadedCache
+        : normalizeTranslationQueueCache({}, playlistId);
+  } catch (error) {
+    const normalizedError = normalizeError(error);
+    if (normalizedError.code !== "ENOENT") {
+      logger.warn(
+        "[tg-search-bot] 待翻译队列本地缓存读取失败，已使用空缓存",
+        normalizedError.message,
+      );
+    }
+  }
+}
+
+async function getTranslationQueueCachedCount(runtimeConfig) {
+  await ensureTranslationQueueCacheLoaded(runtimeConfig);
+  return translationQueueCache.works.length;
+}
+
+async function persistTranslationQueueCache() {
+  if (!translationQueueCachePath) {
+    return;
+  }
+
+  try {
+    translationQueueCache.updatedAt = new Date().toISOString();
+    await fs.writeFile(
+      translationQueueCachePath,
+      JSON.stringify(translationQueueCache, null, 2),
+      "utf-8",
+    );
+  } catch (error) {
+    const normalizedError = normalizeError(error);
+    logger.error(
+      "[tg-search-bot] 待翻译队列本地缓存写入失败",
+      normalizedError.message,
+    );
+  }
+}
+
+function findTranslationQueueCacheHit(workCode, workId = "") {
+  return translationQueueCache.works.find((work) =>
+    isSameOneWork(work, workCode, workId),
+  );
+}
+
+async function addWorkToTranslationQueueCache(work) {
+  if (!work || typeof work !== "object") {
+    return;
+  }
+
+  const workId = String(work.id || "").trim();
+  const sourceId = String(work.source_id || "")
+    .trim()
+    .toUpperCase();
+  if (!workId && !sourceId) {
+    return;
+  }
+
+  if (findTranslationQueueCacheHit(sourceId, workId)) {
+    return;
+  }
+
+  translationQueueCache.works.push({
+    id: workId,
+    source_id: sourceId,
+  });
+  await persistTranslationQueueCache();
+}
+
+async function refreshTranslationQueueCache() {
+  const runtimeConfig = getBotRuntimeConfig(getConfig());
+  const queueRuntimeConfig = getTranslationQueueRuntimeConfig(getConfig());
+  const playlistId = String(queueRuntimeConfig.playlistId || "").trim();
+
+  await ensureTranslationQueueCacheLoaded(runtimeConfig);
+  if (!playlistId) {
+    return { success: false, error: "未配置待翻译队列 playlistId" };
+  }
+
+  const headers = {};
+  if (queueRuntimeConfig.token) {
+    headers.Authorization = `Bearer ${queueRuntimeConfig.token}`;
+  }
+
+  const asmrClient = getAsmrClient();
+  const works = [];
+  const pageSize = 100;
+
+  for (let page = 1; page <= QUEUE_CHECK_MAX_PAGES; page += 1) {
+    const url =
+      "https://api.asmr.one/api/playlist/get-playlist-works" +
+      `?id=${encodeURIComponent(playlistId)}&page=${page}&pageSize=${pageSize}`;
+    const response = await asmrClient.get(url, {
+      headers,
+      timeout: 30000,
+    });
+    const pageWorks = extractWorksArrayBasic(response?.data).filter(
+      (work) => work && typeof work === "object",
+    );
+    works.push(...pageWorks);
+
+    const totalCount = Number(response?.data?.pagination?.totalCount || 0);
+    if (
+      pageWorks.length < pageSize ||
+      (totalCount > 0 && page * pageSize >= totalCount)
+    ) {
+      break;
+    }
+  }
+
+  translationQueueCache = normalizeTranslationQueueCache(
+    {
+      updatedAt: new Date().toISOString(),
+      playlistId,
+      works,
+    },
+    playlistId,
+  );
+  await persistTranslationQueueCache();
+  logger.info(
+    `[tg-search-bot] 待翻译队列本地缓存已刷新 playlist=${playlistId} works=${works.length}`,
+  );
+  return { success: true, count: works.length };
+}
+
+function stopTranslationQueueCacheScheduler() {
+  if (translationQueueRefreshTimer) {
+    clearInterval(translationQueueRefreshTimer);
+    translationQueueRefreshTimer = null;
+  }
+}
+
+function startTranslationQueueCacheScheduler() {
+  stopTranslationQueueCacheScheduler();
+  const runtimeConfig = getBotRuntimeConfig(getConfig());
+
+  refreshTranslationQueueCache().catch((error) => {
+    logger.warn(
+      "[tg-search-bot] 待翻译队列定时刷新首次执行失败",
+      getNormalizedErrorMessage(error),
+    );
+  });
+
+  translationQueueRefreshTimer = setInterval(() => {
+    refreshTranslationQueueCache().catch((error) => {
+      logger.warn(
+        "[tg-search-bot] 待翻译队列定时刷新失败",
+        getNormalizedErrorMessage(error),
+      );
+    });
+  }, runtimeConfig.translationQueueCacheRefreshMs);
+  translationQueueRefreshTimer.unref?.();
+}
+
+function normalizeSearchRetryQueue(rawQueue) {
+  return {
+    updatedAt: String(rawQueue?.updatedAt || ""),
+    tasks: Array.isArray(rawQueue?.tasks)
+      ? rawQueue.tasks.filter(
+          (task) =>
+            task &&
+            typeof task === "object" &&
+            String(task.workCode || "").trim() &&
+            String(task.chatId || "").trim(),
+        )
+      : [],
+  };
+}
+
+async function ensureSearchRetryQueueLoaded(runtimeConfig) {
+  const nextPath = String(runtimeConfig?.searchRetryQueuePath || "").trim();
+  if (searchRetryQueuePath === nextPath) {
+    return;
+  }
+
+  searchRetryQueuePath = nextPath;
+  searchRetryQueue = normalizeSearchRetryQueue({});
+  if (!searchRetryQueuePath) {
+    return;
+  }
+
+  try {
+    await fs.mkdir(path.dirname(searchRetryQueuePath), { recursive: true });
+    const content = await fs.readFile(searchRetryQueuePath, "utf-8");
+    searchRetryQueue = normalizeSearchRetryQueue(JSON.parse(content));
+  } catch (error) {
+    const normalizedError = normalizeError(error);
+    if (normalizedError.code !== "ENOENT") {
+      logger.warn(
+        "[tg-search-bot] 搜索重试队列读取失败，已使用空队列",
+        normalizedError.message,
+      );
+    }
+  }
+}
+
+async function persistSearchRetryQueue() {
+  if (!searchRetryQueuePath) {
+    return;
+  }
+
+  try {
+    searchRetryQueue.updatedAt = new Date().toISOString();
+    await fs.writeFile(
+      searchRetryQueuePath,
+      JSON.stringify(searchRetryQueue, null, 2),
+      "utf-8",
+    );
+  } catch (error) {
+    logger.error(
+      "[tg-search-bot] 搜索重试队列写入失败",
+      getNormalizedErrorMessage(error),
+    );
+  }
+}
+
+function buildSearchRetryTaskKey({ chatId, messageThreadId, workCode }) {
+  return `${String(chatId)}:${String(messageThreadId || "")}:${String(workCode).toUpperCase()}`;
+}
+
+async function enqueueSearchRetry({ msg, workCode, commandName }) {
+  const runtimeConfig = getBotRuntimeConfig(getConfig());
+  await ensureSearchRetryQueueLoaded(runtimeConfig);
+
+  const taskKey = buildSearchRetryTaskKey({
+    chatId: msg.chat.id,
+    messageThreadId: msg.message_thread_id,
+    workCode,
+  });
+  const existingTask = searchRetryQueue.tasks.find(
+    (task) => task.taskKey === taskKey,
+  );
+  if (existingTask) {
+    return { queued: false, retryAt: existingTask.retryAt };
+  }
+
+  const retryAt = Date.now() + runtimeConfig.searchRetryDelayMs;
+  searchRetryQueue.tasks.push({
+    taskKey,
+    chatId: msg.chat.id,
+    messageThreadId: msg.message_thread_id || null,
+    replyToMessageId: msg.message_id || null,
+    workCode,
+    commandName,
+    retryAt,
+    attempt: 0,
+    createdAt: new Date().toISOString(),
+  });
+  await persistSearchRetryQueue();
+  scheduleSearchRetryProcessing();
+  return { queued: true, retryAt };
+}
+
+function stopSearchRetryScheduler() {
+  if (searchRetryTimer) {
+    clearTimeout(searchRetryTimer);
+    searchRetryTimer = null;
+  }
+}
+
+function scheduleSearchRetryProcessing() {
+  stopSearchRetryScheduler();
+  if (!searchRetryQueue.tasks.length) {
+    return;
+  }
+
+  const nextRetryAt = Math.min(
+    ...searchRetryQueue.tasks.map((task) => Number(task.retryAt) || Date.now()),
+  );
+  const delay = Math.max(0, nextRetryAt - Date.now());
+  searchRetryTimer = setTimeout(() => {
+    processPendingSearchRetries().catch((error) => {
+      logger.error(
+        "[tg-search-bot] 搜索重试队列处理失败",
+        getNormalizedErrorMessage(error),
+      );
+    });
+  }, delay);
+  searchRetryTimer.unref?.();
+}
+
+function buildRetryMessageOptions(task) {
+  const options = {};
+  if (task.replyToMessageId) {
+    options.reply_to_message_id = task.replyToMessageId;
+  }
+  if (task.messageThreadId) {
+    options.message_thread_id = task.messageThreadId;
+  }
+  return options;
+}
+
+async function processPendingSearchRetries() {
+  if (searchRetryProcessing || !botRunning || !bot) {
+    return;
+  }
+
+  searchRetryProcessing = true;
+  try {
+    const runtimeConfig = getBotRuntimeConfig(getConfig());
+    await ensureSearchRetryQueueLoaded(runtimeConfig);
+    const now = Date.now();
+    const pendingTasks = [];
+
+    for (const task of searchRetryQueue.tasks) {
+      if (Number(task.retryAt) > now) {
+        pendingTasks.push(task);
+        continue;
+      }
+
+      const nextAttempt = Number(task.attempt || 0) + 1;
+      try {
+        const result = await withOperationTimeout(
+          handleSearchRequest(task.workCode, { enableOneQueue: true }),
+          SEARCH_COMMAND_TIMEOUT_MS,
+          `搜索 ${task.workCode}`,
+        );
+
+        if (!result.success && result.retryable !== true) {
+          const responseText = `❌ ${task.workCode} 自动重试结果：${
+            result.message || "未找到可用结果"
+          }`;
+          let notificationSent = false;
+          try {
+            await bot.sendMessage(
+              task.chatId,
+              responseText,
+              buildRetryMessageOptions(task),
+            );
+            notificationSent = true;
+          } catch (error) {
+            logger.warn(
+              `[tg-search-bot] 搜索重试得到业务结果，但通知发送失败，仍移出错误池 code=${task.workCode} chat=${task.chatId}`,
+              getNormalizedErrorMessage(error),
+            );
+          }
+          logger.info(
+            `[tg-search-bot] 搜索重试得到业务结果，移出错误池 code=${task.workCode} chat=${task.chatId} notification=${notificationSent ? "sent" : "failed"} message=${result.message || "-"}`,
+          );
+          continue;
+        }
+
+        if (!result.success) {
+          throw new Error(result.message || "搜索未成功");
+        }
+
+        const responseText = `✅ ${task.workCode} 自动重试成功：${result.message}${
+          shouldAppendResultUrl(result) ? `\n${result.url}` : ""
+        }`;
+        let notificationSent = false;
+        try {
+          await bot.sendMessage(
+            task.chatId,
+            responseText,
+            buildRetryMessageOptions(task),
+          );
+          notificationSent = true;
+        } catch (error) {
+          logger.warn(
+            `[tg-search-bot] 搜索重试成功，但通知发送失败，仍移出错误池 code=${task.workCode} chat=${task.chatId}`,
+            getNormalizedErrorMessage(error),
+          );
+        }
+        logger.info(
+          `[tg-search-bot] 搜索重试成功，移出错误池 code=${task.workCode} chat=${task.chatId} attempt=${nextAttempt} notification=${notificationSent ? "sent" : "failed"}`,
+        );
+      } catch (error) {
+        const hasAttemptLimit = runtimeConfig.searchRetryMaxAttempts > 0;
+        if (
+          !hasAttemptLimit ||
+          nextAttempt < runtimeConfig.searchRetryMaxAttempts
+        ) {
+          pendingTasks.push({
+            ...task,
+            attempt: nextAttempt,
+            retryAt: Date.now() + runtimeConfig.searchRetryDelayMs,
+            lastError: getNormalizedErrorMessage(error),
+          });
+          logger.warn(
+            `[tg-search-bot] 搜索重试失败，继续保留错误池 code=${task.workCode} chat=${task.chatId} attempt=${nextAttempt}${
+              hasAttemptLimit
+                ? `/${runtimeConfig.searchRetryMaxAttempts}`
+                : "/unlimited"
+            }`,
+            getNormalizedErrorMessage(error),
+          );
+          continue;
+        }
+
+        logger.error(
+          `[tg-search-bot] 搜索重试已耗尽 code=${task.workCode} chat=${task.chatId} attempts=${nextAttempt}`,
+          getNormalizedErrorMessage(error),
+        );
+      }
+    }
+
+    searchRetryQueue.tasks = pendingTasks;
+    await persistSearchRetryQueue();
+  } finally {
+    searchRetryProcessing = false;
+    scheduleSearchRetryProcessing();
+  }
+}
+
+function startSearchRetryScheduler() {
+  const runtimeConfig = getBotRuntimeConfig(getConfig());
+  ensureSearchRetryQueueLoaded(runtimeConfig)
+    .then(() => processPendingSearchRetries())
+    .catch((error) => {
+      logger.warn(
+        "[tg-search-bot] 搜索重试队列初始化失败",
+        getNormalizedErrorMessage(error),
+      );
+    });
 }
 
 function buildOneSearchUrl(workCode) {
@@ -334,22 +852,58 @@ function resolveOneSearchMatchedWork(rawPayload, workCode) {
   return works[0] || null;
 }
 
-function extractOneTagNames(work) {
+function extractOnePrimaryTagName(tag) {
+  const value =
+    tag?.name ||
+    tag?.i18n?.["zh-cn"]?.name ||
+    tag?.i18n?.["ja-jp"]?.name ||
+    tag?.i18n?.["en-us"]?.name ||
+    "";
+
+  return String(value).trim();
+}
+
+function extractOneTagCandidateNames(tag) {
+  const names = [
+    tag?.name,
+    tag?.i18n?.["zh-cn"]?.name,
+    tag?.i18n?.["ja-jp"]?.name,
+    tag?.i18n?.["en-us"]?.name,
+  ];
+
+  ["zh-cn", "ja-jp", "en-us"].forEach((localeKey) => {
+    const histories = Array.isArray(tag?.i18n?.[localeKey]?.history)
+      ? tag.i18n[localeKey].history
+      : [];
+    histories.forEach((history) => {
+      names.push(history?.name);
+    });
+  });
+
+  return [
+    ...new Set(
+      names.map((value) => String(value || "").trim()).filter(Boolean),
+    ),
+  ];
+}
+
+function extractOneTagNames(work, options = {}) {
+  const includeLowWishTags = options.includeLowWishTags === true;
+  const includeAliases = options.includeAliases === true;
   const tags = Array.isArray(work?.tags) ? work.tags : [];
   const tagNames = tags
     .filter((tag) => tag && typeof tag === "object")
     .filter(
-      (tag) => tag.voteStatus === undefined || Number(tag.voteStatus) === 1,
+      (tag) =>
+        includeLowWishTags ||
+        tag.voteStatus === undefined ||
+        Number(tag.voteStatus) === 1,
     )
-    .map((tag) => {
-      const value =
-        tag?.name ||
-        tag?.i18n?.["zh-cn"]?.name ||
-        tag?.i18n?.["ja-jp"]?.name ||
-        tag?.i18n?.["en-us"]?.name ||
-        "";
-      return String(value).trim();
-    })
+    .flatMap((tag) =>
+      includeAliases
+        ? extractOneTagCandidateNames(tag)
+        : [extractOnePrimaryTagName(tag)],
+    )
     .filter(Boolean);
 
   return [...new Set(tagNames)];
@@ -440,6 +994,10 @@ async function fetchOneMatchedWorkByCode(workCode) {
       work: matchedWork,
       workUrl: buildOneWorkUrl(matchedWork, workCode),
       tags: extractOneTagNames(matchedWork),
+      blockedTagCandidates: extractOneTagNames(matchedWork, {
+        includeLowWishTags: true,
+        includeAliases: true,
+      }),
     };
   } catch (error) {
     const normalizedError = normalizeError(error);
@@ -449,6 +1007,7 @@ async function fetchOneMatchedWorkByCode(workCode) {
         normalizedError.error?.message ||
         normalizedError.message ||
         "One站检索失败",
+      retryable: true,
     };
   }
 }
@@ -915,11 +1474,17 @@ async function addWorkToTranslationQueue(
 
   return {
     success: false,
+    retryable: true,
     error:
       attemptMessages.length > 0
         ? attemptMessages.join(" | ")
         : "加入待翻译队列失败",
   };
+}
+
+export function enqueueWorkToTranslationQueue(workCode, matchedWork = null) {
+  const queueRuntimeConfig = getTranslationQueueRuntimeConfig(getConfig());
+  return addWorkToTranslationQueue(workCode, queueRuntimeConfig, matchedWork);
 }
 
 function confirmQueuedWorkInBackground(
@@ -1391,110 +1956,6 @@ async function resolveEntity(client, channelIdInput) {
   return await client.getEntity(peerId);
 }
 
-async function searchRJInTelegramChannel(rjCode, runtimeConfig) {
-  if (!runtimeConfig.sourceChannelId) {
-    logger.warn("[tg-search-bot] 未配置频道 ID，跳过频道检索");
-    return null;
-  }
-
-  try {
-    const client = await getConnectedClient();
-    const entity = await resolveEntity(client, runtimeConfig.sourceChannelId);
-    const preferredLinkChannelId = getPreferredLinkChannelId(runtimeConfig);
-
-    // 优先使用 Telegram 服务端 search，避免在客户端全量遍历频道历史
-    const searchLimit = Math.max(
-      1,
-      Math.min(runtimeConfig.searchLimit || 50, 50),
-    );
-
-    try {
-      const iterator = client.iterMessages(entity, {
-        search: rjCode,
-        limit: searchLimit,
-      });
-
-      for await (const msg of iterator) {
-        if (!msg) continue;
-        const messageId = normalizeMessageIdFromPayload(msg);
-        if (messageId === null) continue;
-
-        const text = getTelegramMessageText(msg);
-        const rjCodes = extractRJCodes(text);
-        if (!rjCodes.includes(rjCode)) continue;
-
-        const linkSet = buildMessageLinksByEntity(
-          entity,
-          preferredLinkChannelId,
-          messageId,
-        );
-        if (!linkSet.primaryUrl) {
-          logger.warn(
-            "[tg-search-bot] 匹配到 RJ 号，但无法构建消息链接",
-            rjCode,
-          );
-          return null;
-        }
-
-        return {
-          url: linkSet.primaryUrl,
-          alternateUrls: linkSet.alternateUrls,
-          source: "channel",
-          messageId,
-        };
-      }
-
-      return null;
-    } catch (searchError) {
-      const normalizedSearchError = normalizeError(searchError);
-      logger.warn(
-        "[tg-search-bot] 服务端 search 检索失败，回退频道遍历",
-        normalizedSearchError.message,
-      );
-    }
-
-    const fallbackIterator = client.iterMessages(entity, {
-      limit: runtimeConfig.searchLimit,
-    });
-
-    for await (const msg of fallbackIterator) {
-      if (!msg) continue;
-      const messageId = normalizeMessageIdFromPayload(msg);
-      if (messageId === null) continue;
-
-      const text = getTelegramMessageText(msg);
-      const rjCodes = extractRJCodes(text);
-      if (!rjCodes.includes(rjCode)) continue;
-
-      const linkSet = buildMessageLinksByEntity(
-        entity,
-        preferredLinkChannelId,
-        messageId,
-      );
-      if (!linkSet.primaryUrl) {
-        logger.warn("[tg-search-bot] 匹配到 RJ 号，但无法构建消息链接", rjCode);
-        return null;
-      }
-
-      return {
-        url: linkSet.primaryUrl,
-        alternateUrls: linkSet.alternateUrls,
-        source: "channel",
-        messageId,
-      };
-    }
-
-    return null;
-  } catch (error) {
-    const normalizedError = normalizeError(error);
-    logger.warn(
-      "[tg-search-bot] 频道检索失败，继续前置包检索",
-      normalizedError.message,
-    );
-    return null;
-  }
-}
-
 async function searchRJInPresetFile(rjCode, runtimeConfig) {
   const presetIndex = await buildPresetIndexEntries(runtimeConfig);
   const targetCode = String(rjCode || "").toUpperCase();
@@ -1918,40 +2379,6 @@ function logIncomingRequest(msg, runtimeConfig, commandName) {
   return permission;
 }
 
-function refreshChannelHitInBackground(rjCode, runtimeConfig) {
-  if (!runtimeConfig.sourceChannelId) {
-    return;
-  }
-
-  if (!hasUserApiCredentials(getConfig())) {
-    return;
-  }
-
-  searchRJInTelegramChannel(rjCode, runtimeConfig)
-    .then(async (channelResult) => {
-      if (!channelResult?.url) {
-        return;
-      }
-
-      upsertHistory(rjCode, {
-        url: channelResult.url,
-        alternateUrls: channelResult.alternateUrls || [],
-        source: channelResult.source,
-        messageId: channelResult.messageId,
-      });
-      await persistHistory();
-
-      logger.info(`[tg-search-bot] 后台频道补充命中 ${rjCode}`);
-    })
-    .catch((error) => {
-      const normalizedError = normalizeError(error);
-      logger.warn(
-        `[tg-search-bot] 后台频道补充失败 ${rjCode}`,
-        normalizedError.message,
-      );
-    });
-}
-
 export async function handleSearchRequest(rawInput, options = {}) {
   const rjCode = normalizeWorkCodeInput(rawInput);
   if (!rjCode) {
@@ -1985,14 +2412,14 @@ export async function handleSearchRequest(rawInput, options = {}) {
         SEARCH_PIPELINE_STAGE.one,
         SEARCH_PIPELINE_STAGE.queue,
       ],
-      "reason=历史索引命中",
+      "reason=历史上传命中",
     );
     logSearchPipelineStage(rjCode, "总览", "done", "source=history");
     return {
       success: true,
       url: historyHit.url,
       alternateUrls: [],
-      message: `找到 ${rjCode}（历史索引）`,
+      message: `找到 ${rjCode}（历史上传）`,
       source: historyHit.source,
     };
   }
@@ -2007,7 +2434,6 @@ export async function handleSearchRequest(rawInput, options = {}) {
       "hit",
       `source=${presetResult.source || "-"}`,
     );
-    refreshChannelHitInBackground(rjCode, runtimeConfig);
 
     logSearchPipelineSkipStages(
       rjCode,
@@ -2030,39 +2456,12 @@ export async function handleSearchRequest(rawInput, options = {}) {
   }
   logSearchPipelineStage(rjCode, SEARCH_PIPELINE_STAGE.preset, "miss");
 
-  logSearchPipelineStage(rjCode, SEARCH_PIPELINE_STAGE.channel, "start");
-  const channelResult = await searchRJInTelegramChannel(rjCode, runtimeConfig);
-  if (channelResult?.url) {
-    logSearchPipelineStage(
-      rjCode,
-      SEARCH_PIPELINE_STAGE.channel,
-      "hit",
-      `source=${channelResult.source || "-"} messageId=${channelResult.messageId || "-"}`,
-    );
-    upsertHistory(rjCode, {
-      url: channelResult.url,
-      alternateUrls: channelResult.alternateUrls || [],
-      source: channelResult.source,
-      messageId: channelResult.messageId,
-    });
-    await persistHistory();
-
-    logSearchPipelineSkipStages(
-      rjCode,
-      [SEARCH_PIPELINE_STAGE.one, SEARCH_PIPELINE_STAGE.queue],
-      "reason=频道命中",
-    );
-    logSearchPipelineStage(rjCode, "总览", "done", "source=channel");
-
-    return {
-      success: true,
-      url: channelResult.url,
-      alternateUrls: [],
-      message: `找到 ${rjCode}（频道）`,
-      source: channelResult.source,
-    };
-  }
-  logSearchPipelineStage(rjCode, SEARCH_PIPELINE_STAGE.channel, "miss");
+  logSearchPipelineStage(
+    rjCode,
+    SEARCH_PIPELINE_STAGE.channel,
+    "skip",
+    "reason=仅使用历史上传和前置包，直接One",
+  );
 
   if (enableOneQueue) {
     logSearchPipelineStage(rjCode, SEARCH_PIPELINE_STAGE.one, "start");
@@ -2083,7 +2482,10 @@ export async function handleSearchRequest(rawInput, options = {}) {
       logSearchPipelineStage(rjCode, "总览", "done", "source=not_found");
       return {
         success: false,
-        message: oneSearchResult.error || `One站未找到 ${rjCode}`,
+        retryable: oneSearchResult.retryable === true,
+        message: oneSearchResult.retryable
+          ? `One站检索暂时失败：${oneSearchResult.error || "网络错误"}`
+          : oneSearchResult.error || `One站未找到 ${rjCode}`,
       };
     }
 
@@ -2145,8 +2547,34 @@ export async function handleSearchRequest(rawInput, options = {}) {
       `work=${oneSearchResult.work?.source_id || rjCode}`,
     );
 
+    const botRuntimeConfig = getBotRuntimeConfig(getConfig());
     const queueRuntimeConfig = getTranslationQueueRuntimeConfig(getConfig());
-    const blockedQueueTags = getBlockedQueueTags(oneSearchResult.tags);
+    await ensureTranslationQueueCacheLoaded(botRuntimeConfig);
+    const queueCacheHit = findTranslationQueueCacheHit(
+      rjCode,
+      oneSearchResult.work?.id,
+    );
+    if (queueCacheHit) {
+      const queueUrl = buildQueuePlaylistUrl(queueRuntimeConfig);
+      logSearchPipelineStage(
+        rjCode,
+        SEARCH_PIPELINE_STAGE.queue,
+        "cached_already_queued",
+        `playlist=${queueRuntimeConfig.playlistId || "-"}`,
+      );
+      logSearchPipelineStage(rjCode, "总览", "done", "source=one_queue_cache");
+      return {
+        success: true,
+        url: queueUrl || oneSearchResult.workUrl,
+        alternateUrls: oneSearchResult.workUrl ? [oneSearchResult.workUrl] : [],
+        message: `本地未找到 ${rjCode}，该作品已在待翻译队列，无需重复入队`,
+        source: "one_queue_cache",
+      };
+    }
+
+    const blockedQueueTags = getBlockedQueueTags(
+      oneSearchResult.blockedTagCandidates || oneSearchResult.tags,
+    );
 
     if (blockedQueueTags.length) {
       const queueResult = buildMaskedQueueSuccessResult(queueRuntimeConfig);
@@ -2202,6 +2630,7 @@ export async function handleSearchRequest(rawInput, options = {}) {
       logSearchPipelineStage(rjCode, "总览", "done", "source=queue_error");
       return {
         success: false,
+        retryable: queueResult.retryable === true,
         message: `${rjCode} 在 One 站已找到，但加入待翻译队列失败：${queueResult.error}`,
       };
     }
@@ -2214,6 +2643,11 @@ export async function handleSearchRequest(rawInput, options = {}) {
       playlistId: queueResult.playlistId || "",
       submittedIdentifier: queueResult.submittedIdentifier || "",
     };
+    await addWorkToTranslationQueueCache(oneSearchResult.work);
+    const acceptedByRunningAutomation = enqueueRunningTranslationWork(
+      oneSearchResult.work,
+      "tg-search-bot",
+    );
 
     logSearchPipelineStage(
       rjCode,
@@ -2223,7 +2657,7 @@ export async function handleSearchRequest(rawInput, options = {}) {
     );
 
     logger.info(
-      `[tg-search-bot] 本地未命中，One站已处理待翻译队列 code=${rjCode} playlist=${oneQueueContext.playlistId || "-"} submitted=${oneQueueContext.submittedIdentifier || "-"} alreadyQueued=${oneQueueContext.alreadyQueued} tags=${oneQueueContext.tags.length}`,
+      `[tg-search-bot] 本地未命中，One站已处理待翻译队列 code=${rjCode} playlist=${oneQueueContext.playlistId || "-"} submitted=${oneQueueContext.submittedIdentifier || "-"} alreadyQueued=${oneQueueContext.alreadyQueued} runtimeAccepted=${acceptedByRunningAutomation} tags=${oneQueueContext.tags.length}`,
     );
 
     logSearchPipelineStage(rjCode, "总览", "done", "source=one_queue");
@@ -2311,6 +2745,8 @@ async function handleStartCommand(msg) {
       `你可以使用以下命令：\n` +
       `/search <RJ号> - 搜索资源\n` +
       `/info <编号> - 查询作品信息（RJ/VJ/BJ）\n` +
+      `/status - 查看自动翻译队列状态\n` +
+      `/zip - 获取最近上传资源整合包链接\n` +
       `/help - 查看帮助`,
   );
 }
@@ -2335,11 +2771,255 @@ async function handleHelpCommand(msg) {
       `/start - 启动说明\n` +
       `/search <编号> - 搜索资源（例如 /search RJ123456）\n` +
       `/info <编号> - 查询作品信息（例如 /info VJ123456）\n` +
-      `群聊也支持：/search@BotName RJ123456 或 @BotName /search RJ123456\n` +
+      `/status - 查看自动翻译队列状态\n` +
+      `/zip - 获取最近上传资源整合包链接\n` +
+      `群聊也支持：/search@BotName RJ123456、@BotName /search RJ123456、@BotName RJ123456\n` +
       `/help - 查看帮助\n\n` +
       `搜索优先级：历史索引 -> 前置包缓存 -> 频道补充 -> One站字幕版直返 -> 无字幕时转待翻译队列\n` +
       `信息查询优先级：本地缓存 JSON -> 实时抓取并回填缓存`,
   );
+}
+
+const TRANSLATION_STATUS_LABELS = {
+  disabled: "未启用",
+  "waiting-window": "等待运行时段",
+  scan: "扫描中",
+  queue: "读取队列",
+  download: "下载中",
+  translate: "翻译中",
+  package: "打包中",
+  upload: "上传中",
+  cleanup: "清理中",
+  completed: "已完成",
+  error: "异常",
+  idle: "待机",
+};
+
+function formatNextTranslationProbeAt(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const pad = (number) => String(number).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+export function formatTranslationAutomationStatus(
+  statusData = {},
+  options = {},
+) {
+  const runtimeStatus = statusData.runtimeStatus || {};
+  const progress = runtimeStatus.translationProgress || {};
+  const count = (key) =>
+    Array.isArray(progress[key]) ? progress[key].length : 0;
+  const state =
+    TRANSLATION_STATUS_LABELS[runtimeStatus.step] ||
+    (statusData.running ? "运行中" : "待机");
+  const currentCode = String(
+    runtimeStatus.currentCode || progress.currentCode || "",
+  ).trim();
+  const nextProbeAt =
+    runtimeStatus.step === "waiting-window"
+      ? formatNextTranslationProbeAt(runtimeStatus.nextProbeAt)
+      : "";
+  const readyTranslateCodes = Array.isArray(progress.readyTranslateCodes)
+    ? progress.readyTranslateCodes
+    : [];
+  const remainingTranslateCount =
+    runtimeStatus.step === "translate" &&
+    currentCode &&
+    readyTranslateCodes.includes(currentCode)
+      ? readyTranslateCodes.length - 1
+      : readyTranslateCodes.length;
+  const queueCount = Number(options.queueCount);
+  const hasQueueCount =
+    runtimeStatus.step !== "translate" && Number.isFinite(queueCount);
+  const details =
+    runtimeStatus.step === "translate" && currentCode
+      ? [`${currentCode}，后续待翻译 ${remainingTranslateCount} 个`]
+      : [
+          currentCode,
+          nextProbeAt ? `下次扫描：${nextProbeAt}` : "",
+          hasQueueCount ? `待翻译队列 ${Math.max(0, queueCount)} 个` : "",
+        ].filter(Boolean);
+
+  return (
+    `🤖 自动翻译：${state}${details.length ? `（${details.join(" · ")}）` : ""}\n` +
+    `下载排队 ${count("queuedDownloadCodes")} · 下载中 ${count("downloadingCodes")} · ` +
+    `待翻译 ${remainingTranslateCount} · 完成 ${count("completedCodes")} · ` +
+    `失败 ${count("failedCodes")}`
+  );
+}
+
+async function handleStatusCommand(msg) {
+  if (!bot) return;
+
+  if (msg.date < botStartTimestamp) {
+    return;
+  }
+
+  const runtimeConfig = getBotRuntimeConfig(getConfig());
+  const permission = logIncomingRequest(msg, runtimeConfig, "/status");
+  if (!permission.allowed) {
+    await bot.sendMessage(msg.chat.id, "❌ 您没有权限使用此 Bot。");
+    return;
+  }
+
+  const queueCount = await getTranslationQueueCachedCount(runtimeConfig);
+  await bot.sendMessage(
+    msg.chat.id,
+    formatTranslationAutomationStatus(getTranslationAutomationStatus(), {
+      queueCount,
+    }),
+  );
+}
+
+async function handleZipCommand(msg) {
+  if (!bot) return;
+  if (msg.date < botStartTimestamp) return;
+
+  const runtimeConfig = getBotRuntimeConfig(getConfig());
+  const permission = logIncomingRequest(msg, runtimeConfig, "/zip");
+  if (!permission.allowed) {
+    await bot.sendMessage(msg.chat.id, "❌ 您没有权限使用此 Bot。");
+    return;
+  }
+
+  try {
+    const result = await getLatestDailyZip();
+    if (!result.url) {
+      await bot.sendMessage(
+        msg.chat.id,
+        "📦 暂无可用整合包链接，请等待每日 19:00 自动生成。",
+      );
+      return;
+    }
+
+    await bot.sendMessage(
+      msg.chat.id,
+      `📦 当前整合包：${result.fileName || "kuruharu 每日整合包"}\n` +
+        `包含 ${result.count || 0} 个去重资源\n` +
+        `${result.url}`,
+      { disable_web_page_preview: true },
+    );
+  } catch (error) {
+    const normalizedError = normalizeError(error);
+    logger.error("[tg-search-bot] /zip 查询失败", normalizedError.message);
+    await bot.sendMessage(
+      msg.chat.id,
+      `❌ 整合包链接查询失败：${normalizedError.message}`,
+    );
+  }
+}
+
+function getNextDailyZipDelayMs(targetHour) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Shanghai",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(
+    parts
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, Number(part.value)]),
+  );
+  const currentSeconds =
+    (values.hour || 0) * 3600 +
+    (values.minute || 0) * 60 +
+    (values.second || 0);
+  let delaySeconds = targetHour * 3600 - currentSeconds;
+  if (delaySeconds <= 0) delaySeconds += 24 * 3600;
+  return delaySeconds * 1000;
+}
+
+function getCurrentDailyZipHour() {
+  const hour = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Shanghai",
+    hour: "2-digit",
+    hour12: false,
+  })
+    .formatToParts(new Date())
+    .find((part) => part.type === "hour")?.value;
+  return Number(hour || 0);
+}
+
+function stopDailyZipScheduler() {
+  if (dailyZipInitialTimer) clearTimeout(dailyZipInitialTimer);
+  if (dailyZipIntervalTimer) clearInterval(dailyZipIntervalTimer);
+  if (dailyZipPrefetchInitialTimer) clearTimeout(dailyZipPrefetchInitialTimer);
+  if (dailyZipPrefetchIntervalTimer)
+    clearInterval(dailyZipPrefetchIntervalTimer);
+  dailyZipInitialTimer = null;
+  dailyZipIntervalTimer = null;
+  dailyZipPrefetchInitialTimer = null;
+  dailyZipPrefetchIntervalTimer = null;
+}
+
+function startDailyZipScheduler() {
+  stopDailyZipScheduler();
+
+  const runGenerate = () => {
+    generateDailyZip({ scheduled: true }).then(
+      (result) => {
+        logger.info(
+          `[tg-daily-zip] scheduled run updated=${result.updated === true} url=${result.url || "-"}`,
+        );
+      },
+      (error) => {
+        logger.error(
+          "[tg-daily-zip] scheduled run failed",
+          getNormalizedErrorMessage(error),
+        );
+      },
+    );
+  };
+
+  const runPrefetch = () => {
+    prefetchDailyZipSources().then(
+      (result) => {
+        logger.info(
+          `[tg-daily-zip] prefetch completed count=${result.count || 0} reason=${result.reason || "-"}`,
+        );
+      },
+      (error) => {
+        logger.error(
+          "[tg-daily-zip] prefetch failed",
+          getNormalizedErrorMessage(error),
+        );
+      },
+    );
+  };
+
+  const currentHour = getCurrentDailyZipHour();
+  if (currentHour >= 19) {
+    logger.warn(
+      "[tg-daily-zip] Bot 在 19:00 后启动，检查并补发当天未完成的自动整合包",
+    );
+    runGenerate();
+  } else if (currentHour >= 18) {
+    logger.info("[tg-daily-zip] Bot 在 18:00 后启动，立即执行当天预下载");
+    runPrefetch();
+  }
+
+  dailyZipPrefetchInitialTimer = setTimeout(() => {
+    runPrefetch();
+    dailyZipPrefetchIntervalTimer = setInterval(
+      runPrefetch,
+      24 * 60 * 60 * 1000,
+    );
+    dailyZipPrefetchIntervalTimer.unref?.();
+  }, getNextDailyZipDelayMs(18));
+  dailyZipPrefetchInitialTimer.unref?.();
+
+  dailyZipInitialTimer = setTimeout(() => {
+    runGenerate();
+    dailyZipIntervalTimer = setInterval(runGenerate, 24 * 60 * 60 * 1000);
+    dailyZipIntervalTimer.unref?.();
+  }, getNextDailyZipDelayMs(19));
+  dailyZipInitialTimer.unref?.();
 }
 
 function escapeRegExp(rawValue) {
@@ -2438,6 +3118,10 @@ function withOperationTimeout(task, timeoutMs, label = "操作") {
         reject(error);
       });
   });
+}
+
+function isOperationTimeoutError(error) {
+  return /(?:超时|timeout)/i.test(getNormalizedErrorMessage(error, ""));
 }
 
 async function sendInfoReplyMessage({
@@ -2901,40 +3585,56 @@ async function handleSearchCommand(msg, match) {
 
   const requestedValue = (match?.[1] || "").trim();
   const rjCode = normalizeWorkCodeInput(requestedValue);
+  await runSearchReplyFlow({
+    msg,
+    requestedValue,
+    rjCode,
+    commandName: "/search",
+    invalidInputMessage:
+      "❌ 无效的编号格式，请使用如 /search RJ123456（支持 RJ/VJ/BJ）",
+  });
+}
 
-  if (!rjCode) {
+async function runSearchReplyFlow({
+  msg,
+  requestedValue,
+  rjCode,
+  commandName = "/search",
+  invalidInputMessage = "❌ 无效的编号格式，请使用如 /search RJ123456（支持 RJ/VJ/BJ）",
+}) {
+  if (!bot || !msg) return;
+
+  let searchingMessage = null;
+  const normalizedCode = rjCode || normalizeWorkCodeInput(requestedValue);
+  if (!normalizedCode) {
     try {
-      await bot.sendMessage(
-        msg.chat.id,
-        "❌ 无效的编号格式，请使用如 /search RJ123456（支持 RJ/VJ/BJ）",
-      );
+      await bot.sendMessage(msg.chat.id, invalidInputMessage);
     } catch (error) {
       const errorMessage = getNormalizedErrorMessage(error);
       logger.warn(
-        `[tg-search-bot] /search invalid-argument reply send failed chat=${msg.chat.id}`,
+        `[tg-search-bot] ${commandName} invalid-argument reply send failed chat=${msg.chat.id}`,
         errorMessage,
       );
     }
     return;
   }
 
-  let searchingMessage = null;
   try {
     searchingMessage = await bot.sendMessage(
       msg.chat.id,
-      `Searching ${rjCode}...`,
+      `Searching ${normalizedCode}...`,
     );
   } catch (error) {
     const errorMessage = getNormalizedErrorMessage(error);
     if (isNotEnoughRightsToSendMessageError(error)) {
       logger.warn(
-        `[tg-search-bot] /search cannot send message: insufficient chat rights chat=${msg.chat.id} code=${rjCode}`,
+        `[tg-search-bot] ${commandName} cannot send message: insufficient chat rights chat=${msg.chat.id} code=${normalizedCode}`,
       );
       return;
     }
 
     logger.warn(
-      `[tg-search-bot] /search failed to send placeholder message chat=${msg.chat.id} code=${rjCode}`,
+      `[tg-search-bot] ${commandName} failed to send placeholder message chat=${msg.chat.id} code=${normalizedCode}`,
       errorMessage,
     );
     return;
@@ -2942,16 +3642,30 @@ async function handleSearchCommand(msg, match) {
 
   try {
     const result = await withOperationTimeout(
-      handleSearchRequest(rjCode, {
+      handleSearchRequest(normalizedCode, {
         enableOneQueue: true,
       }),
       SEARCH_COMMAND_TIMEOUT_MS,
-      `搜索 ${rjCode}`,
+      `搜索 ${normalizedCode}`,
     );
 
-    const responseText = result.success
-      ? `\u2705 ${result.message}${shouldAppendResultUrl(result) ? `\n${result.url}` : ""}`
-      : `\u274c ${result.message}`;
+    let responseText;
+    if (result.success) {
+      responseText = `\u2705 ${result.message}${
+        shouldAppendResultUrl(result) ? `\n${result.url}` : ""
+      }`;
+    } else if (result.retryable === true) {
+      const retryResult = await enqueueSearchRetry({
+        msg,
+        workCode: normalizedCode,
+        commandName,
+      });
+      responseText = retryResult.queued
+        ? "⌛ 搜索暂时失败，已加入本地错误池，网络恢复后会持续重试并在本群通知结果。"
+        : "⌛ 搜索暂时失败，该编号已在本地错误池中，网络恢复后会继续重试。";
+    } else {
+      responseText = `\u274c ${result.message}`;
+    }
 
     await bot.editMessageText(responseText, {
       chat_id: msg.chat.id,
@@ -2959,29 +3673,94 @@ async function handleSearchCommand(msg, match) {
     });
   } catch (error) {
     const errorMessage = getNormalizedErrorMessage(error);
-    logger.error("[tg-search-bot] /search 处理失败", errorMessage);
+    logger.error(`[tg-search-bot] ${commandName} 处理失败`, errorMessage);
 
     try {
-      await bot.editMessageText(`❌ 搜索失败：${errorMessage}`, {
+      const retryResult = isOperationTimeoutError(error)
+        ? await enqueueSearchRetry({
+            msg,
+            workCode: normalizedCode,
+            commandName,
+          })
+        : null;
+      const timeoutReply = retryResult
+        ? retryResult.queued
+          ? "⌛ 搜索超时，已加入本地重试队列，稍后会自动重试并在本群通知结果。"
+          : "⌛ 搜索超时，该编号已在本地重试队列中，请等待自动重试结果。"
+        : `❌ 搜索失败：${errorMessage}`;
+      await bot.editMessageText(timeoutReply, {
         chat_id: msg.chat.id,
         message_id: searchingMessage.message_id,
       });
     } catch (editError) {
       const editErrorMessage = getNormalizedErrorMessage(editError);
       logger.warn(
-        `[tg-search-bot] /search failed to edit result message chat=${msg.chat.id} code=${rjCode}`,
+        `[tg-search-bot] ${commandName} failed to edit result message chat=${msg.chat.id} code=${normalizedCode}`,
         editErrorMessage,
       );
       try {
         await bot.sendMessage(msg.chat.id, `❌ 搜索失败：${errorMessage}`);
       } catch (sendError) {
         logger.warn(
-          `[tg-search-bot] /search failed to send fallback error message chat=${msg.chat.id} code=${rjCode}`,
+          `[tg-search-bot] ${commandName} failed to send fallback error message chat=${msg.chat.id} code=${normalizedCode}`,
           getNormalizedErrorMessage(sendError),
         );
       }
     }
   }
+}
+
+function extractMentionSearchCodeForCurrentBot(msg) {
+  const text = String(msg?.text || "").trim();
+  if (!text || !currentBotUsername || isCommandLikeMessage(text)) {
+    return null;
+  }
+
+  const token = extractMentionSearchWorkCodeToken(text, currentBotUsername);
+  if (!token) {
+    return null;
+  }
+
+  return normalizeWorkCodeInput(token);
+}
+
+async function handleMentionSearchMessage(msg) {
+  if (!bot || !msg) return false;
+  if (msg.date < botStartTimestamp) {
+    return true;
+  }
+
+  const rjCode = extractMentionSearchCodeForCurrentBot(msg);
+  if (!rjCode) {
+    return false;
+  }
+  if (markAndCheckPlainTextMessageDedupe(msg)) {
+    return true;
+  }
+
+  const runtimeConfig = getBotRuntimeConfig(getConfig());
+  const permission = logIncomingRequest(msg, runtimeConfig, "@bot_search");
+  if (!permission.allowed) {
+    try {
+      await bot.sendMessage(msg.chat.id, "❌ 您没有权限使用此 Bot。");
+    } catch (error) {
+      logger.warn(
+        `[tg-search-bot] @bot_search denied reply send failed chat=${msg.chat.id}`,
+        getNormalizedErrorMessage(error),
+      );
+    }
+    return true;
+  }
+
+  await runSearchReplyFlow({
+    msg,
+    requestedValue: rjCode,
+    rjCode,
+    commandName: "@bot_search",
+    invalidInputMessage:
+      "❌ 无效的编号格式，请使用如 @BotName RJ123456（支持 RJ/VJ/BJ）",
+  });
+  return true;
 }
 
 async function handleChannelPost(msg) {
@@ -3097,14 +3876,24 @@ function setupBotHandlers() {
   registerSafeOnText(HELP_COMMAND_REGEX, handleHelpCommand, "/help");
   registerSafeOnText(SEARCH_COMMAND_REGEX, handleSearchCommand, "/search");
   registerSafeOnText(INFO_COMMAND_REGEX, handleInfoCommand, "/info");
+  registerSafeOnText(STATUS_COMMAND_REGEX, handleStatusCommand, "/status");
+  registerSafeOnText(ZIP_COMMAND_REGEX, handleZipCommand, "/zip");
   bot.on("message", (msg) => {
-    handlePlainTextInfoMessage(msg).catch((error) => {
-      const normalizedError = normalizeError(error);
-      logger.error(
-        "[tg-search-bot] 纯文本信息查询处理失败",
-        normalizedError.message,
-      );
-    });
+    handleMentionSearchMessage(msg)
+      .then((handled) => {
+        if (handled) {
+          return;
+        }
+
+        return handlePlainTextInfoMessage(msg);
+      })
+      .catch((error) => {
+        const normalizedError = normalizeError(error);
+        logger.error(
+          "[tg-search-bot] message 处理失败",
+          normalizedError.message,
+        );
+      });
   });
   registerSafeOnText(
     /(?:RJ|VJ|BJ)\d{6,8}/i,
@@ -3273,8 +4062,12 @@ export async function startBot() {
     botStartTimestamp = Math.floor(Date.now() / 1000);
 
     const botInfo = await bot.getMe();
+    currentBotUsername = String(botInfo?.username || "").trim();
     await syncBotCommandMenu();
     botRunning = true;
+    startTranslationQueueCacheScheduler();
+    startSearchRetryScheduler();
+    startDailyZipScheduler();
     const hasWhitelist =
       runtimeConfig.allowedUsers.length > 0 ||
       runtimeConfig.allowedChats.length > 0;
@@ -3313,6 +4106,10 @@ export async function startBot() {
 
     bot = null;
     botRunning = false;
+    currentBotUsername = "";
+    stopTranslationQueueCacheScheduler();
+    stopSearchRetryScheduler();
+    stopDailyZipScheduler();
 
     return {
       success: false,
@@ -3346,6 +4143,10 @@ export async function stopBot() {
     bot.removeAllListeners();
     bot = null;
     botRunning = false;
+    currentBotUsername = "";
+    stopTranslationQueueCacheScheduler();
+    stopSearchRetryScheduler();
+    stopDailyZipScheduler();
 
     if (telegramClient && telegramClientConnected) {
       await telegramClient.disconnect();
@@ -3385,6 +4186,7 @@ export function setupTgSearchBotIPC() {
     "tg-bot-stop",
     "tg-bot-status",
     "tg-bot-sync-history",
+    "tg-bot-generate-daily-zip",
   ];
 
   for (const handler of handlers) {
@@ -3436,6 +4238,11 @@ export function setupTgSearchBotIPC() {
         : parseSearchLimit(runtimeConfig.searchLimit, 3000);
     logger.debug(`[tg-search-bot] IPC 索引同步请求 limit=${effectiveLimit}`);
     return await syncChannelHistoryToIndex(options);
+  });
+
+  ipcMain.handle("tg-bot-generate-daily-zip", async () => {
+    logger.info("[tg-search-bot] IPC 强制生成每日 ZIP 请求");
+    return await generateDailyZip({ force: true });
   });
 
   logger.debug("[tg-search-bot] 所有 IPC 处理器注册完成");

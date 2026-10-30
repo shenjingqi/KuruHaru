@@ -128,6 +128,18 @@ export const useSettingsConfigState = () => {
       tgDownloadDir: "",
     },
     upload: { channelId: "" },
+    translationAutomation: {
+      enabled: false,
+      runOnStartup: true,
+      scanIntervalMs: 1800000,
+      maxWorksPerCycle: 3,
+      includeTags: [],
+      excludeTags: [],
+      requireAllIncludeTags: false,
+      startHour: 1,
+      endHour: 7,
+      cleanupLocalAfterUpload: true,
+    },
     logging: { level: "info", enableFileLog: true },
     system: {
       theme: "auto",
@@ -307,6 +319,7 @@ export const useSettingsConfigState = () => {
         system: systemSettings,
         upload: config.upload,
         paths: config.paths,
+        translationAutomation: config.translationAutomation,
       }),
     );
   };
@@ -359,6 +372,7 @@ export const useSettingsConfigState = () => {
       system: config.system,
       upload: config.upload,
       paths: config.paths,
+      translationAutomation: config.translationAutomation,
     }),
     () => {
       debouncedAutoSave();
@@ -443,6 +457,12 @@ export const useSettingsConfigState = () => {
         if (cfg.upload) {
           config.upload = { ...config.upload, ...cfg.upload };
           console.log("Settings: upload 更新后:", config.upload);
+        }
+        if (cfg.translationAutomation) {
+          config.translationAutomation = {
+            ...config.translationAutomation,
+            ...cfg.translationAutomation,
+          };
         }
         // 初始化后写入当前签名，避免刚加载就被自动保存再次落盘。
         lastSavedSignature = JSON.stringify(buildNormalizedPayload());

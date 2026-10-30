@@ -1,5 +1,6 @@
 const WORK_CODE_REGEX = /(?:RJ|VJ|BJ)\d{6,8}/gi;
 const PREFIXED_WORK_CODE_REGEX = /^([RrVvBb][Jj])(\d{6,8})$/;
+const DIRECT_WORK_CODE_INPUT_REGEX = /^(?:[RrVvBb][Jj]\d{6,8}|\d{6,8})$/;
 
 function normalizePrefixedWorkCode(rawCode) {
   const matched = String(rawCode || "")
@@ -14,6 +15,10 @@ function normalizePrefixedWorkCode(rawCode) {
   const number = rawNumber.length === 7 ? `0${rawNumber}` : rawNumber;
 
   return `${prefix}${number}`;
+}
+
+function escapeRegExp(rawValue) {
+  return String(rawValue || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 export function extractRJCode(rawText) {
@@ -36,4 +41,26 @@ export function extractRJCodes(rawText) {
     .filter(Boolean);
 
   return [...new Set(normalizedCodes)];
+}
+
+export function extractMentionSearchWorkCodeToken(rawText, botUsername) {
+  const normalizedUsername = String(botUsername || "")
+    .trim()
+    .replace(/^@/, "");
+  const text = String(rawText || "").trim();
+  if (!normalizedUsername || !text) {
+    return null;
+  }
+
+  const mentionMatcher = new RegExp(
+    `^@${escapeRegExp(normalizedUsername)}\\s+([^\\s]+)\\s*$`,
+    "i",
+  );
+  const matched = text.match(mentionMatcher);
+  const token = String(matched?.[1] || "").trim();
+  if (!token || !DIRECT_WORK_CODE_INPUT_REGEX.test(token)) {
+    return null;
+  }
+
+  return token;
 }

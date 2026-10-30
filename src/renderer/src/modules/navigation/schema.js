@@ -13,6 +13,11 @@ export const menuGroups = [
     items: [
       { key: "upload", label: "上传工具", icon: "upload" },
       { key: "whisper", label: "Whisper", icon: "whisper" },
+      {
+        key: "translation-automation",
+        label: "自动翻译队列",
+        icon: "translation-automation",
+      },
       { key: "asmr-downloader", label: "音声下载", icon: "asmr-downloader" },
       { key: "recent", label: "最近活动", icon: "recent" },
     ],

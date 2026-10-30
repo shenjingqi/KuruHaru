@@ -1,7 +1,7 @@
 # Telegram Search Bot（Bot API 主线实现留存）
 
 > 状态: ✅ 已实现  
-> 最后更新: 2026-04-19
+> 最后更新: 2026-08-07
 
 本文档沉淀 Bot API 迁移完成后的稳定设计，用于替代仅存在于执行计划中的实现细节。
 
@@ -40,8 +40,27 @@ Webhook 模式要求配置 `tg.botWebhookUrl`。
 - `/help`
 - `/search <编号>`（支持 `RJ/VJ/BJ`；纯数字支持 6-8 位，7 位自动补 0）
 - `/info <编号>`（支持 `RJ/VJ/BJ`；纯数字支持 6-8 位，7 位自动补 0；返回作品详情）
+- `/status`（返回自动翻译队列的简短运行状态与各阶段数量；非翻译时显示缓存队列数量，等待时显示下次扫描时间，翻译时显示当前 RJ 编号与后续待翻译数量）
+- `/zip`（只返回最近一次每日整合包的 Telegram 消息链接；不会触发下载、压缩或上传）
+- 群聊额外支持直接提及 Bot 搜索：`@BotName RJ123456`（等价于 `/search RJ123456`）
 
 权限控制：`tg.botAllowedUsers` / `tg.botAllowedChats`。
+
+### 2.3 每日 ZIP 整合包
+
+1. Bot 在每天 **18:00（Asia/Shanghai）** 先扫描配置的讨论群 `tg.discussion`，再预下载缺失 ZIP 到本地缓存；每天 **19:00** 再次扫描讨论群、生成并发送整合包。
+2. 整包内容是完整最近上传列表；手动“强制生成并上传整合包”不会影响当天的 19:00 固定发送。只有当天 19:00 自动发送已成功时，才跳过后续重复的自动发送。
+3. 仅选择文件名以 `RJ`/`BJ`/`VJ` 编号开头且扩展名为 `.zip` 的文件；同一编号只保留最新消息。
+4. 因此，若某天 19:00 后才上传，下一天即使没有上传，只要这些文件尚未被自动打包，仍会在 19:00 生成一次；即使白天已手动生成，当天 19:00 也会固定发送一次。
+5. 服务依次从 Telegram 下载去重后的文件，重新压缩并回传至配置的讨论群 `tg.discussion`。
+6. 整合包发送失败时会重新解析讨论群并进行 5 次递增延迟重试（5、10、20、40 分钟）；只有成功发送后才删除本地总包。
+7. 产物命名为 `kuruharu-MMDD.zip`，并保存其 Telegram 消息链接；`/zip` 只读取并返回已保存链接，不执行生成操作。
+8. 已下载的源 ZIP 使用原始 `RJ...zip` 文件名持久缓存；缓存索引内部记录频道与 Telegram 消息 ID，后续打包复用缓存，只下载新增、更新或缓存缺失的文件。
+9. 缺失文件使用 4 路受控并发下载，下载完成后仍按最近上传顺序写入整合包。
+10. 临时归档目录在上传完成后自动清理；可通过 `tg.dailyZipOutputDir` 指定缓存与临时目录的父路径。
+11. 桌面端“Telegram 搜索 Bot”控制页提供“强制生成并上传整合包”按钮，可立即绕过定时与快照检查，重新生成整合包并显示链接。
+12. 若 Bot 在当天 19:00 后才启动，且当天尚未自动发送成功，会立即补发一次；若已自动成功则不会重复发送。
+13. 讨论组增量扫描超过 60 秒会记录超时、重置用于最近上传扫描的 Telegram 客户端，并使用本地最近上传缓存继续预下载或打包，避免定时任务无限挂起。
 
 ---
 
@@ -51,25 +70,28 @@ Webhook 模式要求配置 `tg.botWebhookUrl`。
 
 执行顺序：
 
-1. **历史索引命中**（`historyCache.history`）
+1. **历史上传索引命中**（`historyCache.history`）
 2. **前置包内存索引命中**（`buildPresetIndexEntries`）
-   - 命中后异步触发频道补充：`refreshChannelHitInBackground`
-3. **频道检索**（`searchRJInTelegramChannel`，需 User API 凭据）
-4. **本地未命中时检查 One 站字幕版本**（仅 Bot `/search` 命令）
+3. **本地未命中时检查 One 站字幕版本**（仅 Bot `/search` 命令）
    - 调用 `https://api.asmr-200.com/api/search/{RJ}` 校验作品存在
    - 存在时并行补充查询 `other_language_editions_in_db`
    - 若当前作品或其多语言版本存在字幕，则优先返回对应字幕版 / 汉化 RJ 的作品页地址，不加入待翻译队列
-5. **确认无字幕版本时转 One 站待翻译队列**
+4. **确认无字幕版本时转 One 站待翻译队列**
+   - Bot 启动后立即刷新待翻译队列快照，并按 `tg.translationQueueCacheRefreshMs`（默认 5 分钟）定时刷新到本地 `tg-translation-queue-cache.json`
+   - `/search` 在提交入队 API 前优先命中该本地快照；命中时返回“已在待翻译队列，无需重复入队”，不会再次提交
    - 调用 `https://api.asmr-200.com/api/playlist/add-works-to-playlist` 入队
    - 入队成功后立即返回 tag 摘要与队列链接；playlist 是否可见改为后台补验，不再同步扫描完整队列阻塞 `/search`
    - `/search` 命令增加超时兜底，避免消息长期停留在 `Searching ...`
    - 若正文已包含同一队列链接，Bot 不再重复追加相同 URL
    - 入队前会先检查 One 站 tag；若命中以下黑名单 tag，则对外仍返回“已转入待翻译队列”的成功提示，但不会实际调用入队 API：`BL/男同性恋`、`男性胸部`、`扶她`、`男子怀孕/出产`、`男無`、`人妖/双性人`、`GAY/男同`、`女性向`、`大男子主义`、`蕾丝/女同`、`性转换(TS)`、`男同性恋`、`百合`、`伪娘`、`同性爱者`
-6. **One 站也未命中时报错**
+   - `/search` 的拦截判断不仅看当前已生效 tag，也会额外检查低愿力 tag 与 tag 历史别名，避免只在 `-tag` 命中、却在 `-tagw` / 历史别名场景漏拦截
+   - 命令执行超过 45 秒，或 One/入队接口发生网络类临时错误时，会把群聊、话题、原消息、作品编号和尝试次数持久化到本地错误池 `tg-search-retry-queue.json`；等待 `tg.searchRetryDelayMs`（默认 60 秒）后自动重试。默认 `tg.searchRetryMaxAttempts=0` 表示不设次数上限，Bot 在线期间持续保留并重试，直到搜索得到终态结果；成功或“One 站未找到”等不可重试业务结果都会移出错误池。Bot 会尝试回复原群/话题；若通知发送失败，仅记录通知错误，不会把已完成的搜索重新入池。重启 Bot 后仍会恢复未完成任务。
+5. **One 站也未命中时报错**
 
 > 对应消息：`暂未找到 RJxxxxxx，请在 one 站查看是否拥有，或在频道提出。`
 
-- `/search` 现在统一输出五段流水日志：`历史索引 / 前置包 / 频道 / One / 入队`。
+- `/search` 按 `历史上传索引 / 前置包 / One / 入队` 的顺序检索；不会在请求期间实时遍历 Telegram 频道。频道历史由独立同步任务写入本地历史索引，避免 User API 卡住阻塞 One 入队。
+- 最近上传缓存仅用于“最近活动”展示、下载与每日 ZIP 输入，不作为 `/search` 的来源，避免讨论组消息 ID 被错误拼接为上传频道链接。
 - 每段都会记录 `start / hit / miss / skip / fail` 等状态，方便直接从日志判断卡在哪一段。
 
 ## 3.1 作品详情链路（新增）
@@ -92,6 +114,7 @@ Webhook 模式要求配置 `tg.botWebhookUrl`。
 ## 3.2 纯文本触发规则
 
 - 纯文本自动识别仅在消息内容是“单独一个编号”时触发（如 `RJ123456`、`1234567`）。
+- 若消息内容是 `@BotName RJ123456` 这种“仅提及当前 Bot + 单个编号”的形式，则走 `/search` 搜索链路。
 - 不再从 `reply_to_message` 内容回溯提取编号，避免普通回复误触发信息回帖。
 - 文本里“包含编号但还有其它文字”不会触发自动回复。
 
@@ -223,6 +246,11 @@ Webhook 模式要求配置 `tg.botWebhookUrl`。
 - `botAllowedChats`
 - `botSearchLimit`
 - `botHistoryPath`
+- `translationQueueCachePath`
+- `translationQueueCacheRefreshMs`
+- `searchRetryQueuePath`
+- `searchRetryDelayMs`
+- `searchRetryMaxAttempts`
 - `botAutoStartOnStartup`
 - `botAutoSyncOnStartup`
 - `botSyncSearchCacheOnUpload`（默认 `true`，控制字幕上传后是否自动增量同步 `/search` 索引）

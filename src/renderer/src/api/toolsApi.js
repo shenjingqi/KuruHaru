@@ -25,6 +25,9 @@ export const cleanRecentUploadedSubtitles = (payload) =>
     payload,
   );
 
+export const convertSubtitleFormat = (payload) =>
+  callTools("convertSubtitleFormat", "convertSubtitleFormat", payload);
+
 export const zipSubtitles = (payload) => {
   const toolsBridge = getToolsBridge();
   const whisperBridge = getWhisperBridge();

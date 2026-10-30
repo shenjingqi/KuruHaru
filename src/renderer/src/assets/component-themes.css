@@ -351,6 +351,12 @@ html[data-app-theme='dark'] #app .asmr-downloader-page,
   border-color: var(--surface-control-border) !important;
 }
 
+#app .whisper-theme .tag-checkbox input:checked + .tag-body {
+  background: var(--comp-accent) !important;
+  border-color: var(--comp-accent) !important;
+  color: #fffdf4 !important;
+}
+
 #app .upload-tool-theme .input::placeholder,
 #app .local-cleaner-theme .input::placeholder,
 #app .whisper-theme .input::placeholder,

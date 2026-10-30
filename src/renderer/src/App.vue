@@ -493,9 +493,9 @@ const {
       rgba(16, 22, 31, var(--ambient-opacity, 0.1)) 0%,
       rgba(20, 28, 38, calc(var(--ambient-opacity, 0.1) + 0.04)) 100%
     );
-  filter: blur(calc(var(--glass-blur, 0px) * 1.2));
+  filter: none;
   opacity: 1;
-  animation: driftA 30s ease-in-out infinite alternate;
+  animation: none;
 }
 
 .window-system-blur.app-shell::after {
@@ -529,9 +529,9 @@ const {
       rgba(12, 18, 26, var(--ambient-opacity, 0.16)) 0%,
       rgba(17, 25, 35, calc(var(--ambient-opacity, 0.16) + 0.06)) 100%
     );
-  filter: blur(calc(var(--glass-blur, 0px) * 1.45));
+  filter: none;
   opacity: 1;
-  animation: driftA 24s ease-in-out infinite alternate;
+  animation: none;
 }
 
 .window-gpu-blur.app-shell::after {
@@ -545,12 +545,12 @@ const {
     transparent 100%
   );
   opacity: 1;
-  animation: driftB 28s ease-in-out infinite alternate;
+  animation: none;
 }
 
 .window-system-blur.app-shell .workspace {
-  backdrop-filter: blur(var(--glass-blur)) saturate(112%);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(112%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .window-gpu-blur.app-shell .workspace {
@@ -559,23 +559,23 @@ const {
 }
 
 .window-system-blur.app-shell .sidebar {
-  backdrop-filter: blur(calc(var(--glass-blur) * 0.65)) saturate(110%);
-  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.65)) saturate(110%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .window-gpu-blur.app-shell .sidebar {
-  backdrop-filter: blur(calc(var(--glass-blur) * 0.95)) saturate(124%);
-  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.95)) saturate(124%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .window-system-blur.app-shell .main-area {
-  backdrop-filter: blur(calc(var(--glass-blur) * 0.32));
-  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.32));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .window-gpu-blur.app-shell .main-area {
-  backdrop-filter: blur(calc(var(--glass-blur) * 0.62));
-  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.62));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .window-maximized.app-shell {
