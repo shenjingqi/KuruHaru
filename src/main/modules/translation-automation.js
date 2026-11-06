@@ -647,7 +647,11 @@ const syncRecentHistoryBeforeQueue = async () => {
   }
 
   setRuntimeStatus("history-sync", "正在同步 Telegram 最近历史");
-  const result = await scanAndSaveRecentActivity({ chatIdStr: scanChatId });
+  const result = await scanAndSaveRecentActivity({
+    chatIdStr: scanChatId,
+    strict: true,
+    timeoutMs: 5 * 60 * 1000,
+  });
   if (!result?.success) {
     throw new Error(`最近历史同步失败：${result?.error || "未知错误"}`);
   }

@@ -43,7 +43,9 @@ let cachedDialogs = null;
 let cachedDialogsTime = 0;
 const DIALOGS_CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
 const TELEGRAM_REQUEST_TIMEOUT_MS = 60 * 1000;
+const DEFAULT_SCAN_TIMEOUT_MS = 5 * 60 * 1000;
 let scanPromise = null;
+let telegramClientGeneration = 0;
 
 // ==========================================
 // 核心工具函数
@@ -54,9 +56,20 @@ let scanPromise = null;
  * 解决 CHAT_ID_INVALID 的关键：如果直接用 ID 失败，就拉取列表刷新缓存
  * 优化：添加对话列表缓存，减少重复 API 调用
  */
-async function resolveEntity(client, chatIdInput) {
+async function resolveEntity(client, chatIdInput, options = {}) {
   const activeClient = client || telegramClient;
   const peerId = normalizePeerEntityInput(chatIdInput);
+  const configuredTimeoutMs = Number(options.timeoutMs);
+  const getRequestTimeoutMs = () =>
+    Math.max(
+      1,
+      Math.min(
+        TELEGRAM_REQUEST_TIMEOUT_MS,
+        options.deadline
+          ? getRemainingScanTime(options.deadline)
+          : configuredTimeoutMs || TELEGRAM_REQUEST_TIMEOUT_MS,
+      ),
+    );
 
   const logResolvedEntity = (entity, source) => {
     const entityId =
@@ -68,7 +81,11 @@ async function resolveEntity(client, chatIdInput) {
 
   // 2. 尝试直接获取 (利用 GramJS 本地缓存)
   try {
-    const entity = await activeClient.getEntity(peerId);
+    const entity = await withTelegramRequestTimeout(
+      activeClient.getEntity(peerId),
+      "Telegram 实体解析",
+      getRequestTimeoutMs(),
+    );
     logResolvedEntity(entity, "直接命中");
     return entity;
   } catch {
@@ -84,24 +101,37 @@ async function resolveEntity(client, chatIdInput) {
   try {
     if (!isCacheValid) {
       logger.debug("[resolveEntity] 刷新对话列表缓存");
-      await activeClient.getDialogs({ limit: 100 });
+      await withTelegramRequestTimeout(
+        activeClient.getDialogs({ limit: 100 }),
+        "Telegram 对话列表刷新",
+        getRequestTimeoutMs(),
+      );
       cachedDialogs = true;
       cachedDialogsTime = now;
     } else {
       logger.debug("[resolveEntity] 使用缓存的对话列表");
     }
-    const entity = await activeClient.getEntity(peerId);
+    const entity = await withTelegramRequestTimeout(
+      activeClient.getEntity(peerId),
+      "Telegram 实体解析",
+      getRequestTimeoutMs(),
+    );
     logResolvedEntity(entity, "刷新后命中");
     return entity;
   } catch (e) {
     logger.error(`无法解析群组 ID: ${chatIdInput}`, e.message);
+    if (e?.code === "ETIMEDOUT") throw e;
     throw new Error(
       `无法找到群组/频道 (ID: ${chatIdInput})。请确保机器人已加入该群组且配置正确。`,
     );
   }
 }
 
-async function withTelegramRequestTimeout(request, operation) {
+async function withTelegramRequestTimeout(
+  request,
+  operation,
+  timeoutMs = TELEGRAM_REQUEST_TIMEOUT_MS,
+) {
   let timeoutId = null;
 
   try {
@@ -110,11 +140,11 @@ async function withTelegramRequestTimeout(request, operation) {
       new Promise((_, reject) => {
         timeoutId = setTimeout(() => {
           const error = new Error(
-            `${operation} 超时（${Math.round(TELEGRAM_REQUEST_TIMEOUT_MS / 1000)} 秒）`,
+            `${operation} 超时（${Math.round(timeoutMs / 1000)} 秒）`,
           );
           error.code = "ETIMEDOUT";
           reject(error);
-        }, TELEGRAM_REQUEST_TIMEOUT_MS);
+        }, timeoutMs);
       }),
     ]);
   } finally {
@@ -124,19 +154,60 @@ async function withTelegramRequestTimeout(request, operation) {
 
 async function resetTelegramClientAfterTimeout() {
   // The Telegram client is owned by telegram-login and shared by all domains.
+  telegramClientGeneration += 1;
   telegramClient = null;
   cachedDialogs = null;
   cachedDialogsTime = 0;
+  try {
+    const { disconnectTelegram } = await import("../utils/telegram-login");
+    await disconnectTelegram("recent-history-timeout");
+  } catch (error) {
+    logger.warn("超时后清理 Telegram 客户端失败", error?.message || error);
+  }
+}
+
+function getScanDeadline(options = {}) {
+  const configuredTimeout = Number(options.timeoutMs);
+  const timeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout > 0
+    ? configuredTimeout
+    : DEFAULT_SCAN_TIMEOUT_MS;
+  return Date.now() + timeoutMs;
+}
+
+function getRemainingScanTime(deadline) {
+  return Math.max(1, deadline - Date.now());
+}
+
+function assertScanDeadline(deadline, operation) {
+  if (Date.now() >= deadline) {
+    const error = new Error(
+      `${operation} 超时（${Math.round(DEFAULT_SCAN_TIMEOUT_MS / 1000)} 秒）`,
+    );
+    error.code = "ETIMEDOUT";
+    throw error;
+  }
 }
 
 /**
  * 获取连接的客户端 (单例模式，防止重复连接)
  */
 async function getConnectedClient() {
+  const generation = telegramClientGeneration;
   const { requireConnectedTelegramClient } = await import(
     "../utils/telegram-login"
   );
-  telegramClient = await requireConnectedTelegramClient();
+  const connectedClient = await requireConnectedTelegramClient();
+  if (generation !== telegramClientGeneration) {
+    try {
+      await connectedClient?.disconnect?.();
+    } catch {
+      // A stale connection may already be closed after a timeout.
+    }
+    const error = new Error("Telegram 客户端连接已失效");
+    error.code = "ETIMEDOUT";
+    throw error;
+  }
+  telegramClient = connectedClient;
   return telegramClient;
 }
 
@@ -156,6 +227,9 @@ async function findLatestAnchorAndFill(_client, options = {}) {
   let foundAnchor = null;
   let maxIdScanned = 0;
   const client = _client || telegramClient;
+  const deadline = options.deadline || getScanDeadline(options);
+  let iterator = null;
+  let scannedMessages = 0;
 
   try {
     const config = getConfig();
@@ -167,16 +241,30 @@ async function findLatestAnchorAndFill(_client, options = {}) {
 
     logger.info(`[初始化] 选用扫描目标: ${chatIdStr}`);
 
-    const entity = await resolveEntity(client, chatIdStr);
+    const entity = await resolveEntity(client, chatIdStr, {
+      deadline,
+    });
 
     // 使用 iterMessages 进行倒序遍历（从新到旧）
-    const iterator = client.iterMessages(entity, {
+    iterator = client.iterMessages(entity, {
       limit: BACKWARD_LIMIT,
     });
+    const iteratorHandle = iterator[Symbol.asyncIterator]();
 
     logger.info("[初始化] 从当前最新消息开始向更旧消息回溯扫描");
 
-    for await (const msg of iterator) {
+    while (true) {
+      assertScanDeadline(deadline, "Telegram 最近历史初始化扫描");
+      const { value: msg, done } = await withTelegramRequestTimeout(
+        iteratorHandle.next(),
+        "Telegram 最近历史初始化扫描",
+        getRemainingScanTime(deadline),
+      );
+      if (done) break;
+      scannedMessages += 1;
+      if (scannedMessages % 100 === 0) {
+        logger.info(`[初始化] 最近历史扫描进度 scanned=${scannedMessages}`);
+      }
       // 记录见过的最大 ID，作为下次增量扫描的起点
       if (msg.id > maxIdScanned) maxIdScanned = msg.id;
 
@@ -245,7 +333,18 @@ async function findLatestAnchorAndFill(_client, options = {}) {
       },
     };
   } catch (error) {
+    if (iterator?.return) {
+      try {
+        void iterator.return();
+      } catch {
+        // 迭代器关闭失败不应覆盖原始扫描错误。
+      }
+    }
+    if (error?.code === "ETIMEDOUT") {
+      await resetTelegramClientAfterTimeout();
+    }
     logger.error("[初始化] 倒序回溯失败:", error.message);
+    if (options.strict) throw error;
     // 失败时返回空结构防止前端报错
     return {
       metadata: {
@@ -262,13 +361,18 @@ async function findLatestAnchorAndFill(_client, options = {}) {
 /**
  * 辅助函数：获取增量消息（使用 min_id 参数）
  */
-async function getNewMessages(_client, discussionId, minId) {
+async function getNewMessages(_client, discussionId, minId, options = {}) {
   try {
     if (!discussionId) return [];
     const client = _client || telegramClient;
+    const deadline = options.deadline || getScanDeadline(options);
+    assertScanDeadline(deadline, "Telegram 最近历史增量扫描");
     const entity = await withTelegramRequestTimeout(
-      resolveEntity(client, discussionId),
+      resolveEntity(client, discussionId, {
+        deadline,
+      }),
       "讨论组实体解析",
+      getRemainingScanTime(deadline),
     );
 
     // 使用 min_id 只获取比指定 ID 更新的消息
@@ -279,6 +383,7 @@ async function getNewMessages(_client, discussionId, minId) {
         minId: minId,
       }),
       "讨论组增量消息扫描",
+      getRemainingScanTime(deadline),
     );
 
     // 过滤无文件的消息并反转顺序 -> [旧 -> 新]
@@ -291,6 +396,7 @@ async function getNewMessages(_client, discussionId, minId) {
       );
       await resetTelegramClientAfterTimeout();
     }
+    if (options.strict) throw error;
     return [];
   }
 }
@@ -299,9 +405,14 @@ async function getNewMessages(_client, discussionId, minId) {
  * 主逻辑：执行完整的最近活动扫描和保存流程
  */
 async function performScanAndSaveRecentActivity(options = {}) {
+  const deadline = options.deadline || getScanDeadline(options);
   try {
     const config = getConfig();
-    const telegramClient = await getConnectedClient(); // 确保连接
+    const telegramClient = await withTelegramRequestTimeout(
+      getConnectedClient(),
+      "Telegram 客户端连接",
+      getRemainingScanTime(deadline),
+    ); // 确保连接
     const scanChatId =
       String(options.chatIdStr || "").trim() ||
       config.tg.discussion ||
@@ -330,6 +441,8 @@ async function performScanAndSaveRecentActivity(options = {}) {
       logger.debug("[状态] 全新环境或缓存丢失，执行回溯初始化...");
       const initData = await findLatestAnchorAndFill(telegramClient, {
         chatIdStr: scanChatId,
+        deadline,
+        strict: options.strict === true,
       });
       saveRecentActivity(config.paths.uploadHistoryDir, initData);
       return { success: true, data: initData };
@@ -342,7 +455,10 @@ async function performScanAndSaveRecentActivity(options = {}) {
     logger.info(`[状态] 增量更新，起点 Message ID: ${minId}`);
     logger.info(`[状态] 选用增量扫描目标: ${scanChatId || "未配置"}`);
 
-    const newMessages = await getNewMessages(telegramClient, scanChatId, minId);
+    const newMessages = await getNewMessages(telegramClient, scanChatId, minId, {
+      deadline,
+      strict: options.strict === true,
+    });
 
     if (newMessages.length === 0) {
       logger.info("没有新消息，无需更新");
@@ -442,6 +558,9 @@ async function performScanAndSaveRecentActivity(options = {}) {
 
     return { success: true, data: localData };
   } catch (error) {
+    if (error?.code === "ETIMEDOUT") {
+      await resetTelegramClientAfterTimeout();
+    }
     logger.error("扫描失败:", error.message);
     return { success: false, error: error.message };
   }
