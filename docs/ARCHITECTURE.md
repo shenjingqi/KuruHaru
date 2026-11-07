@@ -1,7 +1,7 @@
 # 系统架构与模块边界
 
 > 状态：`current`
-> 校验日期：2026-11-01
+> 校验日期：2026-11-06
 
 ## 运行边界
 
@@ -30,6 +30,7 @@ Vue 页面 / composables / stores
 | Telegram 搜索 | `src/main/domains/telegram-search/` | 搜索服务和适配器，连接现有搜索模块 |
 | TG 信息缓存 | `src/main/domains/tg-info-cache/` | 缓存服务、仓储、调度器和适配器 |
 | 自动翻译 | `src/main/domains/translation-automation/` | 编排器、状态仓储、调度器和适配器 |
+| 自动翻译云端心跳 | `src/main/modules/translation-automation-heartbeat.js` | 快照归一化、续约/节流/去重、释放与 TTL 兜底；HTTP 传输在 `src/main/modules/httpClient.js` |
 | Whisper | `src/main/modules/whisper.js` | 转写、任务事件和字幕打包 |
 | Telegram 登录/上传 | `src/main/utils/telegram-login.js` | 客户端、认证、上传和操作状态；User API 客户端由 `requireConnectedTelegramClient()` 统一复用 |
 | 重复检测 | `src/main/modules/tg-rj-duplicates.js` | 扫描、预览、执行和审计 |
@@ -71,12 +72,21 @@ Vue 页面 / composables / stores
 
 自动翻译队列每轮开始处理前，会先等待 Telegram 最近活动历史扫描完成，再读取本地历史索引。已配置 Telegram 频道和登录会话但同步失败时，本轮会停止，避免多个队列实例基于过期历史重复收获；未配置这些条件时跳过同步并沿用本地历史。
 
+### 自动翻译心跳边界
+
+- 生命周期绑定 `runOnce()`：只有通过 `enabled` 与低峰时段门禁并设置 `running = true` 后才启动；`finally` 先停止定时器并尝试释放，再清理本地运行状态。`stopTranslationAutomation()` 与应用退出流程同样会停止心跳。
+- `runtimeStatus` 变化只更新内存快照；控制器去重并节流，默认运行开始立即发送、每 60 秒续约、实质变化最快每 12 秒同步一次。高频 5 秒下载进度不会逐次发起网络请求。
+- 心跳请求由 Main 进程执行，使用 `httpClient.js` 的专用传输；失败只记录脱敏警告，不改变自动翻译状态，不在失败后紧密重试。
+- `translationAutomation.heartbeatUrl` 是普通公开配置；生产构建只接受 HTTPS，开发构建仅额外允许 `localhost`/`127.0.0.1`/`::1` 的 HTTP。`heartbeatSecret` 不是配置字段，保存时由 Main 提取到 `safeStorage`，普通配置保存逻辑会剥离它。IPC 仍复用现有 `translation-automation-save-config` / `translation-automation-status` 频道，不新增 Renderer 能力。
+- Renderer 只能获得心跳地址与 `heartbeat.secretConfigured` 布尔值；实际密钥不进入 Renderer、日志、配置 JSON 或 IPC 返回值。
+
 ## 配置边界与精简策略
 
 - `src/shared/config-contract.mjs` 是配置 section、默认值和版本的唯一来源。
 - `config/config-template.json` 通过 `npm run config:template` 生成，不手工维护第二套默认值。
 - 运行配置默认位于 Electron `userData/config.json`；设置 `paths.configDir` 后使用指定目录。
 - 配置分为用户偏好、敏感凭据、运行策略、运行状态和派生路径；敏感字段不得写入模板、日志和诊断输出。
+- 自动翻译心跳地址属于运行策略并进入模板；心跳密钥只进入 `src/main/domains/asmr/credential-store.js` 管理的内存/安全存储，不属于配置契约字段。
 - 新字段必须说明 owner、生产者、消费者、持久化、迁移、回滚和删除条件。
 - v1 配置精简先做字段盘点和读写追踪，将字段标为用户明确选择、凭据、内部运行策略、派生路径或持久化状态；未确认用途和消费者前不删字段。
 - 界面只暴露用户能理解且需要主动决策的选项；内部运行参数优先使用安全默认值，归入高级选项前应证明用户确实需要调节。

@@ -307,6 +307,42 @@
               @change="saveSettings"
             />
           </label>
+          <label class="setting-row">
+            <span>云端 Bot 心跳地址</span>
+            <input
+              v-model.trim="config.heartbeatUrl"
+              type="url"
+              placeholder="https://your-worker.workers.dev"
+              autocomplete="off"
+            />
+          </label>
+          <label class="setting-row">
+            <span>心跳密钥</span>
+            <input
+              v-model="heartbeatSecretInput"
+              type="password"
+              placeholder="已配置时留空表示不修改"
+              autocomplete="new-password"
+            />
+          </label>
+          <div class="setting-row heartbeat-status">
+            <span>云端心跳</span>
+            <span class="heartbeat-state">
+              {{ heartbeatSecretConfigured ? "密钥已配置" : "密钥未配置" }}
+              <button
+                v-if="heartbeatSecretConfigured"
+                type="button"
+                class="link-button"
+                :disabled="savingSettings"
+                @click="clearHeartbeatSecret"
+              >
+                清除密钥
+              </button>
+            </span>
+          </div>
+          <p class="setting-hint">
+            仅在自动翻译实际运行期间发送；本地未配置地址或密钥时不影响自动翻译。
+          </p>
           <label class="tag-setting">
             <span>屏蔽 Tag</span>
             <textarea
@@ -419,6 +455,8 @@ const defaultConfig = CONFIG_DEFAULTS.translationAutomation;
 
 const config = ref({ ...defaultConfig });
 const excludeTagsText = ref("");
+const heartbeatSecretInput = ref("");
+const heartbeatSecretConfigured = ref(false);
 const savingSettings = ref(false);
 const saveFeedback = ref({ message: "", tone: "" });
 const running = ref(false);
@@ -572,6 +610,9 @@ const applyStatus = (payload = {}) => {
   }
   if (data.lastRun) lastRun.value = data.lastRun;
   if (data.running !== undefined) running.value = data.running;
+  if (data.heartbeat) {
+    heartbeatSecretConfigured.value = Boolean(data.heartbeat.secretConfigured);
+  }
   if (data.runtimeStatus) runtimeStatus.value = data.runtimeStatus;
   if (data.status) runtimeStatus.value = data.status;
   if (data.message) {
@@ -602,12 +643,16 @@ const saveSettings = async () => {
         ...config.value,
         includeTags: Array.from(config.value.includeTags || []),
         excludeTags,
+        ...(heartbeatSecretInput.value.trim()
+          ? { heartbeatSecret: heartbeatSecretInput.value.trim() }
+          : {}),
       }),
     );
     const result = await saveTranslationAutomationConfig(payload);
     if (!result?.success) {
       throw new Error(result?.error || "主进程未能写入配置文件");
     }
+    heartbeatSecretInput.value = "";
     applyStatus(result.data || {});
     await loadStatus();
     saveFeedback.value = {
@@ -624,6 +669,32 @@ const saveSettings = async () => {
       { message: `运行策略保存失败：${message}`, time: formatTime(new Date()) },
       ...logs.value,
     ].slice(0, 100);
+  } finally {
+    savingSettings.value = false;
+  }
+};
+
+const clearHeartbeatSecret = async () => {
+  if (savingSettings.value) return;
+  savingSettings.value = true;
+  try {
+    const result = await saveTranslationAutomationConfig({
+      heartbeatSecret: "",
+    });
+    if (!result?.success) {
+      throw new Error(result?.error || "主进程未能清除心跳密钥");
+    }
+    applyStatus(result.data || {});
+    await loadStatus();
+    saveFeedback.value = {
+      message: "心跳密钥已清除",
+      tone: "success",
+    };
+  } catch (error) {
+    saveFeedback.value = {
+      message: `清除失败：${error?.message || String(error)}`,
+      tone: "error",
+    };
   } finally {
     savingSettings.value = false;
   }
@@ -1101,6 +1172,42 @@ h2 {
   color: var(--ink);
   background: #fff;
   text-align: center;
+}
+.setting-row input[type="url"],
+.setting-row input[type="password"] {
+  box-sizing: border-box;
+  width: min(18rem, 62%);
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  padding: 0.45rem 0.55rem;
+  color: var(--ink);
+  background: #fff;
+  font: inherit;
+}
+.heartbeat-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.link-button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--accent-deep);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.76rem;
+  text-decoration: underline;
+}
+.link-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+.setting-hint {
+  margin: -0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
 }
 .time-inputs {
   display: inline-flex;

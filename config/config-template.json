@@ -62,6 +62,7 @@
   "translationAutomation": {
     "enabled": false,
     "runOnStartup": true,
+    "heartbeatUrl": "",
     "scanIntervalMs": 1800000,
     "maxWorksPerCycle": 3,
     "maxDownloadTasksPerWork": 200,

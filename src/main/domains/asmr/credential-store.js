@@ -91,6 +91,18 @@ export function getAria2Secret() {
   return readCredential("aria2Secret");
 }
 
+export function saveAutomationHeartbeatSecret(secret) {
+  return saveSecretFields({ automationHeartbeatSecret: secret });
+}
+
+export function getAutomationHeartbeatSecret() {
+  return readCredential("automationHeartbeatSecret");
+}
+
+export function clearAutomationHeartbeatSecret() {
+  return clearSecretFields(["automationHeartbeatSecret"]);
+}
+
 function saveSecretFields(fields) {
   const entries = Object.entries(fields).filter(([, value]) => {
     const normalized = String(value || "");

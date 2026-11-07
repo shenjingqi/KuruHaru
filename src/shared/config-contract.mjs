@@ -102,6 +102,9 @@ export const CONFIG_DEFAULTS = Object.freeze({
   translationAutomation: {
     enabled: false,
     runOnStartup: true,
+    // Cloudflare Bot origin or full heartbeat endpoint. The secret lives in
+    // safeStorage and is never persisted in this JSON configuration.
+    heartbeatUrl: "",
     scanIntervalMs: 1800000,
     recentOrder: "create_date",
     recentPageSize: 100,

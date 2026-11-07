@@ -12,6 +12,8 @@ import {
   saveTelegramCredentials,
   getAria2Secret,
   saveAria2Secret,
+  saveAutomationHeartbeatSecret,
+  clearAutomationHeartbeatSecret,
 } from "../domains/asmr/credential-store.js";
 
 // Runtime paths are the only values that cannot live in the static contract.
@@ -66,6 +68,10 @@ function hydrateCredentialConfig(config) {
   }
   next.tg = { ...legacyTg, ...Object.fromEntries(Object.entries(telegram).filter(([, value]) => value)) };
   next.asmr = { ...(next.asmr || {}), downloadRpcSecret: aria2Secret || next.asmr?.downloadRpcSecret || "" };
+  if (next.translationAutomation) {
+    // Legacy files must never re-expose a heartbeat secret after migration.
+    delete next.translationAutomation.heartbeatSecret;
+  }
   return next;
 }
 
@@ -321,13 +327,34 @@ export async function saveConfig(newConfig) {
 
     // 允许显式清空路径（空字符串 / null），并在本次保存中生效。
     const incoming = newConfig && typeof newConfig === "object" ? newConfig : {};
+    const heartbeatSecret = incoming.translationAutomation?.heartbeatSecret;
+    const sanitizedIncoming = {
+      ...incoming,
+      ...(incoming.translationAutomation
+        ? { translationAutomation: { ...incoming.translationAutomation } }
+        : {}),
+    };
+    if (sanitizedIncoming.translationAutomation) {
+      // The heartbeat secret is a safeStorage credential, never a JSON field.
+      delete sanitizedIncoming.translationAutomation.heartbeatSecret;
+    }
     try {
       if (incoming.tg) saveTelegramCredentials(incoming.tg);
       if (incoming.asmr?.downloadRpcSecret) saveAria2Secret(incoming.asmr.downloadRpcSecret);
+      if (typeof heartbeatSecret === "string") {
+        if (heartbeatSecret === "") clearAutomationHeartbeatSecret();
+        else saveAutomationHeartbeatSecret(heartbeatSecret);
+      }
     } catch (credentialError) {
       logger.warn(`敏感配置未能写入系统凭据存储: ${toErrorMessage(credentialError)}`);
+      if (typeof heartbeatSecret === "string") {
+        throw credentialError;
+      }
     }
-    const final = mergeConfigPatch(current, removeRedactedSecrets(incoming));
+    const final = mergeConfigPatch(current, removeRedactedSecrets(sanitizedIncoming));
+    if (final.translationAutomation) {
+      delete final.translationAutomation.heartbeatSecret;
+    }
     const persisted = JSON.parse(JSON.stringify(final));
     if (persisted.tg) {
       persisted.tg.apiHash = "";
@@ -335,6 +362,9 @@ export async function saveConfig(newConfig) {
       persisted.tg.botToken = "";
     }
     if (persisted.asmr) persisted.asmr.downloadRpcSecret = "";
+    if (persisted.translationAutomation) {
+      delete persisted.translationAutomation.heartbeatSecret;
+    }
     const nextPersistedSignature = JSON.stringify(persisted);
     if (nextPersistedSignature === persistedConfigSignature) {
       configCache = final;

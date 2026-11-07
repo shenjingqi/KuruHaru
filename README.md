@@ -29,6 +29,7 @@ npm run build:win        # Windows 安装包
 - 新安装默认配置由 `src/shared/config-contract.mjs` 生成；不要直接编辑用户数据。
 - 模板位于 `config/config-template.json`，使用 `npm run config:template` 从配置契约重新生成。
 - 配置字段、敏感字段和迁移说明见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。
+- 自动翻译云端心跳在“自动翻译 → 运行策略”中配置 Worker 地址；心跳密钥只保存在系统安全凭据存储中，不会写入 `config.json`。
 
 ## 项目导航
 

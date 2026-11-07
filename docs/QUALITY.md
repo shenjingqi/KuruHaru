@@ -1,7 +1,7 @@
 # 质量、验收与发布
 
 > 状态：`current`
-> 校验日期：2026-11-01
+> 校验日期：2026-11-06
 
 ## 验证分级
 
@@ -14,6 +14,13 @@
 | S4 在线/发布 | Telegram、ASMR.ONE、Aria2、Whisper 长任务和 Windows 安装包 |
 
 自动化通过不等于 GUI、在线或安装包通过。每一级单独记录日期、环境、命令、结果、警告和未覆盖项。
+
+## 自动翻译心跳验证边界
+
+- S1 单元测试覆盖：未配置/未运行不发送、首次快照、60 秒续约、12 秒节流、相同快照去重、失败不重试、停止释放、释放失败不抛出、URL/实例 ID/快照归一化、密钥只进入安全存储且不进入 `config.json`。
+- `runOnce()` 周期本身依赖 Electron、ASMR.ONE、Aria2、Whisper 和 Telegram，不进入普通单元测试；纯门禁函数验证 `disabled`、`peak-hours`、`running` 不进入运行。
+- 真实 Electron 启动、真实 Cloudflare Worker/KV TTL、真实 Telegram `/status` 投递、多区域可见性和生产延迟分别属于 S2/S4 与 NEEDS_E2E/NEEDS_PRODUCTION，不能由本地 Vitest 结果推导。
+- 本地 Bot `/status` 的格式兼容由 `tg-search-bot` 现有测试继续覆盖；新增云端格式化测试向量与桌面端保持一致，但不证明两端真实运行环境一致。
 
 ## 标准命令
 

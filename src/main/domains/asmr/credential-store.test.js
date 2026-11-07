@@ -105,4 +105,19 @@ describe("ASMR credential store", () => {
     expect(store.getAsmrToken()).toBe("");
     expect(store.getAria2Secret()).toBe("aria2-rpc-secret");
   });
+
+  it("stores the automation heartbeat secret only in the encrypted store", async () => {
+    const store = await import("./credential-store.js");
+    store.saveAutomationHeartbeatSecret("automation-heartbeat-secret");
+    expect(store.getAutomationHeartbeatSecret()).toBe(
+      "automation-heartbeat-secret",
+    );
+    const persisted = [...fsMock.writeFileSync.mock.calls]
+      .map(([, contents]) => String(contents))
+      .join("\n");
+    expect(persisted).not.toContain("automation-heartbeat-secret");
+
+    store.clearAutomationHeartbeatSecret();
+    expect(store.getAutomationHeartbeatSecret()).toBe("");
+  });
 });

@@ -262,3 +262,41 @@ export function clearClientCache() {
   tgProxyInUse = null;
   logger.info("[HTTP] 客户端缓存已清除");
 }
+
+/**
+ * Dedicated transport for the desktop automation heartbeat. It never reuses the
+ * ASMR/TG clients because those clients always attach a proxy and business
+ * interceptors. An explicitly configured system proxy is honoured; otherwise
+ * the request goes direct.
+ */
+export async function requestAutomationHeartbeat({
+  url,
+  method = "POST",
+  secret,
+  body,
+  timeoutMs = 8000,
+}) {
+  const proxyUrl = String(getConfig()?.system?.proxyUrl || "").trim();
+  let httpsAgent;
+  if (proxyUrl) {
+    try {
+      httpsAgent = new HttpsProxyAgent(proxyUrl);
+    } catch (error) {
+      logger.warn("[HTTP] 心跳代理不可用，使用直连", error?.message || error);
+    }
+  }
+  const response = await axios.request({
+    url,
+    method,
+    data: body,
+    timeout: timeoutMs,
+    headers: {
+      Authorization: `Bearer ${secret}`,
+      "Content-Type": "application/json",
+    },
+    validateStatus: () => true,
+    proxy: false,
+    ...(httpsAgent ? { httpsAgent } : {}),
+  });
+  return { status: response.status };
+}

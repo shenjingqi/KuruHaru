@@ -5,7 +5,15 @@ import {
   redactConfigSecrets,
 } from '../../shared/config-contract.mjs';
 
-const { electronMock, fsMock, loggerMock } = vi.hoisted(() => ({
+const { electronMock, fsMock, loggerMock, credentialStoreMock } = vi.hoisted(() => ({
+  credentialStoreMock: {
+    getTelegramCredentials: vi.fn(() => ({ apiHash: '', session: '', botToken: '' })),
+    saveTelegramCredentials: vi.fn(),
+    getAria2Secret: vi.fn(() => ''),
+    saveAria2Secret: vi.fn(),
+    saveAutomationHeartbeatSecret: vi.fn(),
+    clearAutomationHeartbeatSecret: vi.fn(),
+  },
   electronMock: {
     app: {
       getPath: vi.fn((key) => {
@@ -37,6 +45,7 @@ const { electronMock, fsMock, loggerMock } = vi.hoisted(() => ({
 vi.mock('electron', () => electronMock);
 vi.mock('fs', () => ({ default: fsMock }));
 vi.mock('../utils/logger', () => ({ createLogSender: () => loggerMock }));
+vi.mock('../domains/asmr/credential-store.js', () => credentialStoreMock);
 
 describe('config module', () => {
   beforeEach(() => {
@@ -120,5 +129,41 @@ describe('config module', () => {
     expect(safe.tg.apiHash).toBe('[REDACTED]');
     expect(safe.tg.botToken).toBe('[REDACTED]');
     expect(config.tg.apiHash).toBe('hash');
+  });
+
+  it('never persists the automation heartbeat secret in config.json', async () => {
+    fsMock.existsSync.mockReturnValue(false);
+    const { saveConfig } = await import('./config');
+
+    const saved = await saveConfig({
+      translationAutomation: {
+        heartbeatUrl: 'https://bot.example.workers.dev',
+        heartbeatSecret: 'must-not-be-persisted',
+      },
+    });
+
+    expect(saved).toBe(true);
+    const persisted = fsMock.writeFileSync.mock.calls
+      .map(([, contents]) => String(contents))
+      .join('\n');
+    expect(persisted).not.toContain('must-not-be-persisted');
+    expect(persisted).toContain('https://bot.example.workers.dev');
+    expect(persisted).not.toContain('heartbeatSecret');
+  });
+
+  it('reports heartbeat credential persistence failures instead of claiming success', async () => {
+    fsMock.existsSync.mockReturnValue(false);
+    const { saveAutomationHeartbeatSecret } = await import('../domains/asmr/credential-store.js');
+    saveAutomationHeartbeatSecret.mockImplementation(() => {
+      throw new Error('safeStorage unavailable');
+    });
+    const { saveConfig } = await import('./config');
+
+    await expect(
+      saveConfig({
+        translationAutomation: { heartbeatSecret: 'must-be-saved' },
+      }),
+    ).resolves.toBe(false);
+    expect(fsMock.writeFileSync).not.toHaveBeenCalled();
   });
 });

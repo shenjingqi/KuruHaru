@@ -3,7 +3,7 @@ import path from "path";
 import { execFile, spawn } from "child_process";
 import { app, webContents } from "electron";
 import archiver from "archiver";
-import { getAsmrClient } from "./httpClient.js";
+import { getAsmrClient, requestAutomationHeartbeat } from "./httpClient.js";
 import { getConfig, getDataDir, saveConfig } from "./config.js";
 import { createLogSender } from "../utils/logger.js";
 import { withRetry } from "../utils/retry.js";
@@ -14,7 +14,16 @@ import { requireConnectedTelegramClient } from "../utils/telegram-login.js";
 import { normalizePeerEntityInput } from "./tg-common-core/peer-entity.js";
 import { scanAndSaveRecentActivity } from "./tg-recent-activity.js";
 import { CONFIG_DEFAULTS } from "../../shared/config-contract.mjs";
-import { getAsmrToken } from "../domains/asmr/credential-store.js";
+import {
+  getAsmrToken,
+  getAutomationHeartbeatSecret,
+} from "../domains/asmr/credential-store.js";
+import {
+  buildAutomationHeartbeatStatus,
+  createAutomationHeartbeatController,
+  createStableInstanceId,
+} from "./translation-automation-heartbeat.js";
+import { evaluateTranslationAutomationRunGate } from "./translation-automation-gate.js";
 import {
   classifyTranslationFailure,
   createTranslationWorkState,
@@ -54,6 +63,8 @@ let running = false;
 let lastRun = null;
 let currentRunPromise = null;
 let activeQueuedWorkReceiver = null;
+let runtimeQueueCount = null;
+let heartbeatController = null;
 let runtimeStatus = {
   step: "idle",
   currentCode: "",
@@ -143,7 +154,7 @@ const normalizeTagRules = (rules) => {
 
 const getRuntimeConfig = () => {
   const config = getConfig();
-  return {
+  const runtimeConfig = {
     ...DEFAULTS,
     ...(config.translationAutomation || {}),
     includeTags: Array.isArray(config.translationAutomation?.includeTags)
@@ -153,6 +164,66 @@ const getRuntimeConfig = () => {
       ? config.translationAutomation.excludeTags
       : DEFAULTS.excludeTags,
   };
+  // The heartbeat secret belongs to safeStorage and must never surface here.
+  delete runtimeConfig.heartbeatSecret;
+  return runtimeConfig;
+};
+
+const buildHeartbeatSnapshot = () => ({
+  running,
+  queueCount: runtimeQueueCount,
+  runtimeStatus,
+  lastRun,
+});
+
+const getHeartbeatController = () => {
+  if (!heartbeatController) {
+    heartbeatController = createAutomationHeartbeatController({
+      request: requestAutomationHeartbeat,
+      getConfig,
+      getSecret: getAutomationHeartbeatSecret,
+      instanceId: createStableInstanceId(app.getPath("userData")),
+      logger,
+      allowInsecure: !app.isPackaged,
+    });
+  }
+  return heartbeatController;
+};
+
+const startAutomationHeartbeat = () => {
+  if (!running) return false;
+  try {
+    return getHeartbeatController().start(buildHeartbeatSnapshot());
+  } catch (error) {
+    logger.warn(
+      "[automation] 启动云端心跳失败，本地自动翻译继续",
+      error?.message || error,
+    );
+    return false;
+  }
+};
+
+const publishAutomationHeartbeat = () => {
+  try {
+    heartbeatController?.publish(buildHeartbeatSnapshot());
+  } catch (error) {
+    logger.warn(
+      "[automation] 更新云端心跳快照失败，本地自动翻译继续",
+      error?.message || error,
+    );
+  }
+};
+
+const stopAutomationHeartbeat = async () => {
+  if (!heartbeatController) return;
+  try {
+    await heartbeatController.stop();
+  } catch (error) {
+    logger.warn(
+      "[automation] 停止云端心跳失败，等待云端 TTL 过期",
+      error?.message || error,
+    );
+  }
 };
 
 const getAria2RestartMaxAttempts = (config) => {
@@ -326,6 +397,7 @@ const setRuntimeStatus = (step, message, currentCode = "", options = {}) => {
       ? { translationProgress: options.translationProgress }
       : {}),
   };
+  publishAutomationHeartbeat();
   emit(message, { type: "status", status: runtimeStatus, running });
 };
 
@@ -349,6 +421,7 @@ const publishTranslationProgress = (
     },
     updatedAt: new Date().toISOString(),
   };
+  publishAutomationHeartbeat();
   emit("", {
     persistLog: false,
     type: "status",
@@ -366,6 +439,7 @@ const setRuntimeProgress = (step, message, currentCode, progress) => {
     progress,
     updatedAt: new Date().toISOString(),
   };
+  publishAutomationHeartbeat();
   emit(message, { type: "status", status: runtimeStatus, running });
 };
 
@@ -398,12 +472,18 @@ const getVisibleRuntimeStatus = () => {
 };
 
 export function getTranslationAutomationStatus() {
+  const config = getRuntimeConfig();
   return {
-    config: getRuntimeConfig(),
+    config,
     running,
     lastRun,
     scheduled: Boolean(timer),
     runtimeStatus: getVisibleRuntimeStatus(),
+    heartbeat: buildAutomationHeartbeatStatus({
+      config,
+      secret: getAutomationHeartbeatSecret(),
+      active: Boolean(heartbeatController?.getState().started),
+    }),
   };
 }
 
@@ -2545,18 +2625,32 @@ const recoverExistingSubtitles = async (work, config, state, persistState) => {
   return { code, success: true, recovered: true };
 };
 
+/**
+ * Pure entry gate for one automation run. Only `enter: true` may start the
+ * desktop heartbeat; disabled/peak states never have a real run to report.
+ */
 const runOnce = async ({ force = false } = {}) => {
-  if (running) return { success: false, skipped: true, reason: "running" };
   const config = getRuntimeConfig();
-  if (!config.enabled && !force) {
-    setRuntimeStatus("disabled", "自动翻译队列未启用");
-    return { success: true, skipped: true, reason: "disabled" };
-  }
-  if (!force && !isWithinQuietHours(config)) {
+  const gate = evaluateTranslationAutomationRunGate({
+    running,
+    enabled: Boolean(config.enabled),
+    force,
+    withinQuietHours: isWithinQuietHours(config),
+  });
+  if (!gate.enter) {
+    if (gate.reason === "running") {
+      return { success: false, skipped: true, reason: "running" };
+    }
+    if (gate.reason === "disabled") {
+      setRuntimeStatus("disabled", "自动翻译队列未启用");
+      return { success: true, skipped: true, reason: "disabled" };
+    }
     setRuntimeStatus("waiting-window", "当前不在低峰运行时段");
     return { success: true, skipped: true, reason: "peak-hours" };
   }
   running = true;
+  runtimeQueueCount = null;
+  startAutomationHeartbeat();
   setRuntimeStatus("scan", "正在扫描 ASMR.ONE 最近作品", "", {
     translationProgress: null,
   });
@@ -2600,6 +2694,7 @@ const runOnce = async ({ force = false } = {}) => {
       );
     }
     summary.queueAfterCleanup = queueWorks.length;
+    runtimeQueueCount = queueWorks.length;
 
     const recentWorks = await fetchRecentWorks(config);
     const existingQueueCodes = new Set(
@@ -2676,6 +2771,7 @@ const runOnce = async ({ force = false } = {}) => {
       );
     }
     summary.queueReady = queueWorks.length;
+    runtimeQueueCount = queueWorks.length;
     if (!queueWorks.length) {
       lastRun = { at: new Date().toISOString(), ...summary };
       setRuntimeStatus("idle", "本轮检查完成：待翻译队列为空，没有可处理作品");
@@ -3244,8 +3340,17 @@ const runOnce = async ({ force = false } = {}) => {
     setRuntimeStatus("error", `自动任务异常: ${error?.message || error}`);
     throw error;
   } finally {
-    activeQueuedWorkReceiver = null;
-    running = false;
+    try {
+      await stopAutomationHeartbeat();
+    } catch (error) {
+      logger.warn(
+        "[automation] 停止云端心跳失败，本地清理继续",
+        error?.message || error,
+      );
+    } finally {
+      activeQueuedWorkReceiver = null;
+      running = false;
+    }
   }
 };
 
@@ -3347,5 +3452,6 @@ export async function stopTranslationAutomation() {
     await currentRunPromise.catch(() => undefined);
     currentRunPromise = null;
   }
+  await stopAutomationHeartbeat();
   activeQueuedWorkReceiver = null;
 }
